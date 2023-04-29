@@ -89,4 +89,6 @@ curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/dockers
 
 ```
 docker rm -f $(docker ps -aq); docker rmi $(docker images -aq)
+rm -rf dclog
+ls
 ```
