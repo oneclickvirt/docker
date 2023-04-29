@@ -40,10 +40,14 @@ if  [ ! -e '/usr/bin/curl' ]; then
     _yellow "Installing curl"
     ${PACKAGE_INSTALL[int]} curl
 fi
+if ! command -v dos2unix > /dev/null 2>&1; then
+    _yellow "Installing dos2unix"
+    ${PACKAGE_INSTALL[int]} dos2unix
+fi
 if [ $? -ne 0 ]; then
     apt-get -f install > /dev/null 2>&1
     ${PACKAGE_INSTALL[int]} curl
 fi
 curl -sSL https://get.docker.com/ | sh
-
+curl -L https://raw.githubusercontent.com/spiritLHLS/pve/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ecs.sh
 
