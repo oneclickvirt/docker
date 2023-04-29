@@ -58,6 +58,8 @@ lsmod | grep -q xfs
 
 ```
 docker rm -f test
+rm -rf test
+ls
 ```
 
 进入示例
