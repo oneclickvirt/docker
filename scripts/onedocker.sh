@@ -3,6 +3,7 @@
 
 # ./onedocker.sh name cpu memory sshport startport endport <disk>
 
+cd /root >/dev/null 2>&1
 name="$1"
 cpu="$2"
 memory="$3"
