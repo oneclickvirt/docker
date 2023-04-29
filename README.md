@@ -71,6 +71,7 @@ cat 容器名字
 ## 批量开设
 
 - 批量多次运行继承配置生成
+- 生成多个时为避免SSH连接中断建议在screen中执行
 
 ```
 curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/dockers.sh -o dockers.sh && chmod +x dockers.sh && bash dockers.sh
