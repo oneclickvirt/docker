@@ -20,6 +20,8 @@ curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/pre_bui
 
 ## 单独开设
 
+下载脚本
+
 ```
 curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/onedocker.sh -o onedocker.sh && chmod +x onedocker.sh
 ```
@@ -46,6 +48,18 @@ lsmod | grep -q xfs
 
 ```
 ./onedocker.sh test 1 512 2022 2023 2033 10
+```
+
+删除示例
+
+```
+docker rm -f test
+```
+
+进入示例
+
+```
+docker exec -it test /bin/bash
 ```
 
 ### 查询信息
