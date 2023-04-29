@@ -1,7 +1,7 @@
 #!/bin/bash
 #from https://github.com/spiritLHLS/docker
 
-# ./onedocker.sh name passwd sshport startport endport <disk>
+# ./onedocker.sh name memory passwd sshport startport endport <disk>
 
 name="$1"
 memory="$2"
