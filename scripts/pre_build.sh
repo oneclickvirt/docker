@@ -48,7 +48,10 @@ if [ $? -ne 0 ]; then
     apt-get -f install > /dev/null 2>&1
     ${PACKAGE_INSTALL[int]} curl
 fi
-curl -sSL https://get.docker.com/ | sh
+if ! command -v docker > /dev/null 2>&1; then
+    _yellow "Installing docker"
+    curl -sSL https://get.docker.com/ | sh
+fi
 curl -L https://raw.githubusercontent.com/spiritLHLS/pve/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
 if lsmod | grep -q xfs; then
     _green "xfs file system is being used, you can limit disk of docker."
