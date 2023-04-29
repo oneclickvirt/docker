@@ -17,6 +17,7 @@ else
   export LANGUAGE="$utf8_locale"
   green "Locale set to $utf8_locale"
 fi
+cd /root >/dev/null 2>&1
 
 pre_check(){
     home_dir=$(eval echo "~$(whoami)")
