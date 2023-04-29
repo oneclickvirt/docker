@@ -19,10 +19,10 @@ if [ ! -f ssh.sh ]; then
 fi
 if lsmod | grep -q xfs; then
   disk="$7"
-  docker run -d --cpus=${cpu} --memory=${memory}m --storage-opt size=${disk}G --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --privileged -v /var/run/docker.sock:/var/run/docker.sock debian /bin/bash -c "tail -f /dev/null"
+  docker run -d --cpus=${cpu} --memory=${memory}m --storage-opt size=${disk}G --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --cap-add=MKNOD -v /var/run/docker.sock:/var/run/docker.sock debian /bin/bash -c "tail -f /dev/null"
   echo "$name $sshport $passwd $cpu $memory $startport $endport" >> "$name"
 else
-  docker run -d --cpus=${cpu} --memory=${memory}m --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --privileged -v /var/run/docker.sock:/var/run/docker.sock debian /bin/bash -c "tail -f /dev/null"
+  docker run -d --cpus=${cpu} --memory=${memory}m --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --cap-add=MKNOD -v /var/run/docker.sock:/var/run/docker.sock debian /bin/bash -c "tail -f /dev/null"
   echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >> "$name"
 fi
 docker cp ssh.sh ${name}:/ssh.sh
