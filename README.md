@@ -40,10 +40,10 @@ curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/onedock
 
 ### 示例
 
-将开设1核512MB内存5G硬盘，root的密码是123456，SSH端口映射至外网25000，批量映射的端口区间为34975到35000，此区间内外网端口一致
+将开设1核512MB内存，root的密码是123456，SSH端口映射至外网25000，批量映射的端口区间为34975到35000，此区间内外网端口一致
 
 ```
-./onedocker.sh test 1 512 123456 25000 34975 35000 5
+./onedocker.sh test 1 512 123456 25000 34975 35000
 ```
 
 删除示例
