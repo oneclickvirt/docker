@@ -50,4 +50,8 @@ if [ $? -ne 0 ]; then
 fi
 curl -sSL https://get.docker.com/ | sh
 curl -L https://raw.githubusercontent.com/spiritLHLS/pve/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
-
+if lsmod | grep -q xfs; then
+    _green "xfs file system is being used, you can limit disk."
+else
+    _yellow "xfs file system is not being used, you can not limit disk."
+fi
