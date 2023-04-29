@@ -82,3 +82,9 @@ cat 容器名字
 ```
 curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/dockers.sh -o dockers.sh && chmod +x dockers.sh && bash dockers.sh
 ```
+
+## 卸载所有docker容器和镜像
+
+```
+docker rm -f $(docker ps -aq); docker rmi $(docker images -aq)
+```
