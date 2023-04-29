@@ -59,9 +59,9 @@ check_log(){
         password="${last_line_array[2]}"
         public_port_start="${last_line_array[5]}"
         public_port_end="${last_line_array[6]}"
-        if lsmod | grep -q xfs; then
-          disk="${last_line_array[7]}"
-        fi
+#         if lsmod | grep -q xfs; then
+#           disk="${last_line_array[7]}"
+#         fi
         container_prefix="${container_name%%[0-9]*}"
         container_num="${container_name##*[!0-9]}"
         yellow "Current information about the last docker:"
@@ -102,20 +102,20 @@ build_new_containers(){
             yellow "输入无效，请输入一个正整数。"
         fi
     done
-    if lsmod | grep -q xfs; then
-      while true; do
-          Reading "What size hard drive is assigned to each docker? (Hard drive size per docker, enter 1 if 1G hard drive is required):"
-          reading "每个小鸡分配多大硬盘？(每个小鸡硬盘大小，若需要1G硬盘，输入1)：" disk_nums
-          if [[ "$disk_nums" =~ ^[1-9][0-9]*$ ]]; then
-              break
-          else
-              yellow "Invalid input, please enter a positive integer."
-              yellow "输入无效，请输入一个正整数。"
-          fi
-      done
-    else
-      disk_nums=""
-    fi
+#     if lsmod | grep -q xfs; then
+#       while true; do
+#           Reading "What size hard drive is assigned to each docker? (Hard drive size per docker, enter 1 if 1G hard drive is required):"
+#           reading "每个小鸡分配多大硬盘？(每个小鸡硬盘大小，若需要1G硬盘，输入1)：" disk_nums
+#           if [[ "$disk_nums" =~ ^[1-9][0-9]*$ ]]; then
+#               break
+#           else
+#               yellow "Invalid input, please enter a positive integer."
+#               yellow "输入无效，请输入一个正整数。"
+#           fi
+#       done
+#     else
+#       disk_nums=""
+#     fi
     for ((i=1; i<=$new_nums; i++)); do
         container_num=$(($container_num + 1))
         container_name="${container_prefix}${container_num}"
@@ -125,11 +125,11 @@ build_new_containers(){
         ori=$(date | md5sum)
         passwd=${ori: 2: 9}
         # ./onedocker.sh name cpu memory password sshport startport endport <disk>
-        if [ -n "$disk_nums" ]; then
-          ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $disk_nums
-        else
-          ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end
-        fi
+#         if [ -n "$disk_nums" ]; then
+#           ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $disk_nums
+#         else
+        ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end
+#         fi
         cat "$container_name" >> dclog
         rm -rf $container_name
     done
