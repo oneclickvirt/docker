@@ -1,17 +1,16 @@
 #!/bin/bash
 #from https://github.com/spiritLHLS/docker
 
-# ./onedocker.sh name cpu memory sshport startport endport <disk>
+# ./onedocker.sh name cpu memory password sshport startport endport <disk>
 
 cd /root >/dev/null 2>&1
 name="$1"
 cpu="$2"
 memory="$3"
-ori=$(date | md5sum)
-passwd=${ori: 2: 9}
-sshport="$4"
-startport="$5"
-endport="$6"
+passwd="$4"
+sshport="$5"
+startport="$6"
+endport="$7"
 if [ ! -f ssh.sh ]; then
     curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh
     chmod 777 ssh.sh
@@ -20,7 +19,7 @@ fi
 # -v /var/run/docker.sock:/var/run/docker.sock
 # --cap-add=NET_ADMIN --cap-add=SYS_ADMIN
 if lsmod | grep -q xfs; then
-  disk="$7"
+  disk="$8"
   docker run -d --cpus=${cpu} --memory=${memory}m --storage-opt size=${disk}G --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=MKNOD debian /bin/bash -c "tail -f /dev/null"
   echo "$name $sshport $passwd $cpu $memory $startport $endport" >> "$name"
 else
