@@ -2,7 +2,13 @@
 
 通过docker批量或单独开设NAT服务器(Bulk or individual NAT server provisioning via docker)
 
+默认使用debian系统，每个容器自带1个外网ssh端口，25个内外网一致端口
+
 ## 环境预设
+
+- 检测环境
+- 安装docker
+- 下载预制脚本
 
 ```
 curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/pre_build.sh -o pre_build.sh && chmod +x pre_build.sh && bash pre_build.sh
@@ -24,6 +30,8 @@ lsmod | grep -q xfs
 
 执行上述命令有输出才可限制disk，否则勿要填写disk
 
+不支持xfs的系统开设的容器将共享母鸡的硬盘
+
 ```
 ./onedocker.sh name cpu memory sshport startport endport <disk>
 ```
@@ -43,6 +51,8 @@ cat 容器名字
 ```
 
 ## 批量开设
+
+- 批量多次运行继承配置生成
 
 ```
 curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/dockers.sh -o dockers.sh && chmod +x dockers.sh && bash dockers.sh
