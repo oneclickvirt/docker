@@ -18,6 +18,16 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
 done
 
 [[ -z $SYSTEM ]] && exit 1
+${PACKAGE_UPDATE[int]}
+if ! command -v wget > /dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} wget
+fi
+if ! command -v curl > /dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} curl
+fi
+if ! command -v sudo > /dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} sudo
+fi
 sshport=22
 service iptables stop 2> /dev/null ; chkconfig iptables off 2> /dev/null ;
 sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/sysconfig/selinux;
