@@ -46,31 +46,32 @@ pre_check(){
 check_log(){
     log_file="dclog"
     if [ -f "$log_file" ]; then
-        green "Log文件存在，正在读取内容..."
+        green "dclog file exists, content being read..."
+        green "dclog文件存在，正在读取内容..."
         while read line; do
             # echo "$line"
             last_line="$line"
         done < "$log_file"
         last_line_array=($last_line)
         container_name="${last_line_array[0]}"
-        ssh_port="${last_line_array[2]}"
-        password="${last_line_array[3]}"
-        public_port_start="${last_line_array[4]}"
-        public_port_end="${last_line_array[5]}"
+        ssh_port="${last_line_array[1]}"
+        password="${last_line_array[2]}"
+        public_port_start="${last_line_array[5]}"
+        public_port_end="${last_line_array[6]}"
         if lsmod | grep -q xfs; then
-          disk="${last_line_array[6]}"
+          disk="${last_line_array[7]}"
         fi
         container_prefix="${container_name%%[0-9]*}"
         container_num="${container_name##*[!0-9]}"
-        yellow "目前最后一个小鸡的信息："
-        blue "容器前缀: $container_prefix"
-        blue "容器数量: $container_num"
-        blue "SSH端口: $ssh_port"
-#         blue "密码: $password"
-        blue "外网端口起: $public_port_start"
-        blue "外网端口止: $public_port_end"
+        yellow "Current information about the last docker:"
+        blue "Container prefix: $container_prefix"
+        blue "Number of containers: $container_num"
+        blue "SSH port: $ssh_port"
+        blue "Extranet port start: $public_port_start"
+        blue "Extranet port end: $public_port_end"
     else
-        red "log文件不存在。"
+        red "dclog file does not exist"
+        red "dclog文件不存在"
         container_prefix="dc"
         container_num=0
         ssh_port=25000
@@ -81,27 +82,33 @@ check_log(){
 
 build_new_containers(){
     while true; do
+        green "How many more dockers do I need to generate? (Enter how many dockers to add):"
         reading "还需要生成几个小鸡？(输入新增几个小鸡)：" new_nums
         if [[ "$new_nums" =~ ^[1-9][0-9]*$ ]]; then
             break
         else
+            yellow "Invalid input, please enter a positive integer."
             yellow "输入无效，请输入一个正整数。"
         fi
     done
     while true; do
+        green "How much memory is allocated per docker? (Memory size per docker, if 256MB of memory is required, enter 256):"
         reading "每个小鸡分配多少内存？(每个小鸡内存大小，若需要256MB内存，输入256)：" memory_nums
         if [[ "$memory_nums" =~ ^[1-9][0-9]*$ ]]; then
             break
         else
+            yellow "Invalid input, please enter a positive integer."
             yellow "输入无效，请输入一个正整数。"
         fi
     done
     if lsmod | grep -q xfs; then
       while true; do
+          Reading "What size hard drive is assigned to each docker? (Hard drive size per docker, enter 1 if 1G hard drive is required):"
           reading "每个小鸡分配多大硬盘？(每个小鸡硬盘大小，若需要1G硬盘，输入1)：" disk_nums
           if [[ "$disk_nums" =~ ^[1-9][0-9]*$ ]]; then
               break
           else
+              yellow "Invalid input, please enter a positive integer."
               yellow "输入无效，请输入一个正整数。"
           fi
       done
@@ -114,10 +121,11 @@ build_new_containers(){
         ssh_port=$(($ssh_port + 1))
         public_port_start=$(($public_port_end + 1))
         public_port_end=$(($public_port_start + 25))
+        # ./onedocker.sh name cpu memory sshport startport endport <disk>
         if [ -n "$disk_nums" ]; then
-          ./onedocker.sh $container_name $memory_nums $ssh_port $startport $endport $disk_nums
+          ./onedocker.sh $container_name 1 $memory_nums $ssh_port $startport $endport $disk_nums
         else
-          ./onedocker.sh $container_name $memory_nums $ssh_port $startport $endport
+          ./onedocker.sh $container_name 1 $memory_nums $ssh_port $startport $endport
         fi
         cat "$container_name" >> dclog
         rm -rf $container_name
@@ -127,5 +135,6 @@ build_new_containers(){
 pre_check
 check_log
 build_new_containers
+green "Generating new dockers is complete"
 green "生成新的小鸡完毕"
 check_log
