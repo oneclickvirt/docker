@@ -122,11 +122,13 @@ build_new_containers(){
         ssh_port=$(($ssh_port + 1))
         public_port_start=$(($public_port_end + 1))
         public_port_end=$(($public_port_start + 25))
-        # ./onedocker.sh name cpu memory sshport startport endport <disk>
+        ori=$(date | md5sum)
+        passwd=${ori: 2: 9}
+        # ./onedocker.sh name cpu memory password sshport startport endport <disk>
         if [ -n "$disk_nums" ]; then
-          ./onedocker.sh $container_name 1 $memory_nums $ssh_port $public_port_start $public_port_end $disk_nums
+          ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $disk_nums
         else
-          ./onedocker.sh $container_name 1 $memory_nums $ssh_port $public_port_start $public_port_end
+          ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end
         fi
         cat "$container_name" >> dclog
         rm -rf $container_name
