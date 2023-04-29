@@ -43,15 +43,15 @@ lsmod | grep -q xfs
 不支持xfs的系统开设的容器将共享母鸡的硬盘
 
 ```
-./onedocker.sh name cpu memory sshport startport endport <disk>
+./onedocker.sh name cpu memory password sshport startport endport <disk>
 ```
 
 ### 示例
 
-将开设1核512MB内存10G硬盘，SSH端口映射至外网2022，批量映射的端口区间为2023到2033，此区间内外网端口一致
+将开设1核512MB内存10G硬盘，root的密码是123456，SSH端口映射至外网2022，批量映射的端口区间为2023到2033，此区间内外网端口一致
 
 ```
-./onedocker.sh test 1 512 2022 2023 2033 10
+./onedocker.sh test 1 512 123456 2022 2023 2033 10
 ```
 
 删除示例
