@@ -53,6 +53,7 @@ if ! command -v docker > /dev/null 2>&1; then
     curl -sSL https://get.docker.com/ | sh
 fi
 curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
+curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh && chmod +x alpinessh.sh && dos2unix alpinessh.sh
 # if lsmod | grep -q xfs; then
 #     _green "xfs file system is being used, you can limit disk of docker."
 #     _green "xfs文件系统正在使用，可以限制docker的磁盘大小"
