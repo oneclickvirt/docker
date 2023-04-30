@@ -102,6 +102,17 @@ build_new_containers(){
             yellow "输入无效，请输入一个正整数。"
         fi
     done
+    while true; do
+        green "Which system do you want to use? Please enter 'debian' or 'alpine':"
+        reading "您想使用哪个系统？请输入 'debian' 或 'alpine'：" system_input
+        if [[ -z "$system_input" || "$system_input" == "debian" || "$system_input" == "alpine" ]]; then
+            system=${system_input:-"alpine"}
+            break
+        else
+            yellow "Invalid input, please enter 'debian' or 'alpine'."
+            yellow "输入无效，请输入 'debian' 或 'alpine'。"
+        fi
+    done
 #     if lsmod | grep -q xfs; then
 #       while true; do
 #           Reading "What size hard drive is assigned to each docker? (Hard drive size per docker, enter 1 if 1G hard drive is required):"
@@ -128,7 +139,7 @@ build_new_containers(){
 #         if [ -n "$disk_nums" ]; then
 #           ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $disk_nums
 #         else
-        ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end
+        ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $system
 #         fi
         cat "$container_name" >> dclog
         rm -rf $container_name
