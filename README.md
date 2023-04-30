@@ -35,15 +35,17 @@ curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/onedock
 运行
 
 ```
-./onedocker.sh name cpu memory password sshport startport endport
+./onedocker.sh name cpu memory password sshport startport endport system
 ```
+
+目前system仅支持选择alpine或debian，默认是debian
 
 ### 示例
 
-将开设1核512MB内存，root的密码是123456，SSH端口映射至外网25000，批量映射的端口区间为34975到35000，此区间内外网端口一致
+将开设1核512MB内存，root的密码是123456，SSH端口映射至外网25000，批量映射的端口区间为34975到35000，此区间内外网端口一致，系统为debian
 
 ```
-./onedocker.sh test 1 512 123456 25000 34975 35000
+./onedocker.sh test 1 512 123456 25000 34975 35000 debian
 ```
 
 删除示例
