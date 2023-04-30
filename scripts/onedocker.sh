@@ -1,7 +1,7 @@
 #!/bin/bash
 #from https://github.com/spiritLHLS/docker
 
-# ./onedocker.sh name cpu memory password sshport startport endport <disk>
+# ./onedocker.sh name cpu memory password sshport startport endport <system> <disk>
 
 cd /root >/dev/null 2>&1
 name="${1:-test}"
@@ -23,9 +23,15 @@ fi
 #   docker run -d --cpus=${cpu} --memory=${memory}m --storage-opt size=${disk}G --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=MKNOD debian /bin/bash -c "tail -f /dev/null"
 #   echo "$name $sshport $passwd $cpu $memory $startport $endport" >> "$name"
 # else
-docker run -d --cpus=${cpu} --memory=${memory}m --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=MKNOD debian /bin/bash -c "tail -f /dev/null"
-echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >> "$name"
 # fi
+if [ -n "$8" ] && [ "$8" = "alpine" ]
+then
+    docker run -d --cpus=${cpu} --memory=${memory}m --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=MKNOD alpine /bin/sh -c "tail -f /dev/null"
+    echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >> "$name"
+else
+    docker run -d --cpus=${cpu} --memory=${memory}m --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=MKNOD debian /bin/bash -c "tail -f /dev/null"
+    echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >> "$name"
+fi
 docker cp ssh.sh ${name}:/ssh.sh
 docker exec -it ${name} bash -c "bash /ssh.sh ${passwd}"
 cat "$name"
