@@ -11,11 +11,6 @@ passwd="${4:-123456}"
 sshport="${5:-25000}"
 startport="${6:-34975}"
 endport="${7:-35000}"
-if [ ! -f ssh.sh ]; then
-    curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh
-    chmod 777 ssh.sh
-    dos2unix ssh.sh
-fi
 # -v /var/run/docker.sock:/var/run/docker.sock
 # --cap-add=NET_ADMIN --cap-add=SYS_ADMIN
 # if lsmod | grep -q xfs; then
@@ -26,11 +21,21 @@ fi
 # fi
 if [ -n "$8" ] && [ "$8" = "alpine" ]
 then
+    if [ ! -f ssh.sh ]; then
+        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh
+        chmod 777 alpinessh.sh
+        dos2unix alpinessh.sh
+    fi
     docker run -d --cpus=${cpu} --memory=${memory}m --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=MKNOD alpine /bin/sh -c "tail -f /dev/null"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >> "$name"
-    docker cp ssh.sh ${name}:/ssh.sh
-    docker exec -it ${name} sh -c "sh /ssh.sh ${passwd}"
+    docker cp alpinessh.sh ${name}:/alpinessh.sh
+    docker exec -it ${name} sh -c "sh /alpinessh.sh ${passwd}"
 else
+    if [ ! -f ssh.sh ]; then
+        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh
+        chmod 777 ssh.sh
+        dos2unix ssh.sh
+    fi
     docker run -d --cpus=${cpu} --memory=${memory}m --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=MKNOD debian /bin/bash -c "tail -f /dev/null"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >> "$name"
     docker cp ssh.sh ${name}:/ssh.sh
