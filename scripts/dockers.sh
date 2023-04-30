@@ -37,6 +37,11 @@ pre_check(){
         chmod 777 ssh.sh
         dos2unix ssh.sh
     fi
+    if [ ! -f alpinessh.sh ]; then
+        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh
+        chmod 777 alpinessh.sh
+        dos2unix alpinessh.sh
+    fi
     if [ ! -f buildone.sh ]; then
         curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/onedocker.sh -o onedocker.sh
         chmod 777 onedocker.sh
@@ -106,7 +111,7 @@ build_new_containers(){
         green "Which system do you want to use? Please enter 'debian' or 'alpine':"
         reading "您想使用哪个系统？请输入 'debian' 或 'alpine'：" system_input
         if [[ -z "$system_input" || "$system_input" == "debian" || "$system_input" == "alpine" ]]; then
-            system=${system_input:-"alpine"}
+            system=${system_input:-"debian"}
             break
         else
             yellow "Invalid input, please enter 'debian' or 'alpine'."
