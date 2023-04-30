@@ -14,6 +14,8 @@
 
 系统可安装docker即可用，网络能连接Github的raw界面就能用，硬件配置只要不拉跨就行，空闲硬盘有3G就行
 
+推荐在开设NAT服务器前先增加部分SWAP虚拟内存，避免突发的内存占用导致母鸡卡死 [跳转](https://github.com/spiritLHLS/addswap)
+
 ## 环境预设
 
 - 检测环境
