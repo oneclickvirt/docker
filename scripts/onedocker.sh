@@ -28,10 +28,12 @@ if [ -n "$8" ] && [ "$8" = "alpine" ]
 then
     docker run -d --cpus=${cpu} --memory=${memory}m --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=MKNOD alpine /bin/sh -c "tail -f /dev/null"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >> "$name"
+    docker cp ssh.sh ${name}:/ssh.sh
+    docker exec -it ${name} sh -c "sh /ssh.sh ${passwd}"
 else
     docker run -d --cpus=${cpu} --memory=${memory}m --name ${name} -p ${sshport}:22 -p ${startport}-${endport}:${startport}-${endport} --cap-add=MKNOD debian /bin/bash -c "tail -f /dev/null"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >> "$name"
+    docker cp ssh.sh ${name}:/ssh.sh
+    docker exec -it ${name} bash -c "bash /ssh.sh ${passwd}"
 fi
-docker cp ssh.sh ${name}:/ssh.sh
-docker exec -it ${name} bash -c "bash /ssh.sh ${passwd}"
 cat "$name"
