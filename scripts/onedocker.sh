@@ -21,7 +21,7 @@ endport="${7:-35000}"
 # fi
 if [ -n "$8" ] && [ "$8" = "alpine" ]
 then
-    if [ ! -f ssh.sh ]; then
+    if [ ! -f alpinessh.sh ]; then
         curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh
         chmod 777 alpinessh.sh
         dos2unix alpinessh.sh
