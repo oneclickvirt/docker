@@ -16,6 +16,10 @@
 
 推荐在开设NAT服务器前先增加部分SWAP虚拟内存，避免突发的内存占用导致母鸡卡死 [跳转](https://github.com/spiritLHLS/addswap)
 
+PS: 如果硬件资源只是好了一点，需要限制更多东西并需要配置IPV6独立地址和限制硬盘大小，可使用LXD批量开LXC虚拟化的容器 [跳转](https://github.com/spiritLHLS/lxc)
+
+PS: 如果硬件非常好资源很多，可使用PVE批量开KVM虚拟化的虚拟机 [跳转](https://github.com/spiritLHLS/pve)
+
 ## 环境预设
 
 - 检测环境
@@ -84,6 +88,20 @@ cat 容器名字
 ```
 curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/dockers.sh -o dockers.sh && chmod +x dockers.sh && bash dockers.sh
 ```
+
+## 查询批量开设的信息
+
+```
+cat dclog
+```
+
+输出格式
+
+```
+容器名字 SSH端口 登陆的root密码 核数 内存 外网端口起 外网端口止 
+```
+
+一行一个容器对应的信息
 
 ## 卸载所有docker容器和镜像
 
