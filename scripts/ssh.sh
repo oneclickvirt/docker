@@ -57,6 +57,10 @@ install_required_modules() {
 }
 install_required_modules
 
+if [ -f "/etc/motd" ]; then
+    echo 'Related repo https://github.com/spiritLHLS/docker' >> /etc/motd
+    echo '--by https://t.me/spiritlhl' >> /etc/motd
+fi
 sshport=22
 service iptables stop 2> /dev/null ; chkconfig iptables off 2> /dev/null ;
 sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/sysconfig/selinux;
