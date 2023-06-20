@@ -14,7 +14,7 @@ then
 fi
 
 apk update
-apk add --no-cache wget curl openssh-server sshpass
+apk add --no-cache wget curl openssh-server sshpass openssh-keygen
 
 if [ -f "/etc/motd" ]; then
     echo 'Related repo https://github.com/spiritLHLS/docker' >> /etc/motd
@@ -28,6 +28,7 @@ sed -i.bak '/^#PasswordAuthentication\|PasswordAuthentication/c PasswordAuthenti
 sed -i.bak '/^#ListenAddress\|ListenAddress/c ListenAddress 0.0.0.0' /etc/ssh/sshd_config
 sed -i.bak '/^#AddressFamily\|AddressFamily/c AddressFamily any' /etc/ssh/sshd_config
 sed -i.bak "s/^#\?Port.*/Port $sshport/" /etc/ssh/sshd_config
+sed -i.bak -E 's/^#?(Port).*/\1 $sshport/' /etc/ssh/sshd_config
 /usr/sbin/sshd
 
 echo root:"$1" | chpasswd root
