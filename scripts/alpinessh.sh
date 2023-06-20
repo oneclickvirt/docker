@@ -16,13 +16,17 @@ fi
 apk update
 apk add --no-cache wget curl openssh-server sshpass
 
+if [ -f "/etc/motd" ]; then
+    echo 'Related repo https://github.com/spiritLHLS/docker' >> /etc/motd
+    echo '--by https://t.me/spiritlhl' >> /etc/motd
+fi
 cd /etc/ssh
 ssh-keygen -A
 sshport=22
-sed -i.bak '/^#PermitRootLogin/c PermitRootLogin yes' /etc/ssh/sshd_config
-sed -i.bak '/^#PasswordAuthentication/c PasswordAuthentication yes' /etc/ssh/sshd_config
-sed -i.bak '/^#ListenAddress/c ListenAddress 0.0.0.0' /etc/ssh/sshd_config
-sed -i.bak '/^#AddressFamily/c AddressFamily any' /etc/ssh/sshd_config
+sed -i.bak '/^#PermitRootLogin\|PermitRootLogin/c PermitRootLogin yes' /etc/ssh/sshd_config
+sed -i.bak '/^#PasswordAuthentication\|PasswordAuthentication/c PasswordAuthentication yes' /etc/ssh/sshd_config
+sed -i.bak '/^#ListenAddress\|ListenAddress/c ListenAddress 0.0.0.0' /etc/ssh/sshd_config
+sed -i.bak '/^#AddressFamily\|AddressFamily/c AddressFamily any' /etc/ssh/sshd_config
 sed -i.bak "s/^#\?Port.*/Port $sshport/" /etc/ssh/sshd_config
 /usr/sbin/sshd
 
