@@ -36,6 +36,13 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
     fi
 done
 
+statistics_of_run-times() {
+COUNT=$(
+  curl -4 -ksm1 "https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FspiritLHLS%2Fecs&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=&edge_flat=true" 2>&1 ||
+  curl -6 -ksm1 "https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FspiritLHLS%2Fecs&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=&edge_flat=true" 2>&1) &&
+  TODAY=$(expr "$COUNT" : '.*\s\([0-9]\{1,\}\)\s/.*') && TOTAL=$(expr "$COUNT" : '.*/\s\([0-9]\{1,\}\)\s.*')
+}
+
 if  [ ! -e '/usr/bin/curl' ]; then
     _yellow "Installing curl"
     ${PACKAGE_INSTALL[int]} curl
@@ -54,6 +61,8 @@ if ! command -v docker > /dev/null 2>&1; then
 fi
 curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
 curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh && chmod +x alpinessh.sh && dos2unix alpinessh.sh
+statistics_of_run-times
+_green "脚本当天运行次数:${TODAY}，累计运行次数:${TOTAL}"
 # if lsmod | grep -q xfs; then
 #     _green "xfs file system is being used, you can limit disk of docker."
 #     _green "xfs文件系统正在使用，可以限制docker的磁盘大小"
