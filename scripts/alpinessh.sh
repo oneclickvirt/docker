@@ -14,7 +14,12 @@ then
 fi
 
 apk update
-apk add --no-cache wget curl openssh-server sshpass openssh-keygen
+apk add --no-cache openssh-server 
+apk add --no-cache sshpass 
+apk add --no-cache openssh-keygen 
+apk add --no-cache bash 
+apk add --no-cache curl
+apk add --no-cache wget
 
 if [ -f "/etc/motd" ]; then
     echo 'Related repo https://github.com/spiritLHLS/docker' >> /etc/motd
