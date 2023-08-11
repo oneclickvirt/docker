@@ -49,6 +49,7 @@ while true; do
     reading "输入你想要安装的对应序号(留空则默认使用最低版本的镜像)" selected_index
     if [ -z "$selected_index" ]; then
         selected_tag="8.1.0-latest"
+        break
     else
         if [[ $selected_index -ge 0 && $selected_index -lt ${#tags[@]} ]]; then
             selected_tag="${tags[selected_index]}"
