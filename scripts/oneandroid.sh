@@ -137,6 +137,8 @@ if ! dpkg -S linux-modules-extra-${current_kernel_version} > /dev/null 2>&1; the
 fi
 modprobe binder_linux devices="binder,hwbinder,vndbinder"
 modprobe ashmem_linux
+rm -rf /root/android/data
+rm -rf /root/scrcpy_web/data
 if [ ! -d "/root/android/data" ]; then
     mkdir -p "/root/android/data"
 fi
@@ -178,7 +180,8 @@ sleep 5
 docker exec -it scrcpy_web adb connect web_${name}:5555
 sleep 5
 build_reverse_proxy
-echo "$name $selected_tag $user_name $user_password http://${IPV4}:80" >> "$name"
+rm -rf /root/android_info
+echo "$name $selected_tag $user_name $user_password http://${IPV4}:80" >> /root/android_info
 _yellow "Current information:"
 _yellow "目前的信息："
 _blue "名字-name: $name"
