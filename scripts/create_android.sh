@@ -60,11 +60,12 @@ while true; do
         fi
     fi
 done
-_green "Please enter the name of the Android container: (the default name is android)"
-reading "请输入安卓容器的名字：(留空则默认名字是android)" name
-if [ -z "$name" ]; then
-    name="android"
-fi
+# _green "Please enter the name of the Android container: (the default name is android)"
+# reading "请输入安卓容器的名字：(留空则默认名字是android)" name
+# if [ -z "$name" ]; then
+#     name="android"
+# fi
+name="android"
 _green "Please enter the name of the web authentication: (leave it blank for the default name to be onea):"
 reading "请输入web验证的名字：(留空则默认名字是onea)：" user_name
 if [ -z "$user_name" ]; then

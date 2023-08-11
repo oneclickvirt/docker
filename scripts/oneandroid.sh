@@ -63,6 +63,24 @@ check_nginx(){
 
 build_reverse_proxy{
 green "\n Build reverse proxy. \n "
+green "Do you want to bind a URL? (yes/no): "
+reading "你需要绑定网址吗？(yes/no)" choice
+choice_lower=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
+if [ "$choice_lower" == "yes" ]; then
+    while true; do
+        _green "Enter the domain name to bind to (format: www.example.com): "
+        reading "输入你绑定本机IPV4地址的网址(如 www.example.com)：" domain_name
+        resolved_ip=$(dig +short $domain_name)
+        if [ "$resolved_ip" != "$IPV4" ]; then
+            red "Error: $domain_name is not bound to the local IP address."
+            exit 1
+        else
+            break
+        fi
+    done
+else
+    domain_name="www.example.com"
+fi
 echo -n ${user_name} > /etc/nginx/passwd_scrcpy_web
 openssl passwd ${user_password} >> /etc/nginx/passwd_scrcpy_web
 sudo tee /etc/nginx/sites-available/reverse-proxy <<EOF
@@ -75,8 +93,7 @@ upstream websocket {
 }
 server {
     listen 80;
-    server_name test.com;
-    #root /usr/share/nginx/html;
+    server_name $domain_name;
     auth_basic "Please input password:";
     auth_basic_user_file /etc/nginx/passwd_scrcpy_web;
     location / {
@@ -120,11 +137,11 @@ if ! dpkg -S linux-modules-extra-${current_kernel_version} > /dev/null 2>&1; the
 fi
 modprobe binder_linux devices="binder,hwbinder,vndbinder"
 modprobe ashmem_linux
-if [ ! -d "/root/android/${selected_tag}/data" ]; then
-    mkdir -p "/root/android/${selected_tag}/data"
+if [ ! -d "/root/android/data" ]; then
+    mkdir -p "/root/android/data"
 fi
-if [ ! -d "/root/scrcpy_web/${name}/data" ]; then
-    mkdir -p "/root/scrcpy_web/${name}/data"
+if [ ! -d "/root/scrcpy_web/data" ]; then
+    mkdir -p "/root/scrcpy_web/data"
 fi
 name="${1:-android}"
 selected_tag="${2:-'8.1.0-latest'}"
@@ -134,7 +151,7 @@ user_password="${4:-oneclick}"
 docker run -itd \
     --memory-swappiness=0 \
     --privileged --pull always \
-    -v /root/android/${selected_tag}/data:/data \
+    -v /root/android/data:/data \
     redroid/redroid:${selected_tag} \
     androidboot.hardware=mt6891 \
     ro.secure=0 \
@@ -151,12 +168,12 @@ docker run -itd \
     --name ${name}
 docker run -itd \
   --privileged \
-  -v /root/scrcpy_web/${name}/data:/data \
-  --name scrcpy_web_${name} \
+  -v /root/scrcpy_web/data:/data \
+  --name scrcpy_web \
   -p 127.0.0.1:4888:8000/tcp \
   --link ${name}:web_${name} \
   emptysuns/scrcpy-web:v0.1
-docker exec -it scrcpy_web_${name} adb connect web_${name}:5555
+docker exec -it scrcpy_web adb connect web_${name}:5555
 build_reverse_proxy
 echo "$name $selected_tag $user_name $user_password http://${IPV4}:80" >> "$name"
 _yellow "Current information:"
