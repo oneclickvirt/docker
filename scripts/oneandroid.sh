@@ -61,7 +61,7 @@ check_nginx(){
     fi
 }
 
-build_reverse_proxy{
+build_reverse_proxy(){
 _green "\n Build reverse proxy. \n "
 _green "Do you want to bind a URL? (yes/no): "
 reading "你需要绑定网址吗？(yes/no)" choice
