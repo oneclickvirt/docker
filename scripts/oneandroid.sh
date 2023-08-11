@@ -56,14 +56,14 @@ check_ipv4(){
 
 check_nginx(){
     if ! [ -x "$(command -v nginx)" ]; then
-        green "\n Install nginx.\n "
+        _green "\n Install nginx.\n "
         ${PACKAGE_INSTALL[int]} nginx
     fi
 }
 
 build_reverse_proxy{
-green "\n Build reverse proxy. \n "
-green "Do you want to bind a URL? (yes/no): "
+_green "\n Build reverse proxy. \n "
+_green "Do you want to bind a URL? (yes/no): "
 reading "你需要绑定网址吗？(yes/no)" choice
 choice_lower=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
 if [ "$choice_lower" == "yes" ]; then

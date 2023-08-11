@@ -45,7 +45,7 @@ for index in "${!tags[@]}"; do
     echo "$index: ${tags[index]}"
 done
 while true; do
-    green "Enter the index of the tag you want to print: "
+    _green "Enter the index of the tag you want to print: "
     reading "输入你想要安装的对应序号(留空则默认使用最低版本的镜像)" selected_index
     if [ -z "$selected_index" ]; then
         selected_tag="8.1.0-latest"
