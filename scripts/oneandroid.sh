@@ -79,7 +79,7 @@ if [ "$choice_lower" == "yes" ]; then
         fi
     done
 else
-    domain_name="_"
+    domain_name="example.com"
 fi
 hashed_password=$(openssl passwd -crypt $user_password)
 echo -e "$user_name:$hashed_password" >> /etc/nginx/passwd_scrcpy_web
