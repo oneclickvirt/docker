@@ -71,7 +71,7 @@ map $http_upgrade $connection_upgrade {
     '' close;
 }
 upstream websocket {
-    server 127.0.0.1:${adb_port};
+    server 127.0.0.1:4888;
 }
 server {
     listen 80;
@@ -128,15 +128,13 @@ if [ ! -d "/root/scrcpy_web/${name}/data" ]; then
 fi
 name="${1:-android}"
 selected_tag="${2:-'8.1.0-latest'}"
-adb_port="${3:-10001}"
-user_name="${4:-onea}"
-user_password="${5:-oneclick}"
+user_name="${3:-onea}"
+user_password="${4:-oneclick}"
 # https://hub.docker.com/r/redroid/redroid/tags
 docker run -itd \
     --memory-swappiness=0 \
     --privileged --pull always \
     -v /root/android/${selected_tag}/data:/data \
-    # -p ${adb_port}:5555 \
     redroid/redroid:${selected_tag} \
     androidboot.hardware=mt6891 \
     ro.secure=0 \
@@ -155,10 +153,10 @@ docker run -itd \
   --privileged \
   -v /root/scrcpy_web/${name}/data:/data \
   --name scrcpy_web_${name} \
-  -p 127.0.0.1:${adb_port}:8000/tcp \
+  -p 127.0.0.1:4888:8000/tcp \
   --link ${name}:web_${name} \
   emptysuns/scrcpy-web:v0.1
 docker exec -it scrcpy_web_${name} adb connect web_${name}:5555
 build_reverse_proxy
-echo "$name $selected_tag $adbport ${user_name} ${user_password}" >> "$name"
+echo "$name $selected_tag ${user_name} ${user_password}" >> "$name"
 cat "$name"

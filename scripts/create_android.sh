@@ -60,19 +60,6 @@ while true; do
         fi
     fi
 done
-while true; do
-    _green "Please enter the port for external network mapping："
-    reading "请输入外网映射的端口：(留空则为10001)" adb_port
-    if [ -z "$adb_port" ]; then
-        adb_port="10001"
-    fi
-    if [[ "$adb_port" =~ ^[1-9][0-9]*$ ]]; then
-        break
-    else
-        _yellow "Invalid input, please enter a positive integer."
-        _yellow "输入无效，请输入一个正整数。"
-    fi
-done
 _green "Please enter the name of the Android container: (the default name is android)"
 reading "请输入安卓容器的名字：(留空则默认名字是android)" name
 if [ -z "$name" ]; then
@@ -93,4 +80,4 @@ if [ ! -f /root/oneandroid.sh ]; then
     chmod 777 /root/oneandroid.sh
 fi
 rm -rf ${name}
-bash oneandroid.sh ${name} ${selected_tag} ${adb_port} ${user_name} ${user_password}
+bash oneandroid.sh ${name} ${selected_tag} ${user_name} ${user_password}
