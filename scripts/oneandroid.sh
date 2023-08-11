@@ -79,7 +79,7 @@ if [ "$choice_lower" == "yes" ]; then
         fi
     done
 else
-    domain_name="example.com"
+    domain_name="$IPV4"
 fi
 hashed_password=$(openssl passwd -crypt $user_password)
 echo -e "$user_name:$hashed_password" > /etc/nginx/passwd_scrcpy_web
@@ -103,7 +103,7 @@ server {
         if (\$request_method = 'OPTIONS') {
             return 204;
         }
-        proxy_pass http://websocket;
+        proxy_pass http://localhost:4888;
         proxy_set_header Host \$host; 
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
