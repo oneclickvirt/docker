@@ -65,6 +65,10 @@ if ! command -v jq > /dev/null 2>&1; then
     _yellow "Installing jq"
     ${PACKAGE_INSTALL[int]} jq
 fi
+if ! command -v sudo > /dev/null 2>&1; then
+    _yellow "Installing sudo"
+    ${PACKAGE_INSTALL[int]} sudo
+fi
 ${PACKAGE_INSTALL[int]} openssl
 curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
 curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh && chmod +x alpinessh.sh && dos2unix alpinessh.sh

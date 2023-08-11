@@ -62,15 +62,9 @@ check_nginx(){
 }
 
 build_reverse_proxy{
+green "\n Build reverse proxy. \n "
 echo -n ${user_name} > /etc/nginx/passwd_scrcpy_web
 openssl passwd ${user_password} >> /etc/nginx/passwd_scrcpy_web
-green "\n Build reverse proxy. \n "
-reading "Enter the domain name to bind to (format: www.example.com): " domain_name
-resolved_ip=$(dig +short $domain_name)
-if [ "$resolved_ip" != "$IPV4" ]; then
-    red "Error: $domain_name is not bound to the local IP address."
-    exit 1
-fi
 sudo tee /etc/nginx/sites-available/reverse-proxy <<EOF
 map $http_upgrade $connection_upgrade {
     default upgrade;
@@ -110,8 +104,6 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 sudo systemctl restart nginx
-green "Because nginx set the reverse proxy to bind the $domain_name, remember to set your domain name in the panel backend to enable it."
-green "Fill in the options for Domains at http://$domain_name"
 }
 
 check_ipv4
