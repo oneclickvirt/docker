@@ -82,7 +82,7 @@ else
     domain_name="example.com"
 fi
 hashed_password=$(openssl passwd -crypt $user_password)
-echo -e "$user_name:$hashed_password" >> /etc/nginx/passwd_scrcpy_web
+echo -e "$user_name:$hashed_password" > /etc/nginx/passwd_scrcpy_web
 sudo tee /etc/nginx/sites-available/reverse-proxy <<EOF
 map \$http_upgrade \$connection_upgrade {
     default upgrade;
