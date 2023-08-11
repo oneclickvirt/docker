@@ -81,5 +81,5 @@ if [ ! -f /root/oneandroid.sh ]; then
     curl https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/oneandroid.sh -o /root/oneandroid.sh
     chmod 777 /root/oneandroid.sh
 fi
-rm -rf ${name}
+rm -rf /root/android_info
 bash oneandroid.sh ${name} ${selected_tag} ${user_name} ${user_password}
