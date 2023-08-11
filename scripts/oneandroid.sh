@@ -48,15 +48,17 @@ if ! dpkg -S linux-modules-extra-${current_kernel_version} > /dev/null 2>&1; the
 fi
 modprobe binder_linux devices="binder,hwbinder,vndbinder"
 modprobe ashmem_linux
-
+if [ ! -d "/root/android/${selected_tag}/data" ]; then
+    mkdir -p "/root/android/${selected_tag}/data"
+fi
 # https://hub.docker.com/r/redroid/redroid/tags
-# docker run -itd \
-#     --memory-swappiness=0 \
-#     --privileged --pull always \
-#     -v /root/test/data:/data \
-#     -p 55555:5555 \
-#     redroid/redroid:13.0.0-latest \
-#     androidboot.hardware=mt6891 ro.secure=0 ro.boot.hwc=GLOBAL    ro.ril.oem.imei=861503068361145 ro.ril.oem.imei1=861503068361145 ro.ril.oem.imei2=861503068361148 ro.ril.miui.imei0=861503068361148 ro.product.manufacturer=Xiaomi ro.build.product=chopin \
-#     redroid.width=720 redroid.height=1280 \
-#     redroid.gpu.mode=guest \
-#     --rm
+docker run -itd \
+    --memory-swappiness=0 \
+    --privileged --pull always \
+    -v "/root/android/${selected_tag}/data":/data \
+    -p 55555:5555 \
+    redroid/redroid:${selected_tag} \
+    androidboot.hardware=mt6891 ro.secure=0 ro.boot.hwc=GLOBAL    ro.ril.oem.imei=861503068361145 ro.ril.oem.imei1=861503068361145 ro.ril.oem.imei2=861503068361148 ro.ril.miui.imei0=861503068361148 ro.product.manufacturer=Xiaomi ro.build.product=chopin \
+    redroid.width=720 redroid.height=1280 \
+    redroid.gpu.mode=guest \
+    --name "android_${selected_tag}"
