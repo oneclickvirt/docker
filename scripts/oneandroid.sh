@@ -84,7 +84,7 @@ fi
 echo -n ${user_name} > /etc/nginx/passwd_scrcpy_web
 openssl passwd ${user_password} >> /etc/nginx/passwd_scrcpy_web
 sudo tee /etc/nginx/sites-available/reverse-proxy <<EOF
-map $http_upgrade $connection_upgrade {
+map \$http_upgrade \$connection_upgrade {
     default upgrade;
     '' close;
 }
@@ -100,16 +100,16 @@ server {
         add_header Access-Control-Allow-Origin *;
         add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
         add_header Access-Control-Allow-Headers 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization';
-        if ($request_method = 'OPTIONS') {
+        if (\$request_method = 'OPTIONS') {
             return 204;
         }
         proxy_pass http://websocket;
-        proxy_set_header Host $host; 
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Host \$host; 
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
     }
 }
 EOF
