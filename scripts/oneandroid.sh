@@ -62,7 +62,7 @@ check_nginx(){
 }
 
 build_reverse_proxy(){
-_green "\n Build reverse proxy. \n "
+_green "Build reverse proxy."
 _green "Do you want to bind a URL? (yes/no): "
 reading "你需要绑定网址吗？(yes/no)" choice
 choice_lower=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
