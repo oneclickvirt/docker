@@ -79,10 +79,10 @@ if [ "$choice_lower" == "yes" ]; then
         fi
     done
 else
-    domain_name="www.example.com"
+    domain_name="_"
 fi
-echo -n ${user_name} > /etc/nginx/passwd_scrcpy_web
-openssl passwd ${user_password} >> /etc/nginx/passwd_scrcpy_web
+hashed_password=$(openssl passwd -crypt $user_password)
+echo -e "$user_name:$hashed_password" >> /etc/nginx/passwd_scrcpy_web
 sudo tee /etc/nginx/sites-available/reverse-proxy <<EOF
 map \$http_upgrade \$connection_upgrade {
     default upgrade;
