@@ -1,5 +1,7 @@
 #!/bin/bash
-#from https://github.com/spiritLHLS/docker
+# from 
+# https://github.com/spiritLHLS/docker
+# 2023.08.11
 
 # ./onedocker.sh name cpu memory password sshport startport endport <system> <disk>
 

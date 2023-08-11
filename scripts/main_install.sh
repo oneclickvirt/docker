@@ -1,5 +1,7 @@
 #!/bin/bash
-#from https://github.com/spiritLHLS/docker
+# from 
+# https://github.com/spiritLHLS/docker
+# 2023.08.11
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -63,6 +65,7 @@ if ! command -v jq > /dev/null 2>&1; then
     _yellow "Installing jq"
     ${PACKAGE_INSTALL[int]} jq
 fi
+${PACKAGE_INSTALL[int]} openssl
 curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
 curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh && chmod +x alpinessh.sh && dos2unix alpinessh.sh
 statistics_of_run-times

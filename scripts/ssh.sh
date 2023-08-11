@@ -1,5 +1,8 @@
 #!/bin/bash
-# by https://github.com/spiritLHLS/docker
+# from 
+# https://github.com/spiritLHLS/docker
+# 2023.08.11
+
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")

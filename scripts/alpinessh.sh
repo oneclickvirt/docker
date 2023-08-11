@@ -1,5 +1,7 @@
-#!/bin/sh
-#from https://github.com/spiritLHLS/docker
+#!/bin/bash
+# from 
+# https://github.com/spiritLHLS/docker
+# 2023.08.11
 
 if [ "$(cat /etc/os-release | grep -E '^ID=' | cut -d '=' -f 2)" != "alpine" ]
 then
