@@ -158,5 +158,11 @@ docker run -itd \
   emptysuns/scrcpy-web:v0.1
 docker exec -it scrcpy_web_${name} adb connect web_${name}:5555
 build_reverse_proxy
-echo "$name $selected_tag $user_name $user_password" >> "$name"
-cat "$name"
+echo "$name $selected_tag $user_name $user_password http://${IPV4}:80" >> "$name"
+_yellow "Current information:"
+_yellow "目前的信息："
+_blue "名字-name: $name"
+_blue "安卓版本-version: $selected_tag"
+_blue "用户名-username: $user_name"
+_blue "密码-password: $user_password"
+_blue "登录地址-website：http://${IPV4}:80"
