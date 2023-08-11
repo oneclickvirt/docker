@@ -149,6 +149,7 @@ user_name="${3:-onea}"
 user_password="${4:-oneclick}"
 # https://hub.docker.com/r/redroid/redroid/tags
 docker run -itd \
+    --name ${name} \
     --memory-swappiness=0 \
     --privileged --pull always \
     -v /root/android/data:/data \
@@ -164,8 +165,8 @@ docker run -itd \
     ro.build.product=chopin \
     redroid.width=720 \
     redroid.height=1280 \
-    redroid.gpu.mode=guest \
-    --name ${name}
+    redroid.gpu.mode=guest
+sleep 5
 docker run -itd \
   --privileged \
   -v /root/scrcpy_web/data:/data \
@@ -173,7 +174,9 @@ docker run -itd \
   -p 127.0.0.1:4888:8000/tcp \
   --link ${name}:web_${name} \
   emptysuns/scrcpy-web:v0.1
+sleep 5
 docker exec -it scrcpy_web adb connect web_${name}:5555
+sleep 5
 build_reverse_proxy
 echo "$name $selected_tag $user_name $user_password http://${IPV4}:80" >> "$name"
 _yellow "Current information:"
