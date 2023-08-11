@@ -158,5 +158,5 @@ docker run -itd \
   emptysuns/scrcpy-web:v0.1
 docker exec -it scrcpy_web_${name} adb connect web_${name}:5555
 build_reverse_proxy
-echo "$name $selected_tag ${user_name} ${user_password}" >> "$name"
+echo "$name $selected_tag $user_name $user_password" >> "$name"
 cat "$name"
