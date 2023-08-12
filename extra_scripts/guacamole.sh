@@ -77,6 +77,7 @@ mysql -u root -ppassword guacdb < temp-initdb.sql && \
 mysql -u root -ppassword -e \"create user guacadmin@'%' identified by 'password';\" && \
 mysql -u root -ppassword -e \"grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to guacadmin@'%';\" && \
 mysql -u root -ppassword -e \"flush privileges;\""
+sleep 3
 docker logs guacamoledb
 docker run --name guacamole-server -d guacamole/guacd
 docker logs --tail 10 guacamole-server
