@@ -71,16 +71,12 @@ sleep 3
 mkdir -p /opt/guacamole/mysql
 docker run --rm guacamole/guacamole /opt/guacamole/bin/initdb.sh --mysql > /opt/guacamole/mysql/temp-initdb.sql
 docker cp /opt/guacamole/mysql/temp-initdb.sql guacamoledb:/docker-entrypoint-initdb.d
-docker exec -it guacamoledb bash <<EOF
-cd /docker-entrypoint-initdb.d/
-ls
-mysql -u root -ppassword use guacdb;
-mysql -u root -ppassword source temp-initdb.sql;
-mysql -u root -ppassword -e "create user guacadmin@'%' identified by 'password';"
-mysql -u root -ppassword -e "grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to guacadmin@'%';"
-mysql -u root -ppassword -e "flush privileges;"
-exit
-EOF
+docker exec -it guacamoledb bash -c "cd /docker-entrypoint-initdb.d/ && ls && \
+mysql -u root -ppassword -e 'use guacdb;' && \
+mysql -u root -ppassword guacdb < temp-initdb.sql && \
+mysql -u root -ppassword -e \"create user guacadmin@'%' identified by 'password';\" && \
+mysql -u root -ppassword -e \"grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to guacadmin@'%';\" && \
+mysql -u root -ppassword -e \"flush privileges;\""
 docker logs guacamoledb
 docker run --name guacamole-server -d guacamole/guacd
 docker logs --tail 10 guacamole-server
