@@ -74,9 +74,10 @@ docker cp /opt/guacamole/mysql/temp-initdb.sql guacamoledb:/docker-entrypoint-in
 docker exec -it guacamoledb bash <<EOF
 cd /docker-entrypoint-initdb.d/
 ls
-mysql -u root -ppassword guacdb < temp-initdb.sql
-mysql -u root -ppassword -e "create user [email protected]'%' identified by 'password';"
-mysql -u root -ppassword -e "grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to [email protected]'%';"
+mysql -u root -ppassword use guacdb;
+mysql -u root -ppassword source temp-initdb.sql;
+mysql -u root -ppassword -e "create user guacadmin@'%' identified by 'password';"
+mysql -u root -ppassword -e "grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to guacadmin@'%';"
 mysql -u root -ppassword -e "flush privileges;"
 exit
 EOF
