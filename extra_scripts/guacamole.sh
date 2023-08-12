@@ -67,7 +67,15 @@ check_ipv4
 docker pull guacamole/guacd
 docker pull guacamole/guacamole
 docker run --name guacamoledb -e MYSQL_ROOT_PASSWORD=password -e MYSQL_DATABASE=guacdb -d mysql/mysql-server
-sleep 5
+while true; do
+    status=$(docker inspect --format "{{.State.Health.Status}}" guacamoledb)
+    if [ "$status" == "healthy" ]; then
+        break
+    fi
+    _yellow "Please be patient while waiting for the MySQL container to start..."
+    _yellow "等待MySQL容器启动中，请耐心等待..."
+    sleep 2
+done
 mkdir -p /opt/guacamole/mysql
 docker run --rm guacamole/guacamole /opt/guacamole/bin/initdb.sh --mysql > /opt/guacamole/mysql/temp-initdb.sql
 docker cp /opt/guacamole/mysql/temp-initdb.sql guacamoledb:/docker-entrypoint-initdb.d
@@ -83,7 +91,7 @@ docker run --name guacamole-server -d guacamole/guacd
 docker logs --tail 10 guacamole-server
 sleep 3
 start_time=$(date +%s)
-MAX_WAIT_TIME=15
+MAX_WAIT_TIME=6
 CONTAINERS=("guacamoledb" "guacamole-server")  # 容器名称列表
 for container in "${CONTAINERS[@]}"; do
     status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)
