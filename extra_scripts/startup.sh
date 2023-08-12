@@ -1,4 +1,6 @@
 #!/bin/bash
+
+
 set -eou pipefail
 chown root:kvm /dev/kvm
 systemctl enable libvirtd virtlogd --now
@@ -21,4 +23,4 @@ iptables -D FORWARD -o virbr1 -j REJECT --reject-with icmp-port-unreachable
 iptables -D FORWARD -i virbr1 -j REJECT --reject-with icmp-port-unreachable
 iptables -D FORWARD -o virbr0 -j REJECT --reject-with icmp-port-unreachable
 iptables -D FORWARD -i virbr0 -j REJECT --reject-with icmp-port-unreachable
-bash "$@"
+exec "$@"
