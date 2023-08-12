@@ -54,10 +54,6 @@ check_ipv4(){
     IPV4=$(curl -s4m8 "$IP_API")
 }
 
-if ! command -v tar > /dev/null 2>&1; then
-    _yellow "Installing tar"
-    ${PACKAGE_INSTALL[int]} tar
-fi
 ${PACKAGE_INSTALL[int]} ca-certificates
 ${PACKAGE_INSTALL[int]} gnupg
 ${PACKAGE_INSTALL[int]} lsb-release
