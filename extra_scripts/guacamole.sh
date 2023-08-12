@@ -67,23 +67,23 @@ check_ipv4
 docker pull guacamole/guacd
 docker pull guacamole/guacamole
 docker run --name guacamoledb -e MYSQL_ROOT_PASSWORD=password -e MYSQL_DATABASE=guacdb -d mysql/mysql-server
-sleep 3
+sleep 5
 mkdir -p /opt/guacamole/mysql
 docker run --rm guacamole/guacamole /opt/guacamole/bin/initdb.sh --mysql > /opt/guacamole/mysql/temp-initdb.sql
 docker cp /opt/guacamole/mysql/temp-initdb.sql guacamoledb:/docker-entrypoint-initdb.d
 docker exec -it guacamoledb bash -c "cd /docker-entrypoint-initdb.d/ && ls && \
-mysql -u root -ppassword -e 'use guacdb;' && \
-mysql -u root -ppassword guacdb < temp-initdb.sql && \
-mysql -u root -ppassword -e \"create user guacadmin@'%' identified by 'password';\" && \
-mysql -u root -ppassword -e \"grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to guacadmin@'%';\" && \
-mysql -u root -ppassword -e \"flush privileges;\""
+mysql -h localhost -u root -ppassword -e 'use guacdb;' && \
+mysql -h localhost -u root -ppassword guacdb < temp-initdb.sql && \
+mysql -h localhost -u root -ppassword -e \"create user guacadmin@'%' identified by 'password';\" && \
+mysql -h localhost -u root -ppassword -e \"grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to guacadmin@'%';\" && \
+mysql -h localhost -u root -ppassword -e \"flush privileges;\""
 sleep 3
 docker logs guacamoledb
 docker run --name guacamole-server -d guacamole/guacd
 docker logs --tail 10 guacamole-server
 sleep 3
 start_time=$(date +%s)
-MAX_WAIT_TIME=30
+MAX_WAIT_TIME=15
 CONTAINERS=("guacamoledb" "guacamole-server")  # 容器名称列表
 for container in "${CONTAINERS[@]}"; do
     status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)
@@ -111,12 +111,12 @@ while true; do
     if [ "$all_successful" = true ]; then
         break
     fi
-    sleep 1
+    sleep 2
     echo "Please be patient while waiting for the container to start..."
     echo "等待容器启动中，请耐心等待..."
 done
 docker run --name guacamole-client --link guacamole-server:guacd --link guacamoledb:mysql -e MYSQL_DATABASE=guacdb -e MYSQL_USER=guacadmin -e MYSQL_PASSWORD=password -d -p 80:8080 guacamole/guacamole
-sleep 5
+sleep 3
 _yellow "guacamole目前的信息："
 _blue "用户名-username: guacadmin"
 _blue "密码-password: guacadmin"
