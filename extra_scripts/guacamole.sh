@@ -73,16 +73,16 @@ docker cp /opt/guacamole/mysql/01-initdb.sql guacamoledb:/docker-entrypoint-init
 docker exec -it guacamoledb bash <<EOF
 cd /docker-entrypoint-initdb.d/
 ls
-mysql -u root -p guacdb < 01-initdb.sql
-mysql -u root -p -e "create user 'admin'@'%' identified by 'password';"
-mysql -u root -p -e "grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to 'admin'@'%';"
-mysql -u root -p -e "flush privileges;"
+mysql -u root -ppassword guacdb < 01-initdb.sql
+mysql -u root -ppassword -e "create user 'admin'@'%' identified by 'password';"
+mysql -u root -ppassword -e "grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to 'admin'@'%';"
+mysql -u root -ppassword -e "flush privileges;"
 exit
 EOF
 docker logs guacamoledb
 docker run --name guacamole-server -d guacamole/guacd
 docker logs --tail 10 guacamole-server
-docker run --name guacamole-client --link guacamole-server:guacd --link guacamoledb:mysql -e MYSQL_DATABASE=guacdb -e MYSQL_USER=guacadmin -e MYSQL_PASSWORD=password -d -p 80:8080 guacamole/guacamole
+docker run --name guacamole-client --link guacamole-server:guacd --link guacamoledb:mysql -e MYSQL_DATABASE=guacdb -e MYSQL_USER=admin -e MYSQL_PASSWORD=password -d -p 80:8080 guacamole/guacamole
 
 _yellow "guacamole目前的信息："
 _blue "用户名-username: guacadmin"
