@@ -39,6 +39,11 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
+if ! command -v docker > /dev/null 2>&1; then
+    _yellow "There is no Docker environment on this machine, please execute the main installation first."
+    _yellow "没有Docker环境，请先执行主体安装"
+    exit 1
+fi
 image_name="redroid/redroid"
 tags=($(curl -s "https://registry.hub.docker.com/v2/repositories/${image_name}/tags/" | jq -r '.results[].name'))
 for index in "${!tags[@]}"; do

@@ -40,6 +40,12 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
     fi
 done
 
+if ! command -v docker > /dev/null 2>&1; then
+    _yellow "There is no Docker environment on this machine, please execute the main installation first."
+    _yellow "没有Docker环境，请先执行主体安装"
+    exit 1
+fi
+
 check_ipv4(){
     API_NET=("ip.sb" "ipget.net" "ip.ping0.cc" "https://ip4.seeip.org" "https://api.my-ip.io/ip" "https://ipv4.icanhazip.com" "api.ipify.org")
     for p in "${API_NET[@]}"; do

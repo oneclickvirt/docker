@@ -123,6 +123,12 @@ fi
 sudo systemctl restart nginx
 }
 
+
+if ! command -v docker > /dev/null 2>&1; then
+    _yellow "There is no Docker environment on this machine, please execute the main installation first."
+    _yellow "没有Docker环境，请先执行主体安装"
+    exit 1
+fi
 check_ipv4
 check_nginx
 current_kernel_version=$(uname -r)

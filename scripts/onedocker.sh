@@ -21,6 +21,11 @@ endport="${7:-35000}"
 #   echo "$name $sshport $passwd $cpu $memory $startport $endport" >> "$name"
 # else
 # fi
+if ! command -v docker > /dev/null 2>&1; then
+    echo "There is no Docker environment on this machine, please execute the main installation first."
+    echo "没有Docker环境，请先执行主体安装"
+    exit 1
+fi
 if [ -n "$8" ] && [ "$8" = "alpine" ]
 then
     if [ ! -f alpinessh.sh ]; then
