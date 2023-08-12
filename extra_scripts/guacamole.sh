@@ -84,6 +84,39 @@ docker logs guacamoledb
 docker run --name guacamole-server -d guacamole/guacd
 docker logs --tail 10 guacamole-server
 sleep 3
+start_time=$(date +%s)
+MAX_WAIT_TIME=30
+CONTAINERS=("guacamoledb" "guacamole-server")  # 容器名称列表
+for container in "${CONTAINERS[@]}"; do
+    status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)
+    if [ "$status" != "running" ]; then
+        _yellow "The container $container failed to start and the script will exit."
+        _yellow "容器 $container 启动失败，脚本将退出。"
+        exit 1
+    fi
+    sleep 1
+done
+while true; do
+    current_time=$(date +%s)
+    elapsed_time=$((current_time - start_time))
+    if [ "$elapsed_time" -ge "$MAX_WAIT_TIME" ]; then
+        break
+    fi
+    all_successful=true
+    for container in "${CONTAINERS[@]}"; do
+        update_time=$(docker inspect -f '{{.State.FinishedAt}}' "$container" | date -u +%s)
+        if [ "$((start_time - update_time))" -lt 15 ]; then
+            all_successful=false
+            break
+        fi
+    done
+    if [ "$all_successful" = true ]; then
+        break
+    fi
+    sleep 1
+    echo "Please be patient while waiting for the container to start..."
+    echo "等待容器启动中，请耐心等待..."
+done
 docker run --name guacamole-client --link guacamole-server:guacd --link guacamoledb:mysql -e MYSQL_DATABASE=guacdb -e MYSQL_USER=guacadmin -e MYSQL_PASSWORD=password -d -p 80:8080 guacamole/guacamole
 sleep 5
 _yellow "guacamole目前的信息："
