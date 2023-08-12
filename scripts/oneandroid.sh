@@ -176,6 +176,7 @@ docker run -itd \
   -p 127.0.0.1:4888:8000/tcp \
   --link ${name}:web_${name} \
   emptysuns/scrcpy-web:v0.1
+start_time=$(date +%s)
 sleep 5
 MAX_WAIT_TIME=15
 CONTAINERS=("scrcpy_web" "${name}")  # 容器名称列表
@@ -187,7 +188,6 @@ for container in "${CONTAINERS[@]}"; do
         exit 1
     fi
 done
-start_time=$(date +%s)
 while true; do
     current_time=$(date +%s)
     elapsed_time=$((current_time - start_time))
@@ -197,7 +197,7 @@ while true; do
     all_successful=true
     for container in "${CONTAINERS[@]}"; do
         update_time=$(docker inspect -f '{{.State.FinishedAt}}' "$container" | date -u +%s)
-        if [ "$((current_time - update_time))" -lt 15 ]; then
+        if [ "$((start_time - update_time))" -lt 15 ]; then
             all_successful=false
             break
         fi
