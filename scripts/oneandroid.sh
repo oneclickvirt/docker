@@ -177,8 +177,39 @@ docker run -itd \
   --link ${name}:web_${name} \
   emptysuns/scrcpy-web:v0.1
 sleep 5
+MAX_WAIT_TIME=15
+CONTAINERS=("scrcpy_web" "${name}")  # 容器名称列表
+for container in "${CONTAINERS[@]}"; do
+    status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)
+    if [ "$status" != "running" ]; then
+        _yellow "The container $container failed to start and the script will exit."
+        _yellow "容器 $container 启动失败，脚本将退出。"
+        exit 1
+    fi
+done
+start_time=$(date +%s)
+while true; do
+    current_time=$(date +%s)
+    elapsed_time=$((current_time - start_time))
+    if [ "$elapsed_time" -ge "$MAX_WAIT_TIME" ]; then
+        break
+    fi
+    all_successful=true
+    for container in "${CONTAINERS[@]}"; do
+        update_time=$(docker inspect -f '{{.State.FinishedAt}}' "$container" | date -u +%s)
+        if [ "$((current_time - update_time))" -lt 15 ]; then
+            all_successful=false
+            break
+        fi
+    done
+    if [ "$all_successful" = true ]; then
+        break
+    fi
+    sleep 1
+    echo "Please be patient while waiting for the container to start..."
+    echo "等待容器启动中，请耐心等待..."
+done
 docker exec -it scrcpy_web adb connect web_${name}:5555
-sleep 5
 build_reverse_proxy
 rm -rf /root/android_info
 echo "$name $selected_tag $user_name $user_password http://${IPV4}:80" >> /root/android_info
