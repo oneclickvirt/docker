@@ -18,7 +18,7 @@ RUN vagrant_latest_version=$(curl -s https://checkpoint-api.hashicorp.com/v1/che
     URL="https://releases.hashicorp.com/vagrant/${vagrant_latest_version}/" && \
     HTML=$(curl -s "$URL") && \
     vagrant_pkgs=$(echo "$HTML" | grep -oE 'href="([^"]+\.deb)"' | sed -e 's/href="//' -e 's/"$//') && \
-    deb_filename=$(echo "$vagrant_pkgs" | grep "amd64") && \
+    for pkg in $vagrant_pkgs; do if echo "$pkg" | grep -q "amd64"; then deb_filename=$(basename "$pkg"); fi; done && \
     curl -O "https://releases.hashicorp.com/vagrant/${vagrant_latest_version}/${deb_filename}" && \
     chmod 777 "${deb_filename}" && \
     dpkg -i "${deb_filename}" && \
