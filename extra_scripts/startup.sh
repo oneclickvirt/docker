@@ -14,7 +14,8 @@ EOF
 # service libvirtd start
 # service virtlogd start
 systemctl enable libvirtd virtlogd --now
-VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up --debug
+VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up 
+# --debug
 iptables-save > $HOME/firewall.txt
 iptables -X
 iptables -t nat -F
