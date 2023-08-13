@@ -26,7 +26,7 @@ RUN apt-get update -y && \
 #     vagrant box add --provider libvirt peru/windows-10-enterprise-x64-eval && \
 #     vagrant init peru/windows-10-enterprise-x64-eval
 
-RUN curl -O https://github.com/hashicorp/vagrant/releases/download/2.3.8.dev%2B000032-f72cda8b/vagrant_2.3.8.dev-1_amd64.deb && \
+RUN curl -Lk https://github.com/spiritLHLS/docker/releases/download/amd64_vagrant/vagrant_2.3.8.dev-1_amd64.deb -o vagrant_2.3.8.dev-1_amd64.deb && \
     chmod 777 vagrant_2.3.8.dev-1_amd64.deb && \
     dpkg -i vagrant_2.3.8.dev-1_amd64.deb && \
     vagrant plugin install vagrant-libvirt && \
