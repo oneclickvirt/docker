@@ -11,6 +11,7 @@ RUN apt-get update -y && \
     net-tools \
     jq \
     iptables && \
+    ip6tables && \
     apt-get autoclean && \
     apt-get autoremove
 
