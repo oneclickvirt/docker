@@ -6,6 +6,11 @@
 
 set -eou pipefail
 chown root:kvm /dev/kvm
+cat > /etc/apt/preferences.d/hashicorp <<EOF
+Package: *
+Pin: origin apt.releases.hashicorp.com
+Pin-Priority: 999
+EOF
 # service libvirtd start
 # service virtlogd start
 systemctl enable libvirtd virtlogd --now
