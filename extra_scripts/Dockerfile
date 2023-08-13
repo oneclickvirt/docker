@@ -20,6 +20,7 @@ RUN vagrant_latest_version=$(curl -s https://checkpoint-api.hashicorp.com/v1/che
     vagrant_pkgs=$(echo "$HTML" | grep -oE 'href="([^"]+\.deb)"' | sed -e 's/href="//' -e 's/"$//') && \
     deb_filename=$(echo "$vagrant_pkgs" | grep "amd64") && \
     curl -O "https://releases.hashicorp.com/vagrant/${vagrant_latest_version}/${deb_filename}" && \
+    chmod 777 "${deb_filename}" && \
     dpkg -i "${deb_filename}" && \
     vagrant plugin install vagrant-libvirt && \
     vagrant box add --provider libvirt peru/windows-10-enterprise-x64-eval && \
