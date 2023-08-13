@@ -6,8 +6,9 @@
 
 set -eou pipefail
 chown root:kvm /dev/kvm
-service libvirtd start
-service virtlogd start
+# service libvirtd start
+# service virtlogd start
+systemctl enable libvirtd virtlogd --now
 VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up
 iptables-save > $HOME/firewall.txt
 iptables -X
