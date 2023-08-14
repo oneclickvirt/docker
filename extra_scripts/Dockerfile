@@ -2,8 +2,7 @@
 FROM debian
 
 RUN apt-get update -y
-RUN apt-get install -y
-RUN qemu-kvm libvirt-daemon-system libvirt-dev build-essential curl net-tools jq openssh-server openssh-client iptables
+RUN apt-get install -y qemu-kvm libvirt-daemon-system libvirt-dev build-essential curl net-tools jq openssh-server openssh-client iptables
 # RUN $(apt-cache search linux-image | grep cloud | tail -n 1 | awk '{print $1}')
 RUN apt-get autoclean
 RUN apt-get autoremove
