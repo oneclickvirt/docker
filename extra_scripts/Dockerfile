@@ -11,7 +11,7 @@ RUN apt-get update -y && \
     curl \
     net-tools \
     jq \
-    ssh \
+    openssh-server openssh-client \
     iptables && \
     apt-get autoclean && \
     apt-get autoremove
