@@ -85,7 +85,12 @@ while true; do
     sleep 2
 done
 docker exec -it windows${windows_version} bash -c "bash startup.sh 2>&1"
-_green "The RDP login address is: ${rdp_address}, login information and usage instructions are detailed at virt.spiritlhl.net"
-_green "RDP的登录地址为：${rdp_address}，登录信息和使用说明详见 virt.spiritlhl.net"
+if [ "$is_local_ip" = "Y" ]; then
+    _green "The RDP login address is: extranet IPV4 address:${rdp_port} login information and usage instructions are detailed at virt.spiritlhl.net"
+    _green "RDP的登录地址为：外网IPV4地址:${rdp_port} 登录信息和使用说明详见 virt.spiritlhl.net"
+else
+    _green "The RDP login address is: 127.0.0.1:${rdp_port} login information and usage instructions are detailed at virt.spiritlhl.net"
+    _green "RDP的登录地址为：127.0.0.1:${rdp_port} 登录信息和使用说明详见 virt.spiritlhl.net"
+fi
 echo ""
 echo ""
