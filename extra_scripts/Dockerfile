@@ -1,4 +1,3 @@
-# FROM ubuntu:22.04
 FROM debian
 
 RUN apt-get update -y
@@ -23,10 +22,9 @@ RUN curl -Lk https://github.com/hashicorp/vagrant/releases/download/2.3.8.dev%2B
     chmod 777 vagrant_2.3.8.dev-1_amd64.deb && \
     dpkg -i vagrant_2.3.8.dev-1_amd64.deb
 RUN vagrant plugin install vagrant-libvirt
-RUN vagrant box add --provider libvirt peru/windows-server-2012_r2-standard-x64-eval
+RUN vagrant box add --provider libvirt peru/windows-10-enterprise-x64-eval
 # peru/windows-10-enterprise-x64-eval
 # peru/windows-server-2022-standard-x64-eval
 # peru/windows-server-2019-standard-x64-eval
-# peru/windows-server-2012_r2-standard-x64-eval
-RUN vagrant init peru/windows-server-2012_r2-standard-x64-eval
+RUN vagrant init peru/windows-10-enterprise-x64-eval
 COPY startup.sh /
