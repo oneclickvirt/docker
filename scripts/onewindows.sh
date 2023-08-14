@@ -45,7 +45,8 @@ if [[ -z $count ]] || [[ $count -le 0 ]]; then
     _yellow "Virtualization is not supported, exit the program."
     _yellow "虚拟化不支持，退出程序。"
 fi
-
+${PACKAGE_INSTALL[int]} openssh-server 
+${PACKAGE_INSTALL[int]} openssh-client
 windows_version="${1:-2019}"
 rdp_port="${2:-33896}"
 is_local_ip="${3:-N}"
