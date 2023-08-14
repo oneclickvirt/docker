@@ -54,26 +54,19 @@ is_local_ip="${3:-N}"
 _green "The following program will take at least 10 minutes to execute, so please be patient...."
 _green "以下程序将执行至少10分钟，请耐心等待..."
 if [ "$is_local_ip" = "Y" ]; then
-    docker run -d --privileged=true \
-        --name windows${windows_version} \
-        --device=/dev/kvm \
-        --device=/dev/net/tun \
-        -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-        --cap-add=NET_ADMIN \
-        --cap-add=SYS_ADMIN \
-        -p 0.0.0.0:${rdp_port}:3389 \
-        spiritlhl/wds:${windows_version} /sbin/init
+    rdp_address="0.0.0.0"
 else
-    docker run -d --privileged=true \
-        --name windows${windows_version} \
-        --device=/dev/kvm \
-        --device=/dev/net/tun \
-        -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-        --cap-add=NET_ADMIN \
-        --cap-add=SYS_ADMIN \
-        -p 127.0.0.1:${rdp_port}:3389 \
-        spiritlhl/wds:${windows_version} /sbin/init
+    rdp_address="127.0.0.1"
 fi
+docker run -d --privileged=true \
+    --name windows${windows_version} \
+    --device=/dev/kvm \
+    --device=/dev/net/tun \
+    -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+    --cap-add=NET_ADMIN \
+    --cap-add=SYS_ADMIN \
+    -p ${rdp_address}:${rdp_port}:3389 \
+    spiritlhl/wds:${windows_version} /sbin/init
 sleep 5
 start_time=$(date +%s)
 MAX_WAIT_TIME=10
@@ -92,3 +85,7 @@ while true; do
     sleep 2
 done
 docker exec -it windows${windows_version} bash -c "bash startup.sh 2>&1"
+_green "The RDP login address is: ${rdp_address}, login information and usage instructions are detailed at virt.spiritlhl.net"
+_green "RDP的登录地址为：${rdp_address}，登录信息和使用说明详见 virt.spiritlhl.net"
+echo ""
+echo ""
