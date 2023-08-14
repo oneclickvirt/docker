@@ -9,8 +9,7 @@ COPY --from=builder /usr/bin/jq /usr/bin/
 RUN apt-get update -y && \
     apt-get install -y \
     qemu-kvm libvirt-daemon-system libvirt-dev openssh-server openssh-client iptables && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean
 
 RUN curl -Lk https://github.com/hashicorp/vagrant/releases/download/2.3.8.dev%2B000086-5fc64cde/vagrant_2.3.8.dev-1_amd64.deb -o vagrant.deb && \
     dpkg -i vagrant.deb && \
