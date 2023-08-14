@@ -11,10 +11,8 @@ Package: *
 Pin: origin apt.releases.hashicorp.com
 Pin-Priority: 999
 EOF
-# service libvirtd start
-# service virtlogd start
-# systemctl enable libvirtd virtlogd --now
-# VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up 
+systemctl enable libvirtd virtlogd --now
+VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up 
 # --debug
 rdp_info=$(vagrant rdp 2>&1)
 ip_address=$(echo "$rdp_info" | grep -oP 'Address: (\d+\.\d+\.\d+\.\d+)' | grep -oP '(\d+\.\d+\.\d+\.\d+)')
