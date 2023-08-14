@@ -1,4 +1,5 @@
-FROM debian
+FROM ubuntu:22.04
+# FROM debian
 
 RUN apt-get update -y && \
     apt-get install -y \
