@@ -1,5 +1,5 @@
-FROM ubuntu:22.04
-# FROM debian
+# FROM ubuntu:22.04
+FROM debian
 
 RUN apt-get update -y && \
     apt-get install -y \
@@ -11,6 +11,7 @@ RUN apt-get update -y && \
     curl \
     net-tools \
     jq \
+    ssh \
     iptables && \
     apt-get autoclean && \
     apt-get autoremove
