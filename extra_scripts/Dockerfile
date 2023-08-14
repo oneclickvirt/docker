@@ -29,7 +29,4 @@ RUN vagrant box add --provider libvirt peru/windows-server-2019-standard-x64-eva
 # peru/windows-server-2019-standard-x64-eval
 # peru/windows-server-2012_r2-standard-x64-eval
 RUN vagrant init peru/windows-server-2019-standard-x64-eval
-
-RUN systemctl enable libvirtd virtlogd --now
-RUN VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up
 COPY startup.sh /
