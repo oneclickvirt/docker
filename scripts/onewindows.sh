@@ -4,7 +4,7 @@
 # 2023.08.14
 
 
-# 安装起步10分钟
+# 起步10分钟
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -49,57 +49,30 @@ fi
 windows_version="${1:-2019}"
 rdp_port="${2:-33896}"
 is_local_ip="${3:-N}"
-is_local_image="${4:-N}"
 
 _green "The following program will take at least 10 minutes to execute, so please be patient...."
 _green "以下程序将执行至少10分钟，请耐心等待..."
-
 if [ "$is_local_ip" = "Y" ]; then
-  if [ "$is_local_image" = "Y" ]; then
-      docker run -d --privileged=true \
-          --name windows${windows_version} \
-          --device=/dev/kvm \
-          --device=/dev/net/tun \
-          -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-          --cap-add=NET_ADMIN \
-          --cap-add=SYS_ADMIN \
-          -p 0.0.0.0:${rdp_port}:3389 \
-          spiritlhl/wds:${windows_version} /sbin/init
-  else
-      docker run -itd --privileged=true \
-          --name windows${windows_version} \
-          --device=/dev/kvm \
-          --device=/dev/net/tun \
-          -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-          --cap-add=NET_ADMIN \
-          --cap-add=SYS_ADMIN \
-          -p 0.0.0.0:${rdp_port}:3389 \
-          spiritlhl/wds:${windows_version} /sbin/init
-  fi
+    docker run -d --privileged=true \
+        --name windows${windows_version} \
+        --device=/dev/kvm \
+        --device=/dev/net/tun \
+        -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+        --cap-add=NET_ADMIN \
+        --cap-add=SYS_ADMIN \
+        -p 0.0.0.0:${rdp_port}:3389 \
+        spiritlhl/wds:${windows_version} /sbin/init
 else
-  if [ "$is_local_image" = "Y" ]; then
-      docker run -d --privileged=true \
-          --name windows${windows_version} \
-          --device=/dev/kvm \
-          --device=/dev/net/tun \
-          -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-          --cap-add=NET_ADMIN \
-          --cap-add=SYS_ADMIN \
-          -p 127.0.0.1:${rdp_port}:3389 \
-          spiritlhl/wds:${windows_version} /sbin/init
-  else
-      docker run -itd --privileged=true \
-          --name windows${windows_version} \
-          --device=/dev/kvm \
-          --device=/dev/net/tun \
-          -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-          --cap-add=NET_ADMIN \
-          --cap-add=SYS_ADMIN \
-          -p 127.0.0.1:${rdp_port}:3389 \
-          spiritlhl/wds:${windows_version} /sbin/init
-  fi
+    docker run -d --privileged=true \
+        --name windows${windows_version} \
+        --device=/dev/kvm \
+        --device=/dev/net/tun \
+        -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+        --cap-add=NET_ADMIN \
+        --cap-add=SYS_ADMIN \
+        -p 127.0.0.1:${rdp_port}:3389 \
+        spiritlhl/wds:${windows_version} /sbin/init
 fi
-
 sleep 5
 start_time=$(date +%s)
 MAX_WAIT_TIME=10
