@@ -69,7 +69,7 @@ reading "运行VNC的端口(留空默认不运行):" vnc_port
 [[ -z "$password" ]] && password="oneclick"
 [[ "$vnc_port" ]] && vnc="-p $vnc_port:5900" && vnc_en="VNC port:$vnc_port, VNC password is the same as the browser access password." && vnc_cn="VNC端口:$vnc_port，VNC密码同浏览器访问密码一致"
 docker run -d \
-    --name=firefox \
+    --name=firefox_${web_port} \
     $vnc \
     -e KEEP_APP_RUNNING=1 \
     -e ENABLE_CJK_FONT=1 \
