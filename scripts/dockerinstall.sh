@@ -1,7 +1,7 @@
 #!/bin/bash
 # from 
 # https://github.com/spiritLHLS/docker
-# 2023.08.11
+# 2023.08.15
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -22,6 +22,7 @@ if [ "$(id -u)" != "0" ]; then
    _red "This script must be run as root" 1>&2
    exit 1
 fi
+temp_file_apt_fix="/tmp/apt_fix.txt"
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
 PACKAGE_UPDATE=("! apt-get update && apt-get --fix-broken install -y && apt-get update" "apt-get update" "yum -y update" "yum -y update" "yum -y update" "pacman -Sy")
@@ -45,6 +46,28 @@ COUNT=$(
   TODAY=$(expr "$COUNT" : '.*\s\([0-9]\{1,\}\)\s/.*') && TOTAL=$(expr "$COUNT" : '.*/\s\([0-9]\{1,\}\)\s.*')
 }
 
+check_update(){
+    _yellow "Updating package management sources"
+    if command -v apt-get > /dev/null 2>&1; then
+        apt_update_output=$(apt-get update 2>&1)
+        echo "$apt_update_output" > "$temp_file_apt_fix"
+        if grep -q 'NO_PUBKEY' "$temp_file_apt_fix"; then
+            public_keys=$(grep -oE 'NO_PUBKEY [0-9A-F]+' "$temp_file_apt_fix" | awk '{ print $2 }')
+            joined_keys=$(echo "$public_keys" | paste -sd " ")
+            _yellow "No Public Keys: ${joined_keys}"
+            apt-key adv --keyserver keyserver.ubuntu.com --recv-keys ${joined_keys}
+            apt-get update
+            if [ $? -eq 0 ]; then
+                _green "Fixed"
+            fi
+        fi
+        rm "$temp_file_apt_fix"
+    else
+        ${PACKAGE_UPDATE[int]}
+    fi 
+}
+
+check_update
 if  [ ! -e '/usr/bin/curl' ]; then
     _yellow "Installing curl"
     ${PACKAGE_INSTALL[int]} curl
