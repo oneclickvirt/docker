@@ -1,7 +1,7 @@
 #!/bin/bash
 # from 
 # https://github.com/spiritLHLS/docker
-# 2023.08.14
+# 2023.08.17
 
 
 # 起步10分钟
@@ -47,19 +47,21 @@ if [[ -z $count ]] || [[ $count -le 0 ]]; then
 fi
 ${PACKAGE_INSTALL[int]} openssh-server 
 ${PACKAGE_INSTALL[int]} openssh-client
-windows_version="${1:-2019}"
-rdp_port="${2:-33896}"
-is_local_ip="${3:-N}"
+container_name="${1:-test}"
+windows_version="${2:-2019}"
+rdp_port="${3:-33896}"
+is_local_ip="${4:-N}"
 
 _green "The following program will take at least 10 minutes to execute, so please be patient...."
 _green "以下程序将执行至少10分钟，请耐心等待..."
-if [ "$is_local_ip" = "Y" ]; then
-    rdp_address="0.0.0.0"
-else
+is_local_ip_lower=$(echo "$is_local_ip" | tr '[:upper:]' '[:lower:]')
+if [ "$is_local_ip_lower" = "y" ]; then
     rdp_address="127.0.0.1"
+else
+    rdp_address="0.0.0.0"
 fi
 docker run -d --privileged=true \
-    --name windows${windows_version} \
+    --name windows_${container_name} \
     --device=/dev/kvm \
     --device=/dev/net/tun \
     -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
@@ -76,7 +78,7 @@ while true; do
     if [ "$elapsed_time" -ge "$MAX_WAIT_TIME" ]; then
         break
     fi
-    status=$(docker inspect -f '{{.State.Status}}' "windows${windows_version}" 2>/dev/null)
+    status=$(docker inspect -f '{{.State.Status}}' "windows_${container_name}" 2>/dev/null)
     if [ "$status" == "running" ]; then
         break
     fi
@@ -84,7 +86,7 @@ while true; do
     _yellow "等待容器启动中，请耐心等待..."
     sleep 2
 done
-docker exec -it windows${windows_version} bash -c "bash startup.sh 2>&1"
+docker exec -it windows_${container_name} bash -c "bash startup.sh 2>&1"
 if [ "$is_local_ip" = "Y" ]; then
     _green "The RDP login address is: extranet IPV4 address:${rdp_port} login information and usage instructions are detailed at virt.spiritlhl.net"
     _green "RDP的登录地址为：外网IPV4地址:${rdp_port} 登录信息和使用说明详见 virt.spiritlhl.net"
