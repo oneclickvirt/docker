@@ -50,15 +50,15 @@ ${PACKAGE_INSTALL[int]} openssh-client
 container_name="${1:-test}"
 windows_version="${2:-2019}"
 rdp_port="${3:-33896}"
-is_local_ip="${4:-N}"
+is_external_ip="${4:-N}"
 
 _green "The following program will take at least 10 minutes to execute, so please be patient...."
 _green "以下程序将执行至少10分钟，请耐心等待..."
-is_local_ip_lower=$(echo "$is_local_ip" | tr '[:upper:]' '[:lower:]')
-if [ "$is_local_ip_lower" = "y" ]; then
-    rdp_address="127.0.0.1"
-else
+is_external_ip_lower=$(echo "$is_external_ip" | tr '[:upper:]' '[:lower:]')
+if [ "$is_external_ip_lower" = "y" ]; then
     rdp_address="0.0.0.0"
+else
+    rdp_address="127.0.0.1"
 fi
 docker run -d --privileged=true \
     --name windows_${container_name} \
@@ -87,7 +87,7 @@ while true; do
     sleep 2
 done
 docker exec -it windows_${container_name} bash -c "bash startup.sh 2>&1"
-if [ "$is_local_ip" = "Y" ]; then
+if [ "$is_external_ip_lower" = "y" ]; then
     _green "The RDP login address is: extranet IPV4 address:${rdp_port} login information and usage instructions are detailed at virt.spiritlhl.net"
     _green "RDP的登录地址为：外网IPV4地址:${rdp_port} 登录信息和使用说明详见 virt.spiritlhl.net"
 else
