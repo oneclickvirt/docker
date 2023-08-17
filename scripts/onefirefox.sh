@@ -1,7 +1,7 @@
 #!/bin/bash
 # from 
 # https://github.com/spiritLHLS/docker
-# 2023.08.15
+# 2023.08.17
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -59,6 +59,8 @@ if ! command -v docker > /dev/null 2>&1; then
     _yellow "没有Docker环境，请先执行主体安装"
     exit 1
 fi
+_green "Can be opened more than one, as long as you correspond to the use of different web ports and vnc ports can be, because the container name and the port corresponds to the port, the port does not repeat the container name is not repeated can be opened more than one"
+_green "可多开，只要你对应使用不同的web端口和vnc端口即可，因为容器名字是和端口对应的，端口不重复容器名字就不重复可多开"
 _green "Browser access password: (leave blank to default to oneclick):"
 reading "浏览器访问密码(留空则默认为oneclick):" password
 _green "Browser access port (default 3003 if left blank):"
