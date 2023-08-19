@@ -62,8 +62,8 @@ fi
 if ! command -v iptables > /dev/null 2>&1; then
     ${PACKAGE_INSTALL[int]} iptables
 fi
-_green "Is a web client required? [Y]/N"
-reading "是否需要web客户端？[Y]/N" is_web_client
+_green "Is a web client required? ([Y]/N): "
+reading "是否需要web客户端？([Y]/N): " is_web_client
 docker image pull rustdesk/rustdesk-server
 is_web_client_lower=$(echo "$is_external_ip" | tr '[:upper:]' '[:lower:]')
 if [ "$is_web_client_lower" = "n" ]; then
