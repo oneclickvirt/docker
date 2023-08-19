@@ -65,7 +65,7 @@ fi
 _green "Is a web client required? ([Y]/N): "
 reading "是否需要web客户端？([Y]/N): " is_web_client
 docker image pull rustdesk/rustdesk-server
-is_web_client_lower=$(echo "$is_external_ip" | tr '[:upper:]' '[:lower:]')
+is_web_client_lower=$(echo "$is_web_client" | tr '[:upper:]' '[:lower:]')
 if [ "$is_web_client_lower" = "n" ]; then
     web_hbbs_text=""
     web_hbbr_text=""
@@ -73,7 +73,7 @@ else
     web_hbbs_text="-p 21118:21118"
     web_hbbr_text="-p 21119:21119"
 fi
-docker run --restart unless-stopped --name hbbs -p 21115:21115 -p 21116:21116 -p 21116:21116/udp ${web_hbbs_text} -v `pwd`:/root -td --net=host rustdesk/rustdesk-server hbbs -r ${IPV4}
+docker run --restart unless-stopped --name hbbs -p 21115:21115 -p 21116:21116 -p 21116:21116/udp ${web_hbbs_text} -v `pwd`:/root -td --net=host rustdesk/rustdesk-server hbbs -r ${IPV4}:21117
 docker run --restart unless-stopped --name hbbr -p 21117:21117 ${web_hbbr_text} -v `pwd`:/root -td --net=host rustdesk/rustdesk-server hbbr
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
