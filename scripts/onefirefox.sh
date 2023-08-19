@@ -67,9 +67,12 @@ _green "Browser access port (default 3003 if left blank):"
 reading "浏览器访问端口(留空则默认3003):" web_port
 _green "Ports on which to run VNC (leave empty for default not to run):"
 reading "运行VNC的端口(留空默认不运行):" vnc_port
+_green "Set the maximum occupied memory, enter the number only (leave blank the default setting of 2G memory):"
+reading "设置最大占用内存，仅输入数字(留空默认设置为2G内存):" shm_size
 [[ -z "$web_port" ]] && web_port=3003
 [[ -z "$password" ]] && password="oneclick"
 [[ "$vnc_port" ]] && vnc="-p $vnc_port:5900" && vnc_en="VNC port:$vnc_port, VNC password is the same as the browser access password." && vnc_cn="VNC端口:$vnc_port，VNC密码同浏览器访问密码一致"
+[[ -z "$shm_size" ]] && shm_size="2"
 docker run -d \
     --name=firefox_${web_port} \
     $vnc \
@@ -78,7 +81,7 @@ docker run -d \
     -e VNC_PASSWORD=$password \
     -p 0.0.0.0:$web_port:5800 \
     -v /docker/appdata/firefox:/config:rw \
-    --shm-size 2g \
+    --shm-size ${shm_size}g \
     jlesage/firefox
 _green "URL(http): ${IPV4}:$web_port, Password: $password"
 _green "网址(http)：${IPV4}:$web_port，密码: $password"
