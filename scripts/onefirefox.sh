@@ -1,7 +1,7 @@
 #!/bin/bash
 # from 
 # https://github.com/spiritLHLS/docker
-# 2023.08.17
+# 2023.08.19
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -80,5 +80,6 @@ docker run -d \
     -v /docker/appdata/firefox:/config:rw \
     --shm-size 2g \
     jlesage/firefox
-_green "网址：${IPV4}:$web_port，密码: $password"
+_green "URL(http): ${IPV4}:$web_port, Password: $password"
+_green "网址(http)：${IPV4}:$web_port，密码: $password"
 [[ "$vnc_port" ]] && _green "$vnc_en" && _green "$vnc_cn"
