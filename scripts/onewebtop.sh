@@ -85,7 +85,7 @@ docker run -d \
   -e TZ=Etc/UTC \
   -e SUBFOLDER=/ \
   -e TITLE=Webtop \
-  -e CUSTOM_USER="onew"
+  -e CUSTOM_USER="onew" \
   -e PASSWORD="oneclick" \
   -e DOCKER_MODS=linuxserver/mods:universal-internationalization \
   -e LC_ALL=zh_CN.UTF-8 \
