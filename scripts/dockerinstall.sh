@@ -1,5 +1,5 @@
 #!/bin/bash
-# from 
+# from
 # https://github.com/spiritLHLS/docker
 # 2023.08.15
 
@@ -7,20 +7,20 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading(){ read -rp "$(_green "$1")" "$2"; }
+reading() { read -rp "$(_green "$1")" "$2"; }
 export DEBIAN_FRONTEND=noninteractive
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
-  echo "No UTF-8 locale found"
+    echo "No UTF-8 locale found"
 else
-  export LC_ALL="$utf8_locale"
-  export LANG="$utf8_locale"
-  export LANGUAGE="$utf8_locale"
-  echo "Locale set to $utf8_locale"
+    export LC_ALL="$utf8_locale"
+    export LANG="$utf8_locale"
+    export LANGUAGE="$utf8_locale"
+    echo "Locale set to $utf8_locale"
 fi
 if [ "$(id -u)" != "0" ]; then
-   _red "This script must be run as root" 1>&2
-   exit 1
+    _red "This script must be run as root" 1>&2
+    exit 1
 fi
 temp_file_apt_fix="/tmp/apt_fix.txt"
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
@@ -29,7 +29,7 @@ PACKAGE_UPDATE=("! apt-get update && apt-get --fix-broken install -y && apt-get 
 PACKAGE_INSTALL=("apt-get -y install" "apt-get -y install" "yum -y install" "yum -y install" "yum -y install" "pacman -Sy --noconfirm --needed")
 PACKAGE_REMOVE=("apt-get -y remove" "apt-get -y remove" "yum -y remove" "yum -y remove" "yum -y remove" "pacman -Rsc --noconfirm")
 PACKAGE_UNINSTALL=("apt-get -y autoremove" "apt-get -y autoremove" "yum -y autoremove" "yum -y autoremove" "yum -y autoremove" "")
-CMD=("$(grep -i pretty_name /etc/os-release 2>/dev/null | cut -d \" -f2)" "$(hostnamectl 2>/dev/null | grep -i system | cut -d : -f2)" "$(lsb_release -sd 2>/dev/null)" "$(grep -i description /etc/lsb-release 2>/dev/null | cut -d \" -f2)" "$(grep . /etc/redhat-release 2>/dev/null)" "$(grep . /etc/issue 2>/dev/null | cut -d \\ -f1 | sed '/^[ ]*$/d')" "$(grep -i pretty_name /etc/os-release 2>/dev/null | cut -d \" -f2)") 
+CMD=("$(grep -i pretty_name /etc/os-release 2>/dev/null | cut -d \" -f2)" "$(hostnamectl 2>/dev/null | grep -i system | cut -d : -f2)" "$(lsb_release -sd 2>/dev/null)" "$(grep -i description /etc/lsb-release 2>/dev/null | cut -d \" -f2)" "$(grep . /etc/redhat-release 2>/dev/null)" "$(grep . /etc/issue 2>/dev/null | cut -d \\ -f1 | sed '/^[ ]*$/d')" "$(grep -i pretty_name /etc/os-release 2>/dev/null | cut -d \" -f2)")
 SYS="${CMD[0]}"
 [[ -n $SYS ]] || exit 1
 for ((int = 0; int < ${#REGEX[@]}; int++)); do
@@ -40,17 +40,18 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
 done
 
 statistics_of_run-times() {
-COUNT=$(
-  curl -4 -ksm1 "https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FspiritLHLS%2Fdocker&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=&edge_flat=true" 2>&1 ||
-  curl -6 -ksm1 "https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FspiritLHLS%2Fdocker&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=&edge_flat=true" 2>&1) &&
-  TODAY=$(expr "$COUNT" : '.*\s\([0-9]\{1,\}\)\s/.*') && TOTAL=$(expr "$COUNT" : '.*/\s\([0-9]\{1,\}\)\s.*')
+    COUNT=$(
+        curl -4 -ksm1 "https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FspiritLHLS%2Fdocker&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=&edge_flat=true" 2>&1 ||
+            curl -6 -ksm1 "https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FspiritLHLS%2Fdocker&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=&edge_flat=true" 2>&1
+    ) &&
+        TODAY=$(expr "$COUNT" : '.*\s\([0-9]\{1,\}\)\s/.*') && TOTAL=$(expr "$COUNT" : '.*/\s\([0-9]\{1,\}\)\s.*')
 }
 
-check_update(){
+check_update() {
     _yellow "Updating package management sources"
-    if command -v apt-get > /dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
         apt_update_output=$(apt-get update 2>&1)
-        echo "$apt_update_output" > "$temp_file_apt_fix"
+        echo "$apt_update_output" >"$temp_file_apt_fix"
         if grep -q 'NO_PUBKEY' "$temp_file_apt_fix"; then
             public_keys=$(grep -oE 'NO_PUBKEY [0-9A-F]+' "$temp_file_apt_fix" | awk '{ print $2 }')
             joined_keys=$(echo "$public_keys" | paste -sd " ")
@@ -64,37 +65,37 @@ check_update(){
         rm "$temp_file_apt_fix"
     else
         ${PACKAGE_UPDATE[int]}
-    fi 
+    fi
 }
 
 check_update
-if  [ ! -e '/usr/bin/curl' ]; then
+if [ ! -e '/usr/bin/curl' ]; then
     _yellow "Installing curl"
     ${PACKAGE_INSTALL[int]} curl
 fi
-if ! command -v dos2unix > /dev/null 2>&1; then
+if ! command -v dos2unix >/dev/null 2>&1; then
     _yellow "Installing dos2unix"
     ${PACKAGE_INSTALL[int]} dos2unix
 fi
 if [ $? -ne 0 ]; then
-    apt-get -f install > /dev/null 2>&1
+    apt-get -f install >/dev/null 2>&1
     ${PACKAGE_INSTALL[int]} curl
 fi
-if ! command -v docker > /dev/null 2>&1; then
+if ! command -v docker >/dev/null 2>&1; then
     _yellow "Installing docker"
     curl -sSL https://get.docker.com/ | sh
 fi
-if ! command -v docker-compose > /dev/null 2>&1; then
+if ! command -v docker-compose >/dev/null 2>&1; then
     _yellow "Installing docker-compose"
     curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
     chmod +x /usr/local/bin/docker-compose
     docker-compose --version
 fi
-if ! command -v jq > /dev/null 2>&1; then
+if ! command -v jq >/dev/null 2>&1; then
     _yellow "Installing jq"
     ${PACKAGE_INSTALL[int]} jq
 fi
-if ! command -v sudo > /dev/null 2>&1; then
+if ! command -v sudo >/dev/null 2>&1; then
     _yellow "Installing sudo"
     ${PACKAGE_INSTALL[int]} sudo
 fi

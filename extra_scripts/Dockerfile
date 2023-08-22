@@ -1,18 +1,18 @@
 FROM debian AS builder
-RUN apt-get update -y && \
+RUN apt-get update -y &&
     apt-get install -y build-essential curl net-tools jq
 
 FROM debian
 COPY --from=builder /usr/bin/curl /usr/bin/
 COPY --from=builder /usr/bin/jq /usr/bin/
 
-RUN apt-get update -y && \
+RUN apt-get update -y &&
     apt-get install -y \
-    qemu-kvm libvirt-daemon-system libvirt-dev openssh-server openssh-client iptables && \
+        qemu-kvm libvirt-daemon-system libvirt-dev openssh-server openssh-client iptables &&
     apt-get clean
 
-RUN curl -Lk https://github.com/hashicorp/vagrant/releases/download/2.3.8.dev%2B000086-5fc64cde/vagrant_2.3.8.dev-1_amd64.deb -o vagrant.deb && \
-    dpkg -i vagrant.deb && \
+RUN curl -Lk https://github.com/hashicorp/vagrant/releases/download/2.3.8.dev%2B000086-5fc64cde/vagrant_2.3.8.dev-1_amd64.deb -o vagrant.deb &&
+    dpkg -i vagrant.deb &&
     rm vagrant.deb
 
 # RUN $(apt-cache search linux-image | grep cloud | tail -n 1 | awk '{print $1}')
@@ -35,4 +35,3 @@ RUN vagrant init peru/windows-10-enterprise-x64-eval
 # peru/windows-server-2022-standard-x64-eval
 # peru/windows-server-2019-standard-x64-eval
 COPY startup.sh /
-

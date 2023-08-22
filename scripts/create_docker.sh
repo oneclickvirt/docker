@@ -1,34 +1,33 @@
 #!/bin/bash
-# from 
+# from
 # https://github.com/spiritLHLS/docker
 # 2023.08.12
-
 
 # cd /root
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading(){ read -rp "$(_green "$1")" "$2"; }
+reading() { read -rp "$(_green "$1")" "$2"; }
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "utf8|UTF-8")
 if [[ -z "$utf8_locale" ]]; then
-  _yellow "No UTF-8 locale found"
+    _yellow "No UTF-8 locale found"
 else
-  export LC_ALL="$utf8_locale"
-  export LANG="$utf8_locale"
-  export LANGUAGE="$utf8_locale"
-  _green "Locale set to $utf8_locale"
+    export LC_ALL="$utf8_locale"
+    export LANG="$utf8_locale"
+    export LANGUAGE="$utf8_locale"
+    _green "Locale set to $utf8_locale"
 fi
 cd /root >/dev/null 2>&1
 
-pre_check(){
+pre_check() {
     home_dir=$(eval echo "~$(whoami)")
     if [ "$home_dir" != "/root" ]; then
         _red "Current path is not /root, script will exit."
         _red "当前路径不是/root，脚本将退出。"
         exit 1
     fi
-    if ! command -v docker > /dev/null 2>&1; then
+    if ! command -v docker >/dev/null 2>&1; then
         curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/pre_build.sh -o pre_build.sh
         chmod 777 pre_build.sh
         dos2unix pre_build.sh
@@ -51,7 +50,7 @@ pre_check(){
     fi
 }
 
-check_log(){
+check_log() {
     log_file="dclog"
     if [ -f "$log_file" ]; then
         _green "dclog file exists, content being read..."
@@ -59,16 +58,16 @@ check_log(){
         while read line; do
             # echo "$line"
             last_line="$line"
-        done < "$log_file"
+        done <"$log_file"
         last_line_array=($last_line)
         container_name="${last_line_array[0]}"
         ssh_port="${last_line_array[1]}"
         password="${last_line_array[2]}"
         public_port_start="${last_line_array[5]}"
         public_port_end="${last_line_array[6]}"
-#         if lsmod | grep -q xfs; then
-#           disk="${last_line_array[7]}"
-#         fi
+        #         if lsmod | grep -q xfs; then
+        #           disk="${last_line_array[7]}"
+        #         fi
         container_prefix="${container_name%%[0-9]*}"
         container_num="${container_name##*[!0-9]}"
         _yellow "Current information about the last docker:"
@@ -85,10 +84,10 @@ check_log(){
         ssh_port=25000
         public_port_end=35000
     fi
-    
+
 }
 
-build_new_containers(){
+build_new_containers() {
     while true; do
         _green "How many more dockers do I need to generate? (Enter how many dockers to add):"
         reading "还需要生成几个小鸡？(输入新增几个小鸡)：" new_nums
@@ -120,41 +119,40 @@ build_new_containers(){
             _yellow "输入无效，请输入 'debian' 或 'alpine'。"
         fi
     done
-#     if lsmod | grep -q xfs; then
-#       while true; do
-#           Reading "What size hard drive is assigned to each docker? (Hard drive size per docker, enter 1 if 1G hard drive is requi_red):"
-#           reading "每个小鸡分配多大硬盘？(每个小鸡硬盘大小，若需要1G硬盘，输入1)：" disk_nums
-#           if [[ "$disk_nums" =~ ^[1-9][0-9]*$ ]]; then
-#               break
-#           else
-#               _yellow "Invalid input, please enter a positive integer."
-#               _yellow "输入无效，请输入一个正整数。"
-#           fi
-#       done
-#     else
-#       disk_nums=""
-#     fi
-    for ((i=1; i<=$new_nums; i++)); do
+    #     if lsmod | grep -q xfs; then
+    #       while true; do
+    #           Reading "What size hard drive is assigned to each docker? (Hard drive size per docker, enter 1 if 1G hard drive is requi_red):"
+    #           reading "每个小鸡分配多大硬盘？(每个小鸡硬盘大小，若需要1G硬盘，输入1)：" disk_nums
+    #           if [[ "$disk_nums" =~ ^[1-9][0-9]*$ ]]; then
+    #               break
+    #           else
+    #               _yellow "Invalid input, please enter a positive integer."
+    #               _yellow "输入无效，请输入一个正整数。"
+    #           fi
+    #       done
+    #     else
+    #       disk_nums=""
+    #     fi
+    for ((i = 1; i <= $new_nums; i++)); do
         container_num=$(($container_num + 1))
         container_name="${container_prefix}${container_num}"
         ssh_port=$(($ssh_port + 1))
         public_port_start=$(($public_port_end + 1))
         public_port_end=$(($public_port_start + 25))
         ori=$(date | md5sum)
-        passwd=${ori: 2: 9}
+        passwd=${ori:2:9}
         # ./onedocker.sh name cpu memory password sshport startport endport <disk>
-#         if [ -n "$disk_nums" ]; then
-#           ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $disk_nums
-#         else
+        #         if [ -n "$disk_nums" ]; then
+        #           ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $disk_nums
+        #         else
         ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $system
-#         fi
-        cat "$container_name" >> dclog
+        #         fi
+        cat "$container_name" >>dclog
         rm -rf $container_name
     done
 }
 
-
-if ! command -v docker > /dev/null 2>&1; then
+if ! command -v docker >/dev/null 2>&1; then
     _yellow "There is no Docker environment on this machine, please execute the main installation first."
     _yellow "没有Docker环境，请先执行主体安装"
     exit 1

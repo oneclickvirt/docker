@@ -1,22 +1,21 @@
 #!/bin/bash
-# from 
+# from
 # https://github.com/spiritLHLS/docker
 # 2023.08.14
 
-
 set -eou pipefail
 chown root:kvm /dev/kvm
-cat > /etc/apt/preferences.d/hashicorp <<EOF
+cat >/etc/apt/preferences.d/hashicorp <<EOF
 Package: *
 Pin: origin apt.releases.hashicorp.com
 Pin-Priority: 999
 EOF
 systemctl enable libvirtd virtlogd --now
-VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up 
+VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up
 # --debug
 rdp_info=$(vagrant rdp 2>&1)
 ip_address=$(echo "$rdp_info" | grep -oP 'Address: (\d+\.\d+\.\d+\.\d+)' | grep -oP '(\d+\.\d+\.\d+\.\d+)')
-iptables-save > $HOME/firewall.txt
+iptables-save >$HOME/firewall.txt
 iptables -X
 iptables -t nat -F
 iptables -t nat -X
