@@ -19,7 +19,15 @@
 
 ## 说明文档
 
-[virt.spiritlhl.net](https://virt.spiritlhl.net/) 中 Docker 分区内容
+国内(China)：
+
+[virt.spiritlhl.net](https://virt.spiritlhl.net/)
+
+国际(Global)：
+
+[www.spiritlhl.net](https://www.spiritlhl.net/)
+
+说明文档中 Docker 分区内容
 
 ## Stargazers over time
 
