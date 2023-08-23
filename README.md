@@ -10,6 +10,13 @@
 
 [更新日志](CHANGELOG.md)
 
+## 待解决的问题
+
+- 模板构建自定义的模板提前初始化好部分内容，避免原始模板过于干净导致初始化时间过长
+- Linux的容器暂不支持分配上独立的IPV6地址，待添加
+- Linux的容器暂不支持开设debian和alpine之外的系统，待添加补充
+- Windows的容器目前镜像很大，待缩小镜像大小做精简版
+
 ## 说明文档
 
 [virt.spiritlhl.net](https://virt.spiritlhl.net/) 中 Docker 分区内容
