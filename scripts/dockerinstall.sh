@@ -287,7 +287,7 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
     fi
     json_content="{
         \"ipv6\": true,
-        \"fixed-cidr-v6\": \"$ipv6_address_without_last_segment/$ipv6_prefixlen\",
+        \"fixed-cidr-v6\": \"$ipv6_address_without_last_segment/$ipv6_prefixlen\"
     }"
         # \"ip6tables\": true,
         # \"experimental\": true
