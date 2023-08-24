@@ -38,6 +38,7 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
+set -e
 
 statistics_of_run-times() {
     COUNT=$(
@@ -315,6 +316,21 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
             fi
         fi
     fi
+    if ! command -v radvd >/dev/null 2>&1; then
+        _yellow "Installing radvd"
+        ${PACKAGE_INSTALL[int]} radvd
+    fi
+config_content="interface eth0 {
+  AdvSendAdvert on;
+  MinRtrAdvInterval 3;
+  MaxRtrAdvInterval 10;
+  prefix $ipv6_address_without_last_segment/$ipv6_prefixlen {
+    AdvOnLink on;
+    AdvAutonomous on;
+    AdvRouterAddr on;
+  };
+};"
+    echo "$config_content" | sudo tee /etc/radvd.conf > /dev/null
 fi
 systemctl restart docker
 sleep 4
