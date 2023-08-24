@@ -333,5 +333,7 @@ config_content="interface eth0 {
     echo "$config_content" | sudo tee /etc/radvd.conf > /dev/null
 fi
 systemctl restart docker
+systemctl restart radvd
 sleep 4
 systemctl status docker 2>/dev/null
+systemctl status radvd 2>/dev/null
