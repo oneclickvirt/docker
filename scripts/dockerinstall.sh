@@ -282,17 +282,17 @@ ipv6_gateway=$(cat /usr/local/bin/docker_ipv6_gateway)
 
 # 检测docker的配置文件
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
-    if [ ! -f /etc/docker/daemon.json ]; then
-        touch /etc/docker/daemon.json
-    fi
-    json_content="{
-        \"ipv6\": true,
-        \"fixed-cidr-v6\": \"$ipv6_address_without_last_segment/$ipv6_prefixlen\",
-        \"default-gateway-v6\": \"$ipv6_address_without_last_segment1\"
-    }"
-        # \"ip6tables\": true,
-        # \"experimental\": true
-    echo "$json_content" >/etc/docker/daemon.json
+    # if [ ! -f /etc/docker/daemon.json ]; then
+    #     touch /etc/docker/daemon.json
+    # fi
+    # json_content="{
+    #     \"ipv6\": true,
+    #     \"fixed-cidr-v6\": \"$ipv6_address_without_last_segment/$ipv6_prefixlen\",
+    #     \"default-gateway-v6\": \"$ipv6_address_without_last_segment1\"
+    # }"
+    #     # \"ip6tables\": true,
+    #     # \"experimental\": true
+    # echo "$json_content" >/etc/docker/daemon.json
     # 设置允许IPV6转发
     sysctl_path=$(which sysctl)
     $sysctl_path -w net.ipv6.conf.all.forwarding=1
@@ -303,34 +303,17 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
     $sysctl_path -f
     if [ "$ipv6_prefixlen" -le 64 ]; then
         if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
-            if [ "$system_arch" = "x86" ]; then
-                wget ${cdn_success_url}https://github.com/spiritLHLS/pve/releases/download/ndpresponder_x86/ndpresponder -O /usr/local/bin/ndpresponder
-                wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/pve/main/extra_scripts/ndpresponder.service -O /etc/systemd/system/ndpresponder.service
-                chmod 777 /usr/local/bin/ndpresponder
-                chmod 777 /etc/systemd/system/ndpresponder.service
-            elif [ "$system_arch" = "arch" ]; then
-                wget ${cdn_success_url}https://github.com/spiritLHLS/pve/releases/download/ndpresponder_aarch64/ndpresponder -O /usr/local/bin/ndpresponder
-                wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/pve/main/extra_scripts/ndpresponder.service -O /etc/systemd/system/ndpresponder.service
-                chmod 777 /usr/local/bin/ndpresponder
-                chmod 777 /etc/systemd/system/ndpresponder.service
-            fi
+            docker network create --ipv6 --subnet=172.26.0.0/16 \
+              --subnet=$ipv6_address_without_last_segment/$ipv6_prefixlen ipv6_net
+            docker run -d \
+              --restart always --cpus 0.02 --memory 64M \
+              -v /var/run/docker.sock:/var/run/docker.sock:ro \
+              --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+              --network host --name ndpresponder \
+              ndpresponder -i ${interface} -N ipv6_net
         fi
     fi
-    if [ -f "/usr/local/bin/ndpresponder" ]; then
-        new_exec_start="ExecStart=/usr/local/bin/ndpresponder -i ${interface} -n ${ipv6_address_without_last_segment}/${ipv6_prefixlen}"
-        file_path="/etc/systemd/system/ndpresponder.service"
-        line_number=6
-        sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
-    fi
-fi
-if [ -f "/usr/local/bin/ndpresponder" ]; then
-    systemctl daemon-reload
-    systemctl enable ndpresponder.service
-    systemctl start ndpresponder.service
 fi
 systemctl restart docker
 sleep 4
 systemctl status docker 2>/dev/null
-if [ -f "/usr/local/bin/ndpresponder" ]; then
-    systemctl status ndpresponder.service 2>/dev/null
-fi
