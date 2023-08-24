@@ -89,7 +89,7 @@ else
             --memory=${memory}m \
             --name ${name} \
             --network=ipv6_net \
-            --ip6="${ipv6_address_without_last_segment}11" \
+            # --ip6="${ipv6_address_without_last_segment}11" \
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
