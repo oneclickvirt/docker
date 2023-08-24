@@ -311,7 +311,6 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
         line_number=6
         sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
     fi
-    docker network create --ipv6 --subnet=172.26.0.0/16 --subnet=${ipv6_address_without_last_segment}/${ipv6_prefixlen} ipv6_subnet
 fi
 if [ -f "/usr/local/bin/ndpresponder" ]; then
     systemctl daemon-reload
