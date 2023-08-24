@@ -305,12 +305,14 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
         if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
             docker network create --ipv6 --subnet=172.26.0.0/16 \
               --subnet=$ipv6_address_without_last_segment/$ipv6_prefixlen ipv6_net
-            docker run -d \
-              --restart always --cpus 0.02 --memory 64M \
-              -v /var/run/docker.sock:/var/run/docker.sock:ro \
-              --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-              --network host --name ndpresponder \
-              ndpresponder -i ${interface} -N ipv6_net
+            if [ "$system_arch" = "x86" ]; then
+                docker run -d \
+                  --restart always --cpus 0.02 --memory 64M \
+                  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                  --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                  --network host --name ndpresponder \
+                  spiritlhl/ndpresponder_x86 -i ${interface} -N ipv6_net
+            fi
         fi
     fi
 fi
