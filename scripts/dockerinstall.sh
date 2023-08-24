@@ -329,7 +329,7 @@ if [ -f "/usr/local/bin/ndpresponder" ]; then
 fi
 systemctl restart docker
 sleep 3
-systemctl status docker
+systemctl status docker 2>/dev/null
 if [ -f "/usr/local/bin/ndpresponder" ]; then
-    systemctl status ndpresponder.service
+    systemctl status ndpresponder.service 2>/dev/null
 fi
