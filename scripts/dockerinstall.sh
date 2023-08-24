@@ -282,6 +282,17 @@ ipv6_gateway=$(cat /usr/local/bin/docker_ipv6_gateway)
 
 # 检测docker的配置文件
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
+    if [ ! -f /etc/docker/daemon.json ]; then
+        touch /etc/docker/daemon.json
+    fi
+    json_content="{
+        \"ipv6\": true,
+        \"fixed-cidr-v6\": \"$ipv6_address_without_last_segment/$ipv6_prefixlen\",
+        \"default-gateway-v6\": \"$ipv6_address_without_last_segment1\"
+    }"
+        # \"ip6tables\": true,
+        # \"experimental\": true
+    echo "$json_content" >/etc/docker/daemon.json
     # 设置允许IPV6转发
     sysctl_path=$(which sysctl)
     $sysctl_path -w net.ipv6.conf.all.forwarding=1
