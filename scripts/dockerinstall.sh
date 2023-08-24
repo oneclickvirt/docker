@@ -316,7 +316,7 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
         fi
     fi
     if [ -f "/usr/local/bin/ndpresponder" ]; then
-        new_exec_start="ExecStart=/usr/local/bin/ndpresponder -i vmbr0 -n ${ipv6_address_without_last_segment}/${ipv6_prefixlen}"
+        new_exec_start="ExecStart=/usr/local/bin/ndpresponder -i bridge -n ${ipv6_address_without_last_segment}/${ipv6_prefixlen}"
         file_path="/etc/systemd/system/ndpresponder.service"
         line_number=6
         sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
