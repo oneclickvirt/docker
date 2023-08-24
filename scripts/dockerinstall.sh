@@ -331,9 +331,11 @@ config_content="interface eth0 {
   };
 };"
     echo "$config_content" | sudo tee /etc/radvd.conf > /dev/null
+    systemctl restart radvd
 fi
 systemctl restart docker
-systemctl restart radvd
 sleep 4
 systemctl status docker 2>/dev/null
-systemctl status radvd 2>/dev/null
+if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
+    systemctl status radvd 2>/dev/null
+fi
