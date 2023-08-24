@@ -271,8 +271,8 @@ proxy ${interface} {
 }
 EOT
     systemctl restart docker
-    sleep 3
     systemctl restart ndppd
+    sleep 4
 fi
 sleep 3
 systemctl status docker 2>/dev/null
