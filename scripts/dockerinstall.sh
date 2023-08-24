@@ -171,6 +171,46 @@ check_ipv6() {
     echo $IPV6 >/usr/local/bin/docker_check_ipv6
 }
 
+check_cdn() {
+    local o_url=$1
+    for cdn_url in "${cdn_urls[@]}"; do
+        if curl -sL -k "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
+            export cdn_success_url="$cdn_url"
+            return
+        fi
+        sleep 0.5
+    done
+    export cdn_success_url=""
+}
+
+check_cdn_file() {
+    check_cdn "https://raw.githubusercontent.com/spiritLHLS/ecs/main/back/test"
+    if [ -n "$cdn_success_url" ]; then
+        _yellow "CDN available, using CDN"
+    else
+        _yellow "No CDN available, no use CDN"
+    fi
+}
+
+get_system_arch() {
+    local sysarch="$(uname -m)"
+    if [ "${sysarch}" = "unknown" ] || [ "${sysarch}" = "" ]; then
+        local sysarch="$(arch)"
+    fi
+    # 根据架构信息设置系统位数并下载文件,其余 * 包括了 x86_64
+    case "${sysarch}" in
+    "i386" | "i686" | "x86_64")
+        system_arch="x86"
+        ;;
+    "armv7l" | "armv8" | "armv8l" | "aarch64")
+        system_arch="arch"
+        ;;
+    *)
+        system_arch=""
+        ;;
+    esac
+}
+
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
@@ -184,6 +224,10 @@ fi
 if ! command -v curl >/dev/null 2>&1; then
     _yellow "Installing curl"
     ${PACKAGE_INSTALL[int]} curl
+fi
+if ! command -v wget >/dev/null 2>&1; then
+    _yellow "Installing wget"
+    ${PACKAGE_INSTALL[int]} wget
 fi
 if ! command -v jq >/dev/null 2>&1; then
     _yellow "Installing jq"
@@ -201,6 +245,9 @@ if ! command -v docker >/dev/null 2>&1; then
     _yellow "Installing docker"
     curl -sSL https://get.docker.com/ | sh
 fi
+cdn_urls=("https://cdn.spiritlhl.workers.dev/" "https://cdn3.spiritlhl.net/" "https://cdn1.spiritlhl.net/" "https://ghproxy.com/" "https://cdn2.spiritlhl.net/")
+check_cdn_file
+get_system_arch
 if ! command -v docker-compose >/dev/null 2>&1; then
     _yellow "Installing docker-compose"
     curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
@@ -208,8 +255,8 @@ if ! command -v docker-compose >/dev/null 2>&1; then
     docker-compose --version
 fi
 ${PACKAGE_INSTALL[int]} openssl
-curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
-curl -sL https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh && chmod +x alpinessh.sh && dos2unix alpinessh.sh
+curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
+curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh && chmod +x alpinessh.sh && dos2unix alpinessh.sh
 
 # 检测物理接口
 interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
@@ -253,29 +300,36 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
     $sysctl_path -w net.ipv6.conf.docker0.proxy_ndp=1
     $sysctl_path -w net.ipv6.conf.${interface}.proxy_ndp=1
     $sysctl_path -f
-    # https://github.com/DanielAdolfsson/ndppd/blob/master/ndppd.conf-dist 参考配置
-    ${PACKAGE_INSTALL[int]} ndppd
-    cat <<EOT >/etc/ndppd.conf
-route-ttl 30000
-address-ttl 30000
-proxy ${interface} {
-   router yes
-   timeout 500
-   autowire no
-   keepalive yes
-   retries 3
-   promiscuous no
-   ttl 30000
-   rule ${ipv6_address_without_last_segment}/${ipv6_prefixlen} {
-      static
-      autovia no
-   }
-}
-EOT
-    systemctl restart docker
-    systemctl restart ndppd
-    sleep 4
+    if [ "$ipv6_prefixlen" -le 64 ]; then
+        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
+            if [ "$system_arch" = "x86" ]; then
+                wget ${cdn_success_url}https://github.com/spiritLHLS/pve/releases/download/ndpresponder_x86/ndpresponder -O /usr/local/bin/ndpresponder
+                wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/pve/main/extra_scripts/ndpresponder.service -O /etc/systemd/system/ndpresponder.service
+                chmod 777 /usr/local/bin/ndpresponder
+                chmod 777 /etc/systemd/system/ndpresponder.service
+            elif [ "$system_arch" = "arch" ]; then
+                wget ${cdn_success_url}https://github.com/spiritLHLS/pve/releases/download/ndpresponder_aarch64/ndpresponder -O /usr/local/bin/ndpresponder
+                wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/pve/main/extra_scripts/ndpresponder.service -O /etc/systemd/system/ndpresponder.service
+                chmod 777 /usr/local/bin/ndpresponder
+                chmod 777 /etc/systemd/system/ndpresponder.service
+            fi
+        fi
+    fi
+    if [ -f "/usr/local/bin/ndpresponder" ]; then
+        new_exec_start="ExecStart=/usr/local/bin/ndpresponder -i vmbr0 -n ${ipv6_address_without_last_segment}/${ipv6_prefixlen}"
+        file_path="/etc/systemd/system/ndpresponder.service"
+        line_number=6
+        sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
+    fi
 fi
+if [ -f "/usr/local/bin/ndpresponder" ]; then
+    systemctl daemon-reload
+    systemctl enable ndpresponder.service
+    systemctl start ndpresponder.service
+fi
+systemctl restart docker
 sleep 3
-systemctl status docker 2>/dev/null
-systemctl status ndppd 2>/dev/null
+systemctl status docker
+if [ -f "/usr/local/bin/ndpresponder" ]; then
+    systemctl status ndpresponder.service
+fi
