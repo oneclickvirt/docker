@@ -89,6 +89,10 @@ else
             --memory=${memory}m \
             --name ${name} \
             --network=ipv6_net \
+            --device /dev/net/tun \
+            --privileged \
+            --cap-add net_admin \
+            --cap-add sys_module \
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
