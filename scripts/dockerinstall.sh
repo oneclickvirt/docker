@@ -247,8 +247,6 @@ if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
 rebuild_cloud_init
-# 更改网络优先级为IPV4优先
-sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf && systemctl restart networking
 statistics_of_run-times
 _green "脚本当天运行次数:${TODAY}，累计运行次数:${TOTAL}"
 check_update
