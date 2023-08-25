@@ -40,6 +40,36 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
 done
 set -e
 
+rebuild_cloud_init() {
+    if [ -f "/etc/cloud/cloud.cfg" ]; then
+        chattr -i /etc/cloud/cloud.cfg
+        if grep -q "preserve_hostname: true" "/etc/cloud/cloud.cfg"; then
+            :
+        else
+            sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' "/etc/cloud/cloud.cfg"
+            echo "change preserve_hostname to true"
+        fi
+        if grep -q "disable_root: false" "/etc/cloud/cloud.cfg"; then
+            :
+        else
+            sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' "/etc/cloud/cloud.cfg"
+            echo "change disable_root to false"
+        fi
+        chattr -i /etc/cloud/cloud.cfg
+        content=$(cat /etc/cloud/cloud.cfg)
+        line_number=$(grep -n "^system_info:" "/etc/cloud/cloud.cfg" | cut -d ':' -f 1)
+        if [ -n "$line_number" ]; then
+            lines_after_system_info=$(echo "$content" | sed -n "$((line_number + 1)),\$p")
+            if [ -n "$lines_after_system_info" ]; then
+                updated_content=$(echo "$content" | sed "$((line_number + 1)),\$d")
+                echo "$updated_content" >"/etc/cloud/cloud.cfg"
+            fi
+        fi
+        sed -i '/^\s*- set-passwords/s/^/#/' /etc/cloud/cloud.cfg
+        chattr +i /etc/cloud/cloud.cfg
+    fi
+}
+
 statistics_of_run-times() {
     COUNT=$(
         curl -4 -ksm1 "https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FspiritLHLS%2Fdocker&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=&edge_flat=true" 2>&1 ||
@@ -215,6 +245,9 @@ get_system_arch() {
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
+rebuild_cloud_init
+# 更改网络优先级为IPV4优先
+sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf && systemctl restart networking
 statistics_of_run-times
 _green "脚本当天运行次数:${TODAY}，累计运行次数:${TOTAL}"
 check_update
@@ -330,6 +363,8 @@ iface $interface inet6 static
         gateway $ipv6_gateway
         up ip addr del $fe80_address dev $interface
 EOF
+    systemctl restart networking
+    sleep 5
     # 设置允许IPV6转发
     sysctl_path=$(which sysctl)
     $sysctl_path -w net.ipv6.conf.all.forwarding=1
