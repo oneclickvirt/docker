@@ -374,7 +374,7 @@ iface $interface inet static
         dns-nameservers 8.8.8.8 8.8.4.4
 
 iface $interface inet6 static
-        address $ipv6_address_without_last_segment2
+        address $ipv6_address_without_last_segment2/$ipv6_prefixlen
         gateway $ipv6_address_without_last_segment1
         up ip addr del $fe80_address dev $interface
 EOF
