@@ -369,7 +369,6 @@ iface lo inet loopback
 auto $interface
 iface $interface inet static
         address $ipv4_address
-        pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
         gateway $ipv4_gateway
         netmask $ipv4_subnet
         dns-nameservers 8.8.8.8 8.8.4.4
@@ -379,6 +378,7 @@ iface $interface inet6 static
         up ip addr del $fe80_address dev $interface
 EOF
     chattr +i /etc/network/interfaces
+    # pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
     chattr -i /etc/network/interfaces.new.bak
     rm -rf /etc/network/interfaces.new.bak
     # 设置允许IPV6转发
