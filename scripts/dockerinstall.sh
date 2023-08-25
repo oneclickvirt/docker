@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.08.24
+# 2023.08.25
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -264,6 +264,32 @@ interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
 interface_2=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '2p')
 check_interface
 
+# 检测主IPV4相关信息
+if [ ! -f /usr/local/bin/docker_main_ipv4 ]; then
+    main_ipv4=$(ip -4 addr show | grep global | awk '{print $2}' | cut -d '/' -f1 | head -n 1)
+    echo "$main_ipv4" >/usr/local/bin/docker_main_ipv4
+fi
+# 提取主IPV4地址
+main_ipv4=$(cat /usr/local/bin/docker_main_ipv4)
+if [ ! -f /usr/local/bin/docker_ipv4_address ]; then
+    ipv4_address=$(ip addr show | awk '/inet .*global/ && !/inet6/ {print $2}' | sed -n '1p')
+    echo "$ipv4_address" >/usr/local/bin/docker_ipv4_address
+fi
+# 提取IPV4地址 含子网长度
+ipv4_address=$(cat /usr/local/bin/docker_ipv4_address)
+if [ ! -f /usr/local/bin/docker_ipv4_gateway ]; then
+    ipv4_gateway=$(ip route | awk '/default/ {print $3}' | sed -n '1p')
+    echo "$ipv4_gateway" >/usr/local/bin/docker_ipv4_gateway
+fi
+# 提取IPV4网关
+ipv4_gateway=$(cat /usr/local/bin/docker_ipv4_gateway)
+if [ ! -f /usr/local/bin/docker_ipv4_subnet ]; then
+    ipv4_subnet=$(ipcalc -n "$ipv4_address" | grep -oP 'Netmask:\s+\K.*' | awk '{print $1}')
+    echo "$ipv4_subnet" >/usr/local/bin/docker_ipv4_subnet
+fi
+# 提取Netmask
+ipv4_subnet=$(cat /usr/local/bin/docker_ipv4_subnet)
+
 # 检测IPV6相关的信息
 if [ ! -f /usr/local/bin/docker_check_ipv6 ] || [ ! -s /usr/local/bin/docker_check_ipv6 ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_check_ipv6)" = "" ]; then
     check_ipv6
@@ -276,24 +302,19 @@ if [ ! -f /usr/local/bin/docker_ipv6_gateway ] || [ ! -s /usr/local/bin/docker_i
     ipv6_gateway=$(ip -6 route show | awk '/default via/{print $3}' | head -n1)
     echo "$ipv6_gateway" >/usr/local/bin/docker_ipv6_gateway
 fi
+if [ ! -f /usr/local/bin/docker_fe80_address ] || [ ! -s /usr/local/bin/docker_fe80_address ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_fe80_address)" = "" ]; then
+    fe80_address=$(ip -6 addr show dev eth0 | awk '/inet6 fe80/ {print $2}')
+    echo "$fe80_address" >/usr/local/bin/docker_fe80_address
+fi
 ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
 ipv6_address_without_last_segment="${ipv6_address%:*}:"
 ipv6_prefixlen=$(cat /usr/local/bin/docker_ipv6_prefixlen)
 ipv6_gateway=$(cat /usr/local/bin/docker_ipv6_gateway)
+fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 
 # 检测docker的配置文件
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
-    # if [ ! -f /etc/docker/daemon.json ]; then
-    #     touch /etc/docker/daemon.json
-    # fi
-    # json_content="{
-    #     \"ipv6\": true,
-    #     \"fixed-cidr-v6\": \"$ipv6_address_without_last_segment/$ipv6_prefixlen\",
-    #     \"default-gateway-v6\": \"$ipv6_address_without_last_segment1\"
-    # }"
-    #     # \"ip6tables\": true,
-    #     # \"experimental\": true
-    # echo "$json_content" >/etc/docker/daemon.json
+    
     # 设置允许IPV6转发
     sysctl_path=$(which sysctl)
     $sysctl_path -w net.ipv6.conf.all.forwarding=1
