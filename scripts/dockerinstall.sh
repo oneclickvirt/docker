@@ -361,6 +361,7 @@ fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 
 # 检测docker的配置文件
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$fe80_address" ]; then
+    chattr -i /etc/network/interfaces
     cat <<EOF >/etc/network/interfaces
 auto lo
 iface lo inet loopback
@@ -375,7 +376,7 @@ iface $interface inet6 static
         gateway $ipv6_gateway
         up ip addr del $fe80_address dev $interface
 EOF
-    systemctl restart networking
+    chattr +i /etc/network/interfaces
     sleep 5
     # 设置允许IPV6转发
     sysctl_path=$(which sysctl)
