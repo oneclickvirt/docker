@@ -274,6 +274,22 @@ if ! command -v lshw >/dev/null 2>&1; then
     _yellow "Installing lshw"
     ${PACKAGE_INSTALL[int]} lshw
 fi
+if ! command -v ipcalc >/dev/null 2>&1; then
+    _yellow "Installing ipcalc"
+    ${PACKAGE_INSTALL[int]} ipcalc
+fi
+if ! command -v bc >/dev/null 2>&1; then
+    _yellow "Installing bc"
+    ${PACKAGE_INSTALL[int]} bc
+fi
+if ! command -v ping >/dev/null 2>&1; then
+    _yellow "Installing iproute2"
+    ${PACKAGE_INSTALL[int]} iproute2
+fi
+if ! command -v ifconfig >/dev/null 2>&1; then
+    _yellow "Installing net-tools"
+    ${PACKAGE_INSTALL[int]} net-tools
+fi
 if ! command -v docker >/dev/null 2>&1; then
     _yellow "Installing docker"
     curl -sSL https://get.docker.com/ | sh
