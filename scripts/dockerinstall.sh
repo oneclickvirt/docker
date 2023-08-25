@@ -38,7 +38,8 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
-set -e
+systemctl disable NetworkManager
+systemctl stop NetworkManager
 
 rebuild_cloud_init() {
     if [ -f "/etc/cloud/cloud.cfg" ]; then
