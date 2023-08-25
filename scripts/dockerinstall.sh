@@ -282,14 +282,11 @@ if ! command -v bc >/dev/null 2>&1; then
     _yellow "Installing bc"
     ${PACKAGE_INSTALL[int]} bc
 fi
-if ! command -v ping >/dev/null 2>&1; then
+if ! command -v ip >/dev/null 2>&1; then
     _yellow "Installing iproute2"
     ${PACKAGE_INSTALL[int]} iproute2
 fi
-if ! command -v ifconfig >/dev/null 2>&1; then
-    _yellow "Installing net-tools"
-    ${PACKAGE_INSTALL[int]} net-tools
-fi
+${PACKAGE_INSTALL[int]} net-tools
 if ! command -v docker >/dev/null 2>&1; then
     _yellow "Installing docker"
     curl -sSL https://get.docker.com/ | sh
