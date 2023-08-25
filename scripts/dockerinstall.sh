@@ -289,6 +289,8 @@ if [ ! -f /usr/local/bin/docker_ipv4_subnet ]; then
 fi
 # 提取Netmask
 ipv4_subnet=$(cat /usr/local/bin/docker_ipv4_subnet)
+# 提取子网掩码
+ipv4_prefixlen=$(echo "$ipv4_address" | cut -d '/' -f 2)
 
 # 检测IPV6相关的信息
 if [ ! -f /usr/local/bin/docker_check_ipv6 ] || [ ! -s /usr/local/bin/docker_check_ipv6 ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_check_ipv6)" = "" ]; then
@@ -313,8 +315,21 @@ ipv6_gateway=$(cat /usr/local/bin/docker_ipv6_gateway)
 fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 
 # 检测docker的配置文件
-if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
-    
+if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$fe80_address" ]; then
+    cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
+        gateway $ipv4_gateway
+
+iface $interface inet6 static
+        gateway $ipv6_gateway
+        up ip addr del $fe80_address dev $interface
+EOF
     # 设置允许IPV6转发
     sysctl_path=$(which sysctl)
     $sysctl_path -w net.ipv6.conf.all.forwarding=1
@@ -326,14 +341,14 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
     if [ "$ipv6_prefixlen" -le 64 ]; then
         if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
             docker network create --ipv6 --subnet=172.26.0.0/16 \
-              --subnet=$ipv6_address_without_last_segment/$ipv6_prefixlen ipv6_net
+                --subnet=$ipv6_address_without_last_segment/$ipv6_prefixlen ipv6_net
             if [ "$system_arch" = "x86" ]; then
                 docker run -d \
-                  --restart always --cpus 0.02 --memory 64M \
-                  -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                  --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                  --network host --name ndpresponder \
-                  spiritlhl/ndpresponder_x86 -i ${interface} -N ipv6_net
+                    --restart always --cpus 0.02 --memory 64M \
+                    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                    --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                    --network host --name ndpresponder \
+                    spiritlhl/ndpresponder_x86 -i ${interface} -N ipv6_net
             fi
         fi
     fi
@@ -341,7 +356,7 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
         _yellow "Installing radvd"
         ${PACKAGE_INSTALL[int]} radvd
     fi
-config_content="interface eth0 {
+    config_content="interface eth0 {
   AdvSendAdvert on;
   MinRtrAdvInterval 3;
   MaxRtrAdvInterval 10;
@@ -351,7 +366,7 @@ config_content="interface eth0 {
     AdvRouterAddr on;
   };
 };"
-    echo "$config_content" | sudo tee /etc/radvd.conf > /dev/null
+    echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
     systemctl restart radvd
 fi
 systemctl restart docker
