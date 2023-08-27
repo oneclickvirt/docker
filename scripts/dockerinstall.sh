@@ -408,6 +408,13 @@ EOF
                     --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
                     --network host --name ndpresponder \
                     spiritlhl/ndpresponder_x86 -i ${interface} -N ipv6_net
+            elif [ "$system_arch" = "arch" ]; then
+                docker run -d \
+                    --restart always --cpus 0.02 --memory 64M \
+                    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                    --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                    --network host --name ndpresponder \
+                    spiritlhl/ndpresponder_aarch64 -i ${interface} -N ipv6_net
             fi
         fi
     fi
