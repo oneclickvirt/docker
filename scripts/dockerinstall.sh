@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.08.25
+# 2023.08.27
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -361,6 +361,12 @@ fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 
 # 检测docker的配置文件
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
+    if [[ "${ipv6_address_without_last_segment: -2}" == "::" ]]; then
+        new_subnet="${ipv6_address_without_last_segment%::*}:${identifier}::/80"
+    else
+        echo "The last two digits of the IPV6 subnet prefix are not ::"
+        break
+    fi
     chattr -i /etc/network/interfaces
     cat <<EOF >/etc/network/interfaces
 auto lo
@@ -392,9 +398,8 @@ EOF
     $sysctl_path -w net.ipv6.conf.${interface}.proxy_ndp=1
     $sysctl_path -f
     if [ "$ipv6_prefixlen" -le 64 ]; then
-        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
-            docker network create --ipv6 --subnet=172.26.0.0/16 \
-                --subnet=$ipv6_address_without_last_segment/$ipv6_prefixlen ipv6_net
+        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
+            docker network create --ipv6 --subnet=172.26.0.0/16 --subnet=$new_subnet ipv6_net
             if [ "$system_arch" = "x86" ]; then
                 docker run -d \
                     --restart always --cpus 0.02 --memory 64M \
