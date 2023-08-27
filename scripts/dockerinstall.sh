@@ -374,8 +374,10 @@ iface $interface inet static
         dns-nameservers 8.8.8.8 8.8.4.4
 
 iface $interface inet6 static
-        gateway $ipv6_address
+        address $ipv6_address/$ipv6_prefixlen
+        gateway $ipv6_gateway
         up ip addr del $fe80_address dev $interface
+        up sysctl -w "net.ipv6.conf.eth0.proxy_ndp=1"
 EOF
     chattr +i /etc/network/interfaces
     # pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
