@@ -346,8 +346,26 @@ if [ ! -f /usr/local/bin/docker_ipv6_prefixlen ] || [ ! -s /usr/local/bin/docker
     echo "$ipv6_prefixlen" >/usr/local/bin/docker_ipv6_prefixlen
 fi
 if [ ! -f /usr/local/bin/docker_ipv6_gateway ] || [ ! -s /usr/local/bin/docker_ipv6_gateway ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_gateway)" = "" ]; then
-    ipv6_gateway=$(ip -6 route show | awk '/default via/{print $3}' | head -n1)
+    output=$(ip -6 route show | awk '/default via/{print $3}')
+    num_lines=$(echo "$output" | wc -l)
+    ipv6_gateway=""
+    if [ $num_lines -eq 1 ]; then
+        ipv6_gateway="$output"
+    elif [ $num_lines -ge 2 ]; then
+        non_fe80_lines=$(echo "$output" | grep -v '^fe80')
+        if [ -n "$non_fe80_lines" ]; then
+            ipv6_gateway=$(echo "$non_fe80_lines" | head -n 1)
+        else
+            ipv6_gateway=$(echo "$output" | head -n 1)
+        fi
+    fi
     echo "$ipv6_gateway" >/usr/local/bin/docker_ipv6_gateway
+    # 判断fe80是否已加白
+    if [[ $ipv6_gateway == fe80* ]]; then
+        ipv6_gateway_fe80="Y"
+    else
+        ipv6_gateway_fe80="N"
+    fi
 fi
 if [ ! -f /usr/local/bin/docker_fe80_address ] || [ ! -s /usr/local/bin/docker_fe80_address ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_fe80_address)" = "" ]; then
     fe80_address=$(ip -6 addr show dev eth0 | awk '/inet6 fe80/ {print $2}')
@@ -369,6 +387,7 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
         break
     fi
     chattr -i /etc/network/interfaces
+    if [[ "${ipv6_gateway_fe80}" == "N" ]]; then
     cat <<EOF >/etc/network/interfaces
 auto lo
 iface lo inet loopback
@@ -386,6 +405,27 @@ iface $interface inet6 static
         up ip addr del $fe80_address dev $interface
         up sysctl -w "net.ipv6.conf.eth0.proxy_ndp=1"
 EOF
+    elif [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
+    cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+
+iface $interface inet6 static
+        address $ipv6_address/$ipv6_prefixlen
+        gateway $ipv6_gateway
+        up sysctl -w "net.ipv6.conf.eth0.proxy_ndp=1"
+EOF
+    else
+        chattr +i /etc/network/interfaces
+        break
+    fi
     chattr +i /etc/network/interfaces
     # pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
     chattr -i /etc/network/interfaces.new.bak
