@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.08.12
+# 2023.08.27
 
 # cd /root
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -133,6 +133,17 @@ build_new_containers() {
     #     else
     #       disk_nums=""
     #     fi
+    while true; do
+        _green "Need to attach a separate IPV6 address to each virtual machine?([N]/y)"
+        reading "是否附加独立的IPV6地址？([N]/y)" independent_ipv6
+        independent_ipv6=$(echo "$independent_ipv6" | tr '[:upper:]' '[:lower:]')
+        if [ "$independent_ipv6" = "y" ] || [ "$independent_ipv6" = "n" ]; then
+            break
+        else
+            _yellow "Invalid input, please enter y or n."
+            _yellow "输入无效，请输入Y或者N。"
+        fi
+    done
     for ((i = 1; i <= $new_nums; i++)); do
         container_num=$(($container_num + 1))
         container_name="${container_prefix}${container_num}"
@@ -145,7 +156,7 @@ build_new_containers() {
         #         if [ -n "$disk_nums" ]; then
         #           ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $disk_nums
         #         else
-        ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $system
+        ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $system $independent_ipv6
         #         fi
         cat "$container_name" >>dclog
         rm -rf $container_name
