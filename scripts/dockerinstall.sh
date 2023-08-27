@@ -361,6 +361,7 @@ fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 
 # 检测docker的配置文件
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
+    identifier="2333"
     if [[ "${ipv6_address_without_last_segment: -2}" == "::" ]]; then
         new_subnet="${ipv6_address_without_last_segment%::*}:${identifier}::/80"
     else
