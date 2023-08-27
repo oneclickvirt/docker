@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.08.24
+# 2023.08.27
 
 # ./onedocker.sh name cpu memory password sshport startport endport <system> <disk> <independent_ipv6>
 
@@ -83,7 +83,7 @@ else
         chmod 777 ssh.sh
         dos2unix ssh.sh
     fi
-    if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
+    if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
         docker run -d \
             --cpus=${cpu} \
             --memory=${memory}m \
@@ -93,12 +93,7 @@ else
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
             debian /bin/bash -c "tail -f /dev/null"
-        docker 
-    # --ip6="${ipv6_address_without_last_segment}11" \
-    # --device /dev/net/tun \
-    # --privileged \
-    # --cap-add net_admin \
-    # --cap-add sys_module \
+        docker
     else
         docker run -d \
             --cpus=${cpu} \
