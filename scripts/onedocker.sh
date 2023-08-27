@@ -3,7 +3,7 @@
 # https://github.com/spiritLHLS/docker
 # 2023.08.27
 
-# ./onedocker.sh name cpu memory password sshport startport endport <system> <disk> <independent_ipv6>
+# ./onedocker.sh name cpu memory password sshport startport endport <system> <independent_ipv6> <disk>
 
 cd /root >/dev/null 2>&1
 name="${1:-test}"
@@ -13,7 +13,8 @@ passwd="${4:-123456}"
 sshport="${5:-25000}"
 startport="${6:-34975}"
 endport="${7:-35000}"
-independent_ipv6="${8:-N}"
+system="${8:-debian}"
+independent_ipv6="${9:-N}"
 independent_ipv6=$(echo "$independent_ipv6" | tr '[:upper:]' '[:lower:]')
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -60,7 +61,7 @@ if [ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_i
     ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
     ipv6_address_without_last_segment="${ipv6_address%:*}:"
 fi
-if [ -n "$8" ] && [ "$8" = "alpine" ]; then
+if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [ ! -f alpinessh.sh ]; then
         curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh
         chmod 777 alpinessh.sh
