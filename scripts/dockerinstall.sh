@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.08.27
+# 2023.08.28
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -243,6 +243,48 @@ get_system_arch() {
     esac
 }
 
+check_china() {
+    _yellow "IP area being detected ......"
+    if [[ -z "${CN}" ]]; then
+        if [[ $(curl -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
+            _yellow "根据ipapi.co提供的信息，当前IP可能在中国"
+            read -e -r -p "是否选用中国镜像完成相关组件安装? ([y]/n) " input
+            case $input in
+            [yY][eE][sS] | [yY])
+                echo "使用中国镜像"
+                CN=true
+                ;;
+            [nN][oO] | [nN])
+                echo "不使用中国镜像"
+                ;;
+            *)
+                echo "使用中国镜像"
+                CN=true
+                ;;
+            esac
+        else
+            if [[ $? -ne 0 ]]; then
+                if [[ $(curl -m 6 -s cip.cc) =~ "中国" ]]; then
+                    _yellow "根据cip.cc提供的信息，当前IP可能在中国"
+                    read -e -r -p "是否选用中国镜像完成相关组件安装? [Y/n] " input
+                    case $input in
+                    [yY][eE][sS] | [yY])
+                        echo "使用中国镜像"
+                        CN=true
+                        ;;
+                    [nN][oO] | [nN])
+                        echo "不使用中国镜像"
+                        ;;
+                    *)
+                        echo "不使用中国镜像"
+                        ;;
+                    esac
+                fi
+            fi
+        fi
+    fi
+}
+
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
@@ -287,9 +329,16 @@ if ! command -v ip >/dev/null 2>&1; then
     ${PACKAGE_INSTALL[int]} iproute2
 fi
 ${PACKAGE_INSTALL[int]} net-tools
+check_china
 if ! command -v docker >/dev/null 2>&1; then
     _yellow "Installing docker"
-    curl -sSL https://get.docker.com/ | sh
+    if [[ -z "${CN}" || "${CN}" != true ]]; then
+        curl -sSL https://get.docker.com/ | sh
+    else
+        wget get.docker.com -O get.docker.sh
+        bash get.docker.sh --mirror Aliyun
+        rm -rf get.docker.sh
+    fi
 fi
 cdn_urls=("https://cdn.spiritlhl.workers.dev/" "https://cdn3.spiritlhl.net/" "https://cdn1.spiritlhl.net/" "https://ghproxy.com/" "https://cdn2.spiritlhl.net/")
 check_cdn_file
