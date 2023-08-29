@@ -417,7 +417,7 @@ if [ ! -f /usr/local/bin/docker_ipv6_gateway ] || [ ! -s /usr/local/bin/docker_i
     fi
 fi
 if [ ! -f /usr/local/bin/docker_fe80_address ] || [ ! -s /usr/local/bin/docker_fe80_address ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_fe80_address)" = "" ]; then
-    fe80_address=$(ip -6 addr show dev eth0 | awk '/inet6 fe80/ {print $2}')
+    fe80_address=$(ip -6 addr show dev $interface | awk '/inet6 fe80/ {print $2}')
     echo "$fe80_address" >/usr/local/bin/docker_fe80_address
 fi
 ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
