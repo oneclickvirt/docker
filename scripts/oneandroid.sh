@@ -179,7 +179,8 @@ docker run -itd \
     --name scrcpy_web \
     -p 127.0.0.1:4888:8000/tcp \
     --link ${name}:web_${name} \
-    emptysuns/scrcpy-web:v0.1
+    maxduke/ws-scrcpy:latest
+# emptysuns/scrcpy-web:v0.1
 start_time=$(date +%s)
 sleep 5
 MAX_WAIT_TIME=16
