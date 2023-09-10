@@ -182,7 +182,7 @@ docker run -itd \
     emptysuns/scrcpy-web:v0.1
 start_time=$(date +%s)
 sleep 5
-MAX_WAIT_TIME=15
+MAX_WAIT_TIME=16
 CONTAINERS=("scrcpy_web" "${name}") # 容器名称列表
 for container in "${CONTAINERS[@]}"; do
     status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)
@@ -214,6 +214,17 @@ while true; do
     echo "等待容器启动中，请耐心等待..."
 done
 docker exec -it scrcpy_web adb connect web_${name}:5555
+if [ $? -ne 0 ]; then
+    docker rm -f android
+    docker rm -f scrcpy_web
+    docker rmi $(docker images | grep "redroid" | awk '{print $3}')
+    rm -rf /etc/nginx/sites-enabled/reverse-proxy
+    rm -rf /etc/nginx/sites-available/reverse-proxy
+    rm -rf /etc/nginx/passwd_scrcpy_web
+    rm -rf /root/android_info
+    _yellow "连接失败，可能无法使用该安卓镜像，已自动清理环境退出程序"
+    exit 1
+fi
 build_reverse_proxy
 rm -rf /root/android_info
 echo "$name $selected_tag $user_name $user_password http://${IPV4}:80" >>/root/android_info
