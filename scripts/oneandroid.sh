@@ -214,7 +214,7 @@ while true; do
     echo "Please be patient while waiting for the container to start..."
     echo "等待容器启动中，请耐心等待..."
 done
-output=$(docker exec -it scrcpy_web adb connect web_${name}:5555 2>&1)
+output=$(docker exec -it scrcpy_web adb connect web_${name}:5555)
 if [ $? -ne 0 ] || [[ $output == *"failed to connect to 'web_android:5555': Connection refused"* ]]; then
     docker rm -f android
     docker rm -f scrcpy_web
