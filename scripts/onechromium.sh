@@ -92,9 +92,9 @@ docker run -d \
   --restart unless-stopped \
   lscr.io/linuxserver/chromium:latest
 
-_green "URL(http): ${IPV4}:$http_port"
-_green "URL(https): ${IPV4}:$https_port"
+_green "URL(http): http://${IPV4}:$http_port/"
+_green "URL(https): https://${IPV4}:$https_port/"
 _green "Password: $password"
-_green "网址(http)：${IPV4}:$http_port"
-_green "网址(https)：${IPV4}:$https_port"
+_green "网址(http)：http://${IPV4}:$http_port/"
+_green "网址(https)：https://${IPV4}:$https_port/"
 _green "密码: $password"
