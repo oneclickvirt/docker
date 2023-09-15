@@ -38,6 +38,9 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
+if [ ! -d /usr/local/bin ]; then
+    mkdir -p /usr/local/bin
+fi
 
 check_ipv4() {
     API_NET=("ip.sb" "ipget.net" "ip.ping0.cc" "https://ip4.seeip.org" "https://api.my-ip.io/ip" "https://ipv4.icanhazip.com" "api.ipify.org")
@@ -63,27 +66,35 @@ _green "Can be opened more than one, as long as you correspond to the use of dif
 _green "可多开，只要你对应使用不同的web端口和vnc端口即可，因为容器名字是和端口对应的，端口不重复容器名字就不重复可多开"
 _green "Browser access password: (leave blank to default to oneclick):"
 reading "浏览器访问密码(留空则默认为oneclick):" password
-_green "Browser access port (default 3003 if left blank):"
-reading "浏览器访问端口(留空则默认3003):" web_port
-_green "Ports on which to run VNC (leave empty for default not to run):"
-reading "运行VNC的端口(留空默认不运行):" vnc_port
+_green "Browser http access port (default 3004 if left blank):"
+reading "浏览器http访问端口(留空则默认3004):" http_port
+_green "Browser https access port (default 3005 if left blank):"
+reading "浏览器https访问端口(留空则默认3005):" https_port
 _green "Set the maximum occupied memory, enter the number only (leave blank the default setting of 2G memory):"
 reading "设置最大占用内存，仅输入数字(留空默认设置为2G内存):" shm_size
-[[ -z "$web_port" ]] && web_port=3003
-[[ -z "$password" ]] && password="oneclick"
-[[ "$vnc_port" ]] && vnc="-p $vnc_port:5900" && vnc_en="VNC port:$vnc_port, VNC password is the same as the browser access password." && vnc_cn="VNC端口:$vnc_port，VNC密码同浏览器访问密码一致"
+[[ -z "$http_port" ]] && http_port=3004
+[[ -z "$https_port" ]] && https_port=3005
+[[ -z "$password" ]] && password="oneclick" && echo $password > /usr/local/bin/password_${http_port}
 [[ -z "$shm_size" ]] && shm_size="2"
+
 docker run -d \
-    --name=firefox_${web_port} \
-    $vnc \
-    -e KEEP_APP_RUNNING=1 \
-    -e ENABLE_CJK_FONT=1 \
-    -e VNC_PASSWORD=$password \
-    -e "FF_PREF_HOME=browser.startup.homepage=\"https://www.spiritlhl.net/\"" \
-    -p 0.0.0.0:$web_port:5800 \
-    -v /docker/appdata/firefox:/config:rw \
-    --shm-size ${shm_size}g \
-    jlesage/firefox
-_green "URL(http): ${IPV4}:$web_port, Password: $password"
-_green "网址(http)：${IPV4}:$web_port，密码: $password"
-[[ "$vnc_port" ]] && _green "$vnc_en" && _green "$vnc_cn"
+  --name=chromium_${http_port} \
+  --security-opt seccomp=unconfined `#optional` \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -e TZ=Etc/UTC \
+  -e CHROME_CLI=https://www.spiritlhl.net/ `#optional` \
+  -e FILE__PASSWORD=/usr/local/bin/password_${http_port} \
+  -p 0.0.0.0:${http_port}:3000 \
+  -p 0.0.0.0:${https_port}:3001 \
+  -v /path/to/config:/config \
+  --shm-size="${shm_size}gb" \
+  --restart unless-stopped \
+  lscr.io/linuxserver/chromium:latest
+
+_green "URL(http): ${IPV4}:$http_port"
+_green "URL(https): ${IPV4}:$https_port"
+_green "Password: $password"
+_green "网址(http)：${IPV4}:$http_port"
+_green "网址(https)：${IPV4}:$https_port"
+_green "密码: $password"
