@@ -38,6 +38,9 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
+if [ ! -d /usr/local/bin ]; then
+    mkdir -p /usr/local/bin
+fi
 
 check_ipv4() {
     API_NET=("ip.sb" "ipget.net" "ip.ping0.cc" "https://ip4.seeip.org" "https://api.my-ip.io/ip" "https://ipv4.icanhazip.com" "api.ipify.org")
@@ -79,11 +82,11 @@ docker run -d \
     -e KEEP_APP_RUNNING=1 \
     -e ENABLE_CJK_FONT=1 \
     -e VNC_PASSWORD=$password \
-    -e "FF_PREF_HOME=browser.startup.homepage=\"https://www.spiritlhl.net/\"" \
+    -e "FF_PREF_WELCOME_URL=startup.homepage_welcome_url=\"https://www.spiritlhl.net\"" \
     -p 0.0.0.0:$web_port:5800 \
-    -v /docker/appdata/firefox:/config:rw \
+    -v /usr/local/bin/firefox_${web_port}:/config:rw \
     --shm-size ${shm_size}g \
-    jlesage/firefox
+    jlesage/firefox:latest
 _green "URL(http): ${IPV4}:$web_port, Password: $password"
 _green "网址(http)：${IPV4}:$web_port，密码: $password"
 [[ "$vnc_port" ]] && _green "$vnc_en" && _green "$vnc_cn"
