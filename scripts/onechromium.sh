@@ -87,7 +87,7 @@ docker run -d \
   -e FILE__PASSWORD=/usr/local/bin/password_${http_port} \
   -p 0.0.0.0:${http_port}:3000 \
   -p 0.0.0.0:${https_port}:3001 \
-  -v /path/to/config:/config \
+  -v /usr/local/bin/config_${http_port}:/config \
   --shm-size="${shm_size}gb" \
   --restart unless-stopped \
   lscr.io/linuxserver/chromium:latest
