@@ -463,7 +463,7 @@ iface $interface inet6 static
         address $ipv6_address/$ipv6_prefixlen
         gateway $ipv6_gateway
         up ip addr del $fe80_address dev $interface
-        up sysctl -w "net.ipv6.conf.eth0.proxy_ndp=1"
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
 EOF
     elif [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
     cat <<EOF >/etc/network/interfaces
