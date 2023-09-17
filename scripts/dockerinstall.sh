@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.08.28
+# 2023.09.17
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -285,6 +285,17 @@ check_china() {
     fi
 }
 
+update_sysctl() {
+  sysctl_config="$1"
+  if grep -q "^$sysctl_config" /etc/sysctl.conf; then
+    if grep -q "^#$sysctl_config" /etc/sysctl.conf; then
+      sed -i "s/^#$sysctl_config/$sysctl_config/" /etc/sysctl.conf
+    fi
+  else
+    echo "$sysctl_config" >> /etc/sysctl.conf
+  fi
+}
+
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
@@ -523,7 +534,12 @@ EOF
 };"
     echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
     systemctl restart radvd
+    update_sysctl "net.ipv6.conf.all.forwarding=1"
+    update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
+    update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
 fi
+sysctl_path=$(which sysctl)
+${sysctl_path} -p
 systemctl restart docker
 sleep 4
 systemctl status docker 2>/dev/null
