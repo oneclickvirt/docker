@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.08.27
+# 2023.09.16
 
 # ./onedocker.sh name cpu memory password sshport startport endport <system> <independent_ipv6> <disk>
 
@@ -93,6 +93,7 @@ else
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
+            --restart=no-failure:3 \
             debian /bin/bash -c "tail -f /dev/null"
         docker
     else
@@ -102,6 +103,7 @@ else
             --name ${name} \
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
+            --restart=no-failure:3 \
             --cap-add=MKNOD \
             debian /bin/bash -c "tail -f /dev/null"
     fi
