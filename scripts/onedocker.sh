@@ -93,7 +93,6 @@ else
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
-            --restart=no-failure:3 \
             debian /bin/bash -c "tail -f /dev/null"
         docker
     else
@@ -103,7 +102,6 @@ else
             --name ${name} \
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
-            --restart=no-failure:3 \
             --cap-add=MKNOD \
             debian /bin/bash -c "tail -f /dev/null"
     fi
