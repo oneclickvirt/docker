@@ -565,7 +565,7 @@ EOF
     update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
 fi
 install_docker_and_compose
-if systemctl is-active --quiet systemd-networkd; then
+if systemctl is-active --quiet systemd-networkd && ! systemctl is-active --quiet networking; then
     if ! dpkg -S ifupdown; then
         prebuild_ifupdown
     fi
