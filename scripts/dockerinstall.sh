@@ -505,7 +505,7 @@ iface $interface inet static
 iface $interface inet6 static
         address $ipv6_address/$ipv6_prefixlen
         gateway $ipv6_gateway
-        up sysctl -w "net.ipv6.conf.eth0.proxy_ndp=1"
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
 EOF
     else
         chattr +i /etc/network/interfaces
@@ -548,7 +548,7 @@ EOF
         _yellow "Installing radvd"
         ${PACKAGE_INSTALL[int]} radvd
     fi
-    config_content="interface eth0 {
+    config_content="interface $interface {
   AdvSendAdvert on;
   MinRtrAdvInterval 3;
   MaxRtrAdvInterval 10;
