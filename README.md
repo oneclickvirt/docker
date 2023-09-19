@@ -4,9 +4,9 @@
 
 ## 更新
 
-2023.09.17
+2023.09.19
 
-- 增加sysctl的设置修改代码，避免可能存在的问题
+- 增加对systemd-networkd 和 networking 的处理，修复IPV6的网络环境修改的漏洞
 
 [更新日志](CHANGELOG.md)
 

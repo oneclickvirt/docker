@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.09.17
+# 2023.09.19
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -296,6 +296,20 @@ update_sysctl() {
   fi
 }
 
+prebuild_ifupdown() {
+    if [ ! -f "/usr/local/bin/ifupdown_installed.txt" ]; then
+        wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/install_ifupdown.sh -O /usr/local/bin/install_ifupdown.sh
+        wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/ifupdown-install.service -O /etc/systemd/system/ifupdown-install.service
+        chmod 777 /usr/local/bin/install_ifupdown.sh
+        chmod 777 /etc/systemd/system/ifupdown-install.service
+        if [ -f "/usr/local/bin/install_ifupdown.sh" ]; then
+            systemctl daemon-reload
+            systemctl enable ifupdown-install.service
+        fi
+    fi
+}
+
+
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
@@ -341,25 +355,9 @@ if ! command -v ip >/dev/null 2>&1; then
 fi
 ${PACKAGE_INSTALL[int]} net-tools
 check_china
-if ! command -v docker >/dev/null 2>&1; then
-    _yellow "Installing docker"
-    if [[ -z "${CN}" || "${CN}" != true ]]; then
-        curl -sSL https://get.docker.com/ | sh
-    else
-        wget get.docker.com -O get.docker.sh
-        bash get.docker.sh --mirror Aliyun
-        rm -rf get.docker.sh
-    fi
-fi
 cdn_urls=("https://cdn.spiritlhl.workers.dev/" "https://cdn3.spiritlhl.net/" "https://cdn1.spiritlhl.net/" "https://ghproxy.com/" "https://cdn2.spiritlhl.net/")
 check_cdn_file
 get_system_arch
-if ! command -v docker-compose >/dev/null 2>&1; then
-    _yellow "Installing docker-compose"
-    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
-    chmod +x /usr/local/bin/docker-compose
-    docker-compose --version
-fi
 ${PACKAGE_INSTALL[int]} openssl
 curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
 curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh && chmod +x alpinessh.sh && dos2unix alpinessh.sh
@@ -437,8 +435,50 @@ ipv6_prefixlen=$(cat /usr/local/bin/docker_ipv6_prefixlen)
 ipv6_gateway=$(cat /usr/local/bin/docker_ipv6_gateway)
 fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 
+# docker 和 docker-compose 安装
+install_docker_and_compose(){
+    if ! command -v docker >/dev/null 2>&1; then
+        _yellow "Installing docker"
+        if [[ -z "${CN}" || "${CN}" != true ]]; then
+            curl -sSL https://get.docker.com/ | sh
+        else
+            wget get.docker.com -O get.docker.sh
+            bash get.docker.sh --mirror Aliyun
+            rm -rf get.docker.sh
+        fi
+    fi
+    if ! command -v docker-compose >/dev/null 2>&1; then
+        _yellow "Installing docker-compose"
+        curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
+        chmod +x /usr/local/bin/docker-compose
+        docker-compose --version
+    fi
+}
+
 # 检测docker的配置文件
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
+    if systemctl is-active --quiet systemd-networkd; then
+        if ! dpkg -S ifupdown; then
+            prebuild_ifupdown
+        fi
+        systemctl stop systemd-networkd
+        systemctl disable systemd-networkd
+        systemctl restart networking
+        if [ ! -f "/usr/local/bin/reboot_pve.txt" ]; then
+            echo "1" >"/usr/local/bin/reboot_pve.txt"
+            _green "Detected systemd-networkd management network in use, preparing to replace networking management network."
+            _green "Please run reboot to reboot the machine later, and wait 20 seconds for the reboot to complete before executing this script to continue the installation"
+            _green "检测到正在使用的是 systemd-networkd 管理网络，准备替换使用 networking 管理网络"
+            _green "请稍后执行 reboot 重启本机，重启后待20秒未自重启，再执行本脚本继续后续的安装"
+            exit 1
+        else
+            _yellow "You have rebooted the machine to replace systemd-networkd and networking, but it fails, please leave a message in the repository log for feedback."
+            _yellow "已重启过本机进行 systemd-networkd 和 networking 的替换，但失败了，请仓库留言日志反馈"
+            exit 1
+        fi
+    else
+        systemctl restart networking
+    fi
     identifier="2333"
     if [[ "${ipv6_address_without_last_segment: -2}" == "::" ]]; then
         new_subnet="${ipv6_address_without_last_segment%::*}:${identifier}::/80"
@@ -498,6 +538,7 @@ EOF
     $sysctl_path -w net.ipv6.conf.docker0.proxy_ndp=1
     $sysctl_path -w net.ipv6.conf.${interface}.proxy_ndp=1
     $sysctl_path -f
+    install_docker_and_compose
     if [ "$ipv6_prefixlen" -le 64 ]; then
         if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
             docker network create --ipv6 --subnet=172.26.0.0/16 --subnet=$new_subnet ipv6_net
@@ -538,6 +579,8 @@ EOF
     update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
     update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
 fi
+install_docker_and_compose
+systemctl restart networking
 sysctl_path=$(which sysctl)
 ${sysctl_path} -p
 systemctl restart docker
@@ -546,3 +589,4 @@ systemctl status docker 2>/dev/null
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
     systemctl status radvd 2>/dev/null
 fi
+rm -rf /usr/local/bin/ifupdown_installed.txt
