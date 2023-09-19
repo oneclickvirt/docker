@@ -455,15 +455,11 @@ install_docker_and_compose(){
     fi
 }
 
-# 配置DNS自动修补
-if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
-    wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/pve/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
-    wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/pve/main/extra_scripts/check-dns.service -O /etc/systemd/system/check-dns.service
-    chmod +x /usr/local/bin/check-dns.sh
-    chmod +x /etc/systemd/system/check-dns.service
-    systemctl daemon-reload
-    systemctl enable check-dns.service
-    systemctl start check-dns.service
+# DNS修补
+if [ -z "$ipv6_address" ] || [ -z "$ipv6_prefixlen" ] || [ -z "$ipv6_gateway" ]; then
+    echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4\n" >>${RESOLV_CONF}
+else
+    echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888\nnameserver 2001:4860:4860::8844" >>${RESOLV_CONF}
 fi
 
 # 检测docker的配置文件
