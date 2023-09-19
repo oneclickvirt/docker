@@ -575,7 +575,6 @@ if systemctl is-active --quiet systemd-networkd; then
     else
         _yellow "You have rebooted the machine to replace systemd-networkd and ifupdown, but it fails, please leave a message in the repository log for feedback."
         _yellow "已重启过本机进行 systemd-networkd 和 ifupdown 的替换，但失败了，请仓库留言日志反馈"
-        exit 1
     fi
 else
     systemctl restart networking
