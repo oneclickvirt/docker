@@ -455,12 +455,12 @@ install_docker_and_compose(){
     fi
 }
 
-# DNS修补
-if [ -z "$ipv6_address" ] || [ -z "$ipv6_prefixlen" ] || [ -z "$ipv6_gateway" ]; then
-    echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4\n" >>${RESOLV_CONF}
-else
-    echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888\nnameserver 2001:4860:4860::8844" >>${RESOLV_CONF}
-fi
+# # DNS修补
+# if [ -z "$ipv6_address" ] || [ -z "$ipv6_prefixlen" ] || [ -z "$ipv6_gateway" ]; then
+#     echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4\n" >>${RESOLV_CONF}
+# else
+#     echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888\nnameserver 2001:4860:4860::8844" >>${RESOLV_CONF}
+# fi
 
 # 检测docker的配置文件
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
