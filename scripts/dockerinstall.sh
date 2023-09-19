@@ -466,14 +466,14 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
         systemctl restart networking
         if [ ! -f "/usr/local/bin/reboot_pve.txt" ]; then
             echo "1" >"/usr/local/bin/reboot_pve.txt"
-            _green "Detected systemd-networkd management network in use, preparing to replace networking management network."
+            _green "Detected systemd-networkd management network in use, preparing to replace ifupdown management network."
             _green "Please run reboot to reboot the machine later, and wait 20 seconds for the reboot to complete before executing this script to continue the installation"
-            _green "检测到正在使用的是 systemd-networkd 管理网络，准备替换使用 networking 管理网络"
+            _green "检测到正在使用的是 systemd-networkd 管理网络，准备增加使用 ifupdown 管理网络"
             _green "请稍后执行 reboot 重启本机，重启后待20秒未自重启，再执行本脚本继续后续的安装"
             exit 1
         else
-            _yellow "You have rebooted the machine to replace systemd-networkd and networking, but it fails, please leave a message in the repository log for feedback."
-            _yellow "已重启过本机进行 systemd-networkd 和 networking 的替换，但失败了，请仓库留言日志反馈"
+            _yellow "You have rebooted the machine to replace systemd-networkd and ifupdown, but it fails, please leave a message in the repository log for feedback."
+            _yellow "已重启过本机进行 systemd-networkd 和 ifupdown 的替换，但失败了，请仓库留言日志反馈"
             exit 1
         fi
     else
