@@ -437,6 +437,8 @@ fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 
 # docker 和 docker-compose 安装
 install_docker_and_compose(){
+    _green "This may stay for 2~3 minutes, please be patient..."
+    _green "此处可能会停留2~3分钟，请耐心等待。。。"
     sleep 1
     if ! command -v docker >/dev/null 2>&1; then
         _yellow "Installing docker"
