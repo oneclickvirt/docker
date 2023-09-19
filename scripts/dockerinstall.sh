@@ -437,6 +437,7 @@ fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 
 # docker 和 docker-compose 安装
 install_docker_and_compose(){
+    sleep 1
     if ! command -v docker >/dev/null 2>&1; then
         _yellow "Installing docker"
         if [[ -z "${CN}" || "${CN}" != true ]]; then
@@ -453,6 +454,7 @@ install_docker_and_compose(){
         chmod +x /usr/local/bin/docker-compose
         docker-compose --version
     fi
+    sleep 1
 }
 
 # # DNS修补
