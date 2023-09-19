@@ -27,6 +27,7 @@ echo "1" >"/usr/local/bin/ifupdown_installed.txt"
 systemctl stop systemd-networkd
 systemctl disable systemd-networkd
 rm -rf /lib/systemd/system/systemd-networkd.service
+systemctl enable networking
 systemctl restart networking
 
 # 删除一次性服务
