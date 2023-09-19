@@ -23,7 +23,13 @@ done
 ${PACKAGE_INSTALL[int]} ifupdown
 echo "1" >"/usr/local/bin/ifupdown_installed.txt"
 
-# 删除Systemd服务
+# 删除原有的系统服务
+systemctl stop systemd-networkd
+systemctl disable systemd-networkd
+rm -rf /lib/systemd/system/systemd-networkd.service
+systemctl restart networking
+
+# 删除一次性服务
 systemctl disable ifupdown-install.service
 rm /etc/systemd/system/ifupdown-install.service
 
