@@ -44,10 +44,38 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 image_name="redroid/redroid"
-tags=($(curl -s "https://registry.hub.docker.com/v2/repositories/${image_name}/tags/" | jq -r '.results[].name'))
-for index in "${!tags[@]}"; do
-    echo "$index: ${tags[index]}"
+
+for index in "{!tags[@]}"; do
+    echo "$index: {tags[index]}"
 done
+
+while true; do
+    _green "Enter the index of the tag you want to print: "
+    read -p "输入你想要安装的对应序号(留空则默认使用最低版本的镜像)" selected_index
+    if [ -z "$selected_index" ]; then
+        selected_tag="8.1.0-latest"
+        break
+    else
+        if [[ $selected_index -eq 25 ]]; then
+            docker rm -f android
+            docker rm -f scrcpy_web
+            docker rmi $(docker images | grep "redroid" | awk '{print $3}')
+            rm -rf /etc/nginx/sites-enabled/reverse-proxy
+            rm -rf /etc/nginx/sites-available/reverse-proxy
+            rm -rf /etc/nginx/passwd_scrcpy_web
+            rm -rf /root/android_info
+            exit 0
+        elif [[ $selected_index -ge 0 && $selected_index -lt 25 ]]; then
+            selected_tag="{tags[selected_index]}"
+            echo "Selected tag: $selected_tag"
+            break
+        else
+            _yellow "Invalid index. Please enter again."
+            _yellow "输入的索引无效，请重新输入。"
+        fi
+    fi
+done
+
 while true; do
     _green "Enter the index of the tag you want to print: "
     reading "输入你想要安装的对应序号(留空则默认使用最低版本的镜像)" selected_index
