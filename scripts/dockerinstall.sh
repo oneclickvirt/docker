@@ -579,22 +579,29 @@ if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
     systemctl start check-dns.service
 fi
 if systemctl is-active --quiet systemd-networkd && ! systemctl is-active --quiet networking; then
-    if ! dpkg -S ifupdown; then
-        prebuild_ifupdown
-    fi
-    systemctl stop systemd-networkd
-    systemctl disable systemd-networkd
-    systemctl restart networking
-    if [ ! -f "/usr/local/bin/reboot_pve.txt" ]; then
-        echo "1" >"/usr/local/bin/reboot_pve.txt"
-        _green "Detected systemd-networkd management network in use, preparing to replace ifupdown management network."
-        _green "Please run reboot to reboot the machine later, and wait 20 seconds for the reboot to complete before executing this script to continue the installation"
-        _green "检测到正在使用的是 systemd-networkd 管理网络，准备增加使用 ifupdown 管理网络"
-        _green "请稍后执行 reboot 重启本机，重启后待20秒未自重启，再执行本脚本继续后续的安装"
-        exit 1
+    _green "Detected that systemd-networkd is being used to manage the network, do I need to replace it with networking management? y/[n]"
+    reading "检测到正在使用的是 systemd-networkd 管理网络，是否需要替换为 networking 管理？y/[n]" replace_networking
+    echo ""
+    if [ "$replace_networking" != "y" ]; then
+        :
     else
-        _yellow "You have rebooted the machine to replace systemd-networkd and ifupdown, but it fails, please leave a message in the repository log for feedback."
-        _yellow "已重启过本机进行 systemd-networkd 和 ifupdown 的替换，但失败了，请仓库留言日志反馈"
+        if ! dpkg -S ifupdown; then
+            prebuild_ifupdown
+        fi
+        systemctl stop systemd-networkd
+        systemctl disable systemd-networkd
+        systemctl restart networking
+        if [ ! -f "/usr/local/bin/reboot_pve.txt" ]; then
+            echo "1" >"/usr/local/bin/reboot_pve.txt"
+            _green "Detected systemd-networkd management network in use, preparing to replace ifupdown management network."
+            _green "Please run reboot to reboot the machine later, and wait 20 seconds for the reboot to complete before executing this script to continue the installation"
+            _green "检测到正在使用的是 systemd-networkd 管理网络，准备增加使用 ifupdown 管理网络"
+            _green "请稍后执行 reboot 重启本机，重启后待20秒未自重启，再执行本脚本继续后续的安装"
+            exit 1
+        else
+            _yellow "You have rebooted the machine to replace systemd-networkd and ifupdown, but it fails, please leave a message in the repository log for feedback."
+            _yellow "已重启过本机进行 systemd-networkd 和 ifupdown 的替换，但失败了，请仓库留言日志反馈"
+        fi
     fi
 else
     systemctl restart networking
