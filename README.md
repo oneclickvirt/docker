@@ -4,9 +4,10 @@
 
 ## 更新
 
-2023.09.19
+2023.10.09
 
-- 增加对systemd-networkd 和 networking 的处理，修复IPV6的网络环境修改的漏洞
+- 修复国内服务器安装docker和docker-compose可能存在的问题
+- 修复在国内服务器的宿主机上开设的容器更新包管理器源缓慢的问题，默认使用清华源
 
 [更新日志](CHANGELOG.md)
 
@@ -28,6 +29,10 @@
 [www.spiritlhl.net](https://www.spiritlhl.net/)
 
 说明文档中 Docker 分区内容
+
+## 致谢
+
+感谢 [LinuxMirrors](https://github.com/SuperManito/LinuxMirrors) 提供的国内镜像安装以及国内包管理源镜像替换脚本
 
 ## Stargazers over time
 

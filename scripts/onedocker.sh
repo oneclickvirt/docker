@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.09.16
+# 2023.10.09
 
 # ./onedocker.sh name cpu memory password sshport startport endport <system> <independent_ipv6> <disk>
 
@@ -26,6 +26,52 @@ if ! command -v docker >/dev/null 2>&1; then
     _yellow "没有Docker环境，请先执行主体安装"
     exit 1
 fi
+
+check_china() {
+    _yellow "IP area being detected ......"
+    if [[ -z "${CN}" ]]; then
+        if [[ $(curl -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
+            _yellow "根据ipapi.co提供的信息，当前IP可能在中国"
+            read -e -r -p "是否选用中国镜像完成相关组件安装? ([y]/n) " input
+            case $input in
+            [yY][eE][sS] | [yY])
+                echo "使用中国镜像"
+                CN=true
+                ;;
+            [nN][oO] | [nN])
+                echo "不使用中国镜像"
+                ;;
+            *)
+                echo "使用中国镜像"
+                CN=true
+                ;;
+            esac
+        else
+            if [[ $? -ne 0 ]]; then
+                if [[ $(curl -m 6 -s cip.cc) =~ "中国" ]]; then
+                    _yellow "根据cip.cc提供的信息，当前IP可能在中国"
+                    read -e -r -p "是否选用中国镜像完成相关组件安装? [Y/n] " input
+                    case $input in
+                    [yY][eE][sS] | [yY])
+                        echo "使用中国镜像"
+                        CN=true
+                        ;;
+                    [nN][oO] | [nN])
+                        echo "不使用中国镜像"
+                        ;;
+                    *)
+                        echo "不使用中国镜像"
+                        ;;
+                    esac
+                fi
+            fi
+        fi
+    fi
+}
+
+# 检查是否为中国IP
+check_china
+
 # 查询名为ipv6_net的网络是否存在
 docker network inspect ipv6_net &> /dev/null
 if [ $? -eq 0 ]; then
@@ -77,6 +123,9 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
         alpine /bin/sh -c "tail -f /dev/null"
     docker cp alpinessh.sh ${name}:/alpinessh.sh
     docker exec -it ${name} sh -c "sh /alpinessh.sh ${passwd}"
+    if [[ "${CN}" == true ]]; then
+        docker exec -it ${name} sh -c "bash <(curl -sSL https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh) --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
+    fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
     if [ ! -f ssh.sh ]; then
@@ -107,6 +156,9 @@ else
     fi
     docker cp ssh.sh ${name}:/ssh.sh
     docker exec -it ${name} bash -c "bash /ssh.sh ${passwd}"
+    if [[ "${CN}" == true ]]; then
+        docker exec -it ${name} bash -c "bash <(curl -sSL https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh) --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
+    fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 fi
 cat "$name"

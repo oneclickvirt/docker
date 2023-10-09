@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.09.19
+# 2023.10.09
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -445,9 +445,7 @@ install_docker_and_compose(){
         if [[ -z "${CN}" || "${CN}" != true ]]; then
             curl -sSL https://get.docker.com/ | sh
         else
-            wget get.docker.com -O get.docker.sh
-            bash get.docker.sh --mirror Aliyun
-            rm -rf get.docker.sh
+            bash <(curl -sSL https://gitee.com/SuperManito/LinuxMirrors/raw/main/DockerInstallation.sh)
         fi
     fi
     if ! command -v docker-compose >/dev/null 2>&1; then
