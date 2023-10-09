@@ -106,6 +106,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [[ -f ChangeMirrors.sh && "${CN}" == true ]]; then
         docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
         docker exec -it ${name} sh -c "sh /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
+        docker exec -it ${name} sh -c "rm -rf /ChangeMirrors.sh"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
@@ -145,6 +146,7 @@ else
     if [[ -f ChangeMirrors.sh && "${CN}" == true ]]; then
         docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
         docker exec -it ${name} bash -c "bash /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
+        docker exec -it ${name} bash -c "rm -rf /ChangeMirrors.sh"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 fi
