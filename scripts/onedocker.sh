@@ -84,9 +84,14 @@ if [ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_i
 fi
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [ ! -f alpinessh.sh ]; then
-        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh
+        curl -Lk https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh
         chmod 777 alpinessh.sh
         dos2unix alpinessh.sh
+    fi
+    if [[ ! -f ChangeMirrors.sh && "${CN}" == true ]]; then
+        curl -Lk https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh -o ChangeMirrors.sh
+        chmod 777 ChangeMirrors.sh
+        dos2unix ChangeMirrors.sh
     fi
     docker run -d \
         --cpus=${cpu} \
@@ -98,8 +103,9 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
         alpine /bin/sh -c "tail -f /dev/null"
     docker cp alpinessh.sh ${name}:/alpinessh.sh
     docker exec -it ${name} sh -c "sh /alpinessh.sh ${passwd}"
-    if [[ "${CN}" == true ]]; then
-        docker exec -it ${name} sh -c "bash <(curl -sSL https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh) --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
+    if [[ -f ChangeMirrors.sh && "${CN}" == true ]]; then
+        docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
+        docker exec -it ${name} sh -c "sh /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
@@ -107,6 +113,11 @@ else
         curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh
         chmod 777 ssh.sh
         dos2unix ssh.sh
+    fi
+    if [[ ! -f ChangeMirrors.sh && "${CN}" == true ]]; then
+        curl -Lk https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh -o ChangeMirrors.sh
+        chmod 777 ChangeMirrors.sh
+        dos2unix ChangeMirrors.sh
     fi
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
         docker run -d \
@@ -131,8 +142,9 @@ else
     fi
     docker cp ssh.sh ${name}:/ssh.sh
     docker exec -it ${name} bash -c "bash /ssh.sh ${passwd}"
-    if [[ "${CN}" == true ]]; then
-        docker exec -it ${name} bash -c "bash <(curl -sSL https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh) --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
+    if [[ -f ChangeMirrors.sh && "${CN}" == true ]]; then
+        docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
+        docker exec -it ${name} bash -c "bash /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 fi
