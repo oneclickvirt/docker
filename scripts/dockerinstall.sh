@@ -353,6 +353,10 @@ if ! command -v ip >/dev/null 2>&1; then
     _yellow "Installing iproute2"
     ${PACKAGE_INSTALL[int]} iproute2
 fi
+if ! command -v lxcfs >/dev/null 2>&1; then
+    _yellow "Installing lxcfs"
+    ${PACKAGE_INSTALL[int]} lxcfs
+fi
 ${PACKAGE_INSTALL[int]} net-tools
 check_china
 cdn_urls=("https://cdn.spiritlhl.workers.dev/" "https://cdn3.spiritlhl.net/" "https://cdn1.spiritlhl.net/" "https://ghproxy.com/" "https://cdn2.spiritlhl.net/")

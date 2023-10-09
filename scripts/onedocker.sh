@@ -93,14 +93,38 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
         chmod 777 ChangeMirrors.sh
         dos2unix ChangeMirrors.sh
     fi
-    docker run -d \
-        --cpus=${cpu} \
-        --memory=${memory}m \
-        --name ${name} \
-        -p ${sshport}:22 \
-        -p ${startport}-${endport}:${startport}-${endport} \
-        --cap-add=MKNOD \
-        alpine /bin/sh -c "tail -f /dev/null"
+    if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
+        docker run -d \
+            --cpus=${cpu} \
+            --memory=${memory}m \
+            --name ${name} \
+            --network=ipv6_net \
+            -p ${sshport}:22 \
+            -p ${startport}-${endport}:${startport}-${endport} \
+            --cap-add=MKNOD \
+            --volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
+            --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
+            --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
+            --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
+            --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
+            --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
+            alpine /bin/sh -c "tail -f /dev/null"
+    else
+        docker run -d \
+            --cpus=${cpu} \
+            --memory=${memory}m \
+            --name ${name} \
+            -p ${sshport}:22 \
+            -p ${startport}-${endport}:${startport}-${endport} \
+            --cap-add=MKNOD \
+            --volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
+            --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
+            --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
+            --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
+            --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
+            --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
+            alpine /bin/sh -c "tail -f /dev/null"
+    fi
     docker cp alpinessh.sh ${name}:/alpinessh.sh
     docker exec -it ${name} sh -c "sh /alpinessh.sh ${passwd}"
     if [[ -f ChangeMirrors.sh && "${CN}" == true ]]; then
@@ -129,8 +153,13 @@ else
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
+            --volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
+            --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
+            --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
+            --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
+            --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
+            --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
             debian /bin/bash -c "tail -f /dev/null"
-        docker
     else
         docker run -d \
             --cpus=${cpu} \
@@ -139,6 +168,12 @@ else
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
+            --volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
+            --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
+            --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
+            --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
+            --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
+            --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
             debian /bin/bash -c "tail -f /dev/null"
     fi
     docker cp ssh.sh ${name}:/ssh.sh
