@@ -449,10 +449,12 @@ install_docker_and_compose(){
         fi
     fi
     if ! command -v docker-compose >/dev/null 2>&1; then
-        _yellow "Installing docker-compose"
-        curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
-        chmod +x /usr/local/bin/docker-compose
-        docker-compose --version
+        if [[ -z "${CN}" || "${CN}" != true ]]; then
+            _yellow "Installing docker-compose"
+            curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
+            chmod +x /usr/local/bin/docker-compose
+            docker-compose --version
+        fi
     fi
     sleep 1
 }
