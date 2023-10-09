@@ -569,6 +569,15 @@ EOF
     update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
 fi
 install_docker_and_compose
+if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
+    wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
+    wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/check-dns.service -O /etc/systemd/system/check-dns.service
+    chmod +x /usr/local/bin/check-dns.sh
+    chmod +x /etc/systemd/system/check-dns.service
+    systemctl daemon-reload
+    systemctl enable check-dns.service
+    systemctl start check-dns.service
+fi
 if systemctl is-active --quiet systemd-networkd && ! systemctl is-active --quiet networking; then
     if ! dpkg -S ifupdown; then
         prebuild_ifupdown
