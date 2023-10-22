@@ -359,7 +359,7 @@ if ! command -v lxcfs >/dev/null 2>&1; then
 fi
 ${PACKAGE_INSTALL[int]} net-tools
 check_china
-cdn_urls=("https://cdn0.spiritlhl.top/" "https://cdn3.spiritlhl.net/" "https://cdn1.spiritlhl.net/" "https://ghproxy.com/" "https://cdn2.spiritlhl.net/")
+cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn3.spiritlhl.net/" "http://cdn1.spiritlhl.net/" "https://ghproxy.com/" "http://cdn2.spiritlhl.net/")
 check_cdn_file
 get_system_arch
 ${PACKAGE_INSTALL[int]} openssl
