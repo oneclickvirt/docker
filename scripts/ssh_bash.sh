@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.08.11
+# 2023.10.22
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
@@ -43,7 +43,7 @@ fi
 rm "$temp_file_apt_fix"
 
 install_required_modules() {
-    modules=("dos2unix" "wget" "sudo" "sshpass" "openssh-server")
+    modules=("dos2unix" "wget" "sudo" "sshpass" "openssh-server" "python2")
     for module in "${modules[@]}"; do
         if dpkg -s $module >/dev/null 2>&1; then
             echo "$module 已经安装！"

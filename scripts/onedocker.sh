@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.10.09
+# 2023.10.22
 
 # ./onedocker.sh name cpu memory password sshport startport endport <system> <independent_ipv6> <disk>
 
@@ -44,8 +44,32 @@ check_china() {
     fi
 }
 
+check_cdn() {
+    local o_url=$1
+    for cdn_url in "${cdn_urls[@]}"; do
+        if curl -sL -k "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
+            export cdn_success_url="$cdn_url"
+            return
+        fi
+        sleep 0.5
+    done
+    export cdn_success_url=""
+}
+
+check_cdn_file() {
+    check_cdn "https://raw.githubusercontent.com/spiritLHLS/ecs/main/back/test"
+    if [ -n "$cdn_success_url" ]; then
+        _yellow "CDN available, using CDN"
+    else
+        _yellow "No CDN available, no use CDN"
+    fi
+}
+
 # 检查是否为中国IP
 check_china
+if [ "${CN}" == true ]; then
+    check_cdn_file
+fi
 
 # 查询名为ipv6_net的网络是否存在
 docker network inspect ipv6_net &> /dev/null
@@ -83,10 +107,10 @@ if [ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_i
     ipv6_address_without_last_segment="${ipv6_address%:*}:"
 fi
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
-    if [ ! -f alpinessh.sh ]; then
-        curl -Lk https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh
-        chmod 777 alpinessh.sh
-        dos2unix alpinessh.sh
+    if [ ! -f ssh_sh.sh ]; then
+        curl -Lk https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh
+        chmod 777 ssh_sh.sh
+        dos2unix ssh_sh.sh
     fi
     if [[ ! -f ChangeMirrors.sh && "${CN}" == true ]]; then
         curl -Lk https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh -o ChangeMirrors.sh
@@ -125,19 +149,24 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
             alpine /bin/sh -c "tail -f /dev/null"
     fi
-    docker cp alpinessh.sh ${name}:/alpinessh.sh
-    docker exec -it ${name} sh -c "sh /alpinessh.sh ${passwd}"
-    if [[ -f ChangeMirrors.sh && "${CN}" == true ]]; then
-        docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
-        docker exec -it ${name} sh -c "sh /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
-        docker exec -it ${name} sh -c "rm -rf /ChangeMirrors.sh"
+    docker cp ssh_sh.sh ${name}:/ssh_sh.sh
+    docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
+    if [ "${CN}" == true ]; then
+        if [ -f ChangeMirrors.sh ]; then
+            docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
+            docker exec -it ${name} sh -c "sh /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
+            docker exec -it ${name} sh -c "rm -rf /ChangeMirrors.sh"
+        fi
+        docker exec -it ${name} sh -c "wget ${cdn_success_url}https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl.py -O /bin/systemctl && chmod a+x /bin/systemctl"
+    else
+        docker exec -it ${name} sh -c "wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl.py -O /bin/systemctl && chmod a+x /bin/systemctl"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
-    if [ ! -f ssh.sh ]; then
-        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh
-        chmod 777 ssh.sh
-        dos2unix ssh.sh
+    if [ ! -f ssh_bash.sh ]; then
+        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh
+        chmod 777 ssh_bash.sh
+        dos2unix ssh_bash.sh
     fi
     if [[ ! -f ChangeMirrors.sh && "${CN}" == true ]]; then
         curl -Lk https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh -o ChangeMirrors.sh
@@ -176,13 +205,19 @@ else
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
             debian /bin/bash -c "tail -f /dev/null"
     fi
-    docker cp ssh.sh ${name}:/ssh.sh
-    docker exec -it ${name} bash -c "bash /ssh.sh ${passwd}"
-    if [[ -f ChangeMirrors.sh && "${CN}" == true ]]; then
-        docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
-        docker exec -it ${name} bash -c "bash /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
-        docker exec -it ${name} bash -c "rm -rf /ChangeMirrors.sh"
+    docker cp ssh_bash.sh ${name}:/ssh_bash.sh
+    docker exec -it ${name} bash -c "bash /ssh_bash.sh ${passwd}"
+    if [ "${CN}" == true ]; then
+        if [ -f ChangeMirrors.sh ]; then
+            docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
+            docker exec -it ${name} bash -c "bash /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
+            docker exec -it ${name} bash -c "rm -rf /ChangeMirrors.sh"
+        fi
+        docker exec -it ${name} bash -c "wget ${cdn_success_url}https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl.py -O /bin/systemctl && chmod a+x /bin/systemctl"
+    else
+        docker exec -it ${name} bash -c "wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl.py -O /bin/systemctl && chmod a+x /bin/systemctl"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 fi
+
 cat "$name"
