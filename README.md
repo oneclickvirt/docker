@@ -7,7 +7,7 @@
 2023.10.23
 
 - 将ssh.sh脚本分化为bash版本和sh版本
-- 兼容he绑定的IPV6子网自动分配IPV6地址
+- 兼容绑定he的IPV6子网自动分配IPV6地址
 
 [更新日志](CHANGELOG.md)
 
