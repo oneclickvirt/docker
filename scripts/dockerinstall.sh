@@ -482,7 +482,7 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
     chattr -i /etc/network/interfaces
     if grep -q "auto he-ipv6" /etc/network/interfaces; then
         status_he=true
-        temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<8' /etc/network/interfaces)
+        temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<9' /etc/network/interfaces)
     fi
     if [[ "${ipv6_gateway_fe80}" == "N" ]]; then
     cat <<EOF >/etc/network/interfaces
