@@ -67,6 +67,7 @@ check_cdn_file() {
 
 # 检查是否为中国IP
 check_china
+cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn3.spiritlhl.net/" "http://cdn1.spiritlhl.net/" "https://ghproxy.com/" "http://cdn2.spiritlhl.net/")
 if [ "${CN}" == true ]; then
     check_cdn_file
 fi
