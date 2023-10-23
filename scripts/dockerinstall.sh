@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.10.09
+# 2023.10.23
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -363,8 +363,8 @@ cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn3.spiritlhl.net/" "http://cdn
 check_cdn_file
 get_system_arch
 ${PACKAGE_INSTALL[int]} openssl
-curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh.sh -o ssh.sh && chmod +x ssh.sh && dos2unix ssh.sh
-curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/alpinessh.sh -o alpinessh.sh && chmod +x alpinessh.sh && dos2unix alpinessh.sh
+curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh && chmod +x ssh_bash.sh && dos2unix ssh_bash.sh
+curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh && chmod +x ssh_sh.sh && dos2unix ssh_sh.sh
 
 # 检测物理接口
 interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')

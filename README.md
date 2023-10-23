@@ -4,10 +4,9 @@
 
 ## 更新
 
-2023.10.22
+2023.10.23
 
-- 在docker中修复成可使用systemctl的环境
-- 增加开设过程中的CDN加速部分内容
+- 将ssh.sh脚本分化为bash版本和sh版本
 
 [更新日志](CHANGELOG.md)
 
