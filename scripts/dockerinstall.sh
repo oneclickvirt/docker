@@ -480,6 +480,10 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
         break
     fi
     chattr -i /etc/network/interfaces
+    if grep -q "auto he-ipv6" /etc/network/interfaces; then
+        status_he=true
+        temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<7' /etc/network/interfaces)
+    fi
     if [[ "${ipv6_gateway_fe80}" == "N" ]]; then
     cat <<EOF >/etc/network/interfaces
 auto lo
@@ -518,6 +522,12 @@ EOF
     else
         chattr +i /etc/network/interfaces
         break
+    fi
+    if [ "$status_he" = true ]; then
+    chattr -i /etc/network/interfaces
+sudo tee -a /etc/network/interfaces <<EOF
+${temp_config}
+EOF
     fi
     chattr +i /etc/network/interfaces
     # pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
