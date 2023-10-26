@@ -610,7 +610,8 @@ EOF
         _yellow "Installing radvd"
         ${PACKAGE_INSTALL[int]} radvd
     fi
-    config_content="interface $interface {
+    if [ "$status_he" = true ]; then
+        config_content="interface he-ipv6 {
   AdvSendAdvert on;
   MinRtrAdvInterval 3;
   MaxRtrAdvInterval 10;
@@ -620,6 +621,18 @@ EOF
     AdvRouterAddr on;
   };
 };"
+    else
+        config_content="interface $interface {
+  AdvSendAdvert on;
+  MinRtrAdvInterval 3;
+  MaxRtrAdvInterval 10;
+  prefix $ipv6_address_without_last_segment/$ipv6_prefixlen {
+    AdvOnLink on;
+    AdvAutonomous on;
+    AdvRouterAddr on;
+  };
+};"
+    fi
     echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
     systemctl restart radvd
     update_sysctl "net.ipv6.conf.all.forwarding=1"
