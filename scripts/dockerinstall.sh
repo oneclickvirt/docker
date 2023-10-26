@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.10.23
+# 2023.10.26
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -345,6 +345,10 @@ if ! command -v ipcalc >/dev/null 2>&1; then
     _yellow "Installing ipcalc"
     ${PACKAGE_INSTALL[int]} ipcalc
 fi
+if ! command -v sipcalc >/dev/null 2>&1; then
+    _yellow "Installing sipcalc"
+    ${PACKAGE_INSTALL[int]} sipcalc
+fi
 if ! command -v bc >/dev/null 2>&1; then
     _yellow "Installing bc"
     ${PACKAGE_INSTALL[int]} bc
@@ -471,13 +475,19 @@ install_docker_and_compose(){
 # fi
 
 # 检测docker的配置文件
+adapt_ipv6(){
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
-    identifier="2333"
-    if [[ "${ipv6_address_without_last_segment: -2}" == "::" ]]; then
-        new_subnet="${ipv6_address_without_last_segment%::*}:${identifier}::/80"
+    target_mask=$(($ipv6_prefixlen + 2))
+    ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
+    ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
+    if [ -n "$ipv6_subnet_2_without_last_segment" ]; then
+        new_subnet="${ipv6_subnet_2_without_last_segment}/${target_mask}"
+        _green "Use cuted IPV6 subnet：${new_subnet}"
+        _green "使用切分出来的IPV6子网：${new_subnet}"
     else
-        echo "The last two digits of the IPV6 subnet prefix are not ::"
-        break
+        _red "The ipv6 subnet 2: ${ipv6_subnet_2}"
+        _red "The ipv6 target mask: ${target_mask}"
+        return false
     fi
     chattr -i /etc/network/interfaces
     if grep -q "auto he-ipv6" /etc/network/interfaces; then
@@ -603,6 +613,9 @@ EOF
     update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
     update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
 fi
+}
+
+adapt_ipv6
 install_docker_and_compose
 if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
     wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
