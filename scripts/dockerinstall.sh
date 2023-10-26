@@ -478,11 +478,11 @@ install_docker_and_compose(){
 adapt_ipv6(){
 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
     target_mask=${ipv6_prefixlen}
-    ((target_mask += 16 - ($target_mask % 8)))
+    ((target_mask += 8 - ($target_mask % 8)))
     ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
     ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
     if [ -n "$ipv6_subnet_2_without_last_segment" ]; then
-        new_subnet="${ipv6_subnet_2_without_last_segment}/${target_mask}"
+        new_subnet="${ipv6_subnet_2}/${target_mask}"
         _green "Use cuted IPV6 subnet：${new_subnet}"
         _green "使用切分出来的IPV6子网：${new_subnet}"
     else
