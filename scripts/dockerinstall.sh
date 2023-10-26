@@ -494,8 +494,19 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
     if grep -q "auto he-ipv6" /etc/network/interfaces; then
         status_he=true
         temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<10' /etc/network/interfaces)
-    fi
-    if [[ "${ipv6_gateway_fe80}" == "N" ]]; then
+        cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+EOF
+    else
+        if [[ "${ipv6_gateway_fe80}" == "N" ]]; then
     cat <<EOF >/etc/network/interfaces
 auto lo
 iface lo inet loopback
@@ -513,7 +524,7 @@ iface $interface inet6 static
         up ip addr del $fe80_address dev $interface
         up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
 EOF
-    elif [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
+        elif [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
     cat <<EOF >/etc/network/interfaces
 auto lo
 iface lo inet loopback
@@ -530,9 +541,10 @@ iface $interface inet6 static
         gateway $ipv6_gateway
         up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
 EOF
-    else
-        chattr +i /etc/network/interfaces
-        break
+        else
+            chattr +i /etc/network/interfaces
+            break
+        fi
     fi
     if [ "$status_he" = true ]; then
     chattr -i /etc/network/interfaces
