@@ -158,9 +158,9 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             docker exec -it ${name} sh -c "sh /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
             docker exec -it ${name} sh -c "rm -rf /ChangeMirrors.sh"
         fi
-        docker exec -it ${name} sh -c "wget ${cdn_success_url}https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl.py -O /bin/systemctl && chmod a+x /bin/systemctl"
+        docker exec -it ${name} sh -c "wget ${cdn_success_url}https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && chmod a+x /bin/systemctl"
     else
-        docker exec -it ${name} sh -c "wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl.py -O /bin/systemctl && chmod a+x /bin/systemctl"
+        docker exec -it ${name} sh -c "wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && chmod a+x /bin/systemctl"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
@@ -214,9 +214,9 @@ else
             docker exec -it ${name} bash -c "bash /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
             docker exec -it ${name} bash -c "rm -rf /ChangeMirrors.sh"
         fi
-        docker exec -it ${name} bash -c "wget ${cdn_success_url}https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl.py -O /bin/systemctl && chmod a+x /bin/systemctl"
+        docker exec -it ${name} bash -c "wget ${cdn_success_url}https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && chmod a+x /bin/systemctl"
     else
-        docker exec -it ${name} bash -c "wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl.py -O /bin/systemctl && chmod a+x /bin/systemctl"
+        docker exec -it ${name} bash -c "wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && chmod a+x /bin/systemctl"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 fi
