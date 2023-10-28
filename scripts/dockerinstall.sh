@@ -492,6 +492,16 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
     fi
     chattr -i /etc/network/interfaces
     if grep -q "auto he-ipv6" /etc/network/interfaces; then
+        # 删除默认路由避免隧道冲突
+        default_route=$(ip -6 route show | awk '/default via/{print $3}')
+        if [ -n "$default_route" ]; then
+            echo "Deleting default route via $default_route"
+            # ip -6 route del default via $default_route dev $interface
+            del_route="post-up ip -6 route del default via $default_route dev $interface"
+        else
+            echo "No default route found."
+            del_route=""
+        fi
         status_he=true
         temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<10' /etc/network/interfaces)
         cat <<EOF >/etc/network/interfaces
@@ -504,6 +514,7 @@ iface $interface inet static
         gateway $ipv4_gateway
         netmask $ipv4_subnet
         dns-nameservers 8.8.8.8 8.8.4.4
+        $del_route
 EOF
     else
         if [[ "${ipv6_gateway_fe80}" == "N" ]]; then
