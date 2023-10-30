@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/pve
-# 2023.09.19
+# 2023.10.30
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
@@ -20,7 +20,7 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
 done
 
 # 安装ifupdown
-${PACKAGE_INSTALL[int]} ifupdown
+${PACKAGE_INSTALL[int]} ifupdown2
 echo "1" >"/usr/local/bin/ifupdown_installed.txt"
 
 # 删除原有的系统服务
