@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.10.26
+# 2023.10.30
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -40,6 +40,7 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
 done
 systemctl disable NetworkManager
 systemctl stop NetworkManager
+touch /etc/cloud/cloud-init.disabled
 
 rebuild_cloud_init() {
     if [ -f "/etc/cloud/cloud.cfg" ]; then
