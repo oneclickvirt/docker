@@ -661,12 +661,11 @@ if systemctl is-active --quiet systemd-networkd && ! systemctl is-active --quiet
     if [ "$replace_networking" != "y" ]; then
         :
     else
-        if ! dpkg -S ifupdown; then
+        if ! dpkg -S ifupdown2; then
             prebuild_ifupdown
         fi
         systemctl stop systemd-networkd
         systemctl disable systemd-networkd
-        systemctl restart networking
         if [ ! -f "/usr/local/bin/reboot_pve.txt" ]; then
             echo "1" >"/usr/local/bin/reboot_pve.txt"
             _green "Detected systemd-networkd management network in use, preparing to replace ifupdown management network."
