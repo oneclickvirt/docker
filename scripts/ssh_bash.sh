@@ -43,7 +43,7 @@ fi
 rm "$temp_file_apt_fix"
 
 install_required_modules() {
-    modules=("dos2unix" "wget" "sudo" "sshpass" "openssh-server" "python3")
+    modules=("dos2unix" "wget" "curl" "sudo" "sshpass" "openssh-server" "python3")
     for module in "${modules[@]}"; do
         if dpkg -s $module >/dev/null 2>&1; then
             echo "$module 已经安装！"
