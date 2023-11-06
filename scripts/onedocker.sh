@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.10.22
+# 2023.11.06
 
 # ./onedocker.sh name cpu memory password sshport startport endport <system> <independent_ipv6> <disk>
 
@@ -189,7 +189,7 @@ else
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            debian /bin/bash -c "tail -f /dev/null"
+            ${system} /bin/bash -c "tail -f /dev/null"
     else
         docker run -d \
             --cpus=${cpu} \
@@ -204,7 +204,7 @@ else
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            debian /bin/bash -c "tail -f /dev/null"
+            ${system} /bin/bash -c "tail -f /dev/null"
     fi
     docker cp ssh_bash.sh ${name}:/ssh_bash.sh
     docker exec -it ${name} bash -c "bash /ssh_bash.sh ${passwd}"
