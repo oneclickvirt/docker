@@ -570,7 +570,7 @@ EOF
     fi
     $sysctl_path -f
     install_docker_and_compose
-    if [ "$ipv6_prefixlen" -le 64 ]; then
+    if [ "$ipv6_prefixlen" -le 112 ]; then
         if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
             docker network create --ipv6 --subnet=172.26.0.0/16 --subnet=$new_subnet ipv6_net
             if [ "$system_arch" = "x86" ]; then
