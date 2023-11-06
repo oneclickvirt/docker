@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.10.22
+# 2023.11.06
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
@@ -20,13 +20,13 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
     fi
 done
 
-apt-get update -y
+${PACKAGE_UPDATE[int]}
 if [ $? -ne 0 ]; then
     dpkg --configure -a
-    apt-get update -y
+    ${PACKAGE_UPDATE[int]}
 fi
 if [ $? -ne 0 ]; then
-    apt-get install gnupg -y
+    ${PACKAGE_INSTALL[int]} gnupg
 fi
 apt_update_output=$(apt-get update 2>&1)
 echo "$apt_update_output" >"$temp_file_apt_fix"
