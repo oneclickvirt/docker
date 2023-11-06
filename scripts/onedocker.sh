@@ -3,7 +3,8 @@
 # https://github.com/spiritLHLS/docker
 # 2023.11.06
 
-# ./onedocker.sh name cpu memory password sshport startport endport <system> <independent_ipv6> <disk>
+# ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
+# <disk>
 
 cd /root >/dev/null 2>&1
 name="${1:-test}"
@@ -13,9 +14,9 @@ passwd="${4:-123456}"
 sshport="${5:-25000}"
 startport="${6:-34975}"
 endport="${7:-35000}"
-system="${8:-debian}"
-independent_ipv6="${9:-N}"
+independent_ipv6="${8:-N}"
 independent_ipv6=$(echo "$independent_ipv6" | tr '[:upper:]' '[:lower:]')
+system="${9:-debian}"
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
