@@ -20,6 +20,17 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
     fi
 done
 
+remove_duplicate_lines() {
+    chattr -i "$1"
+    # 预处理：去除行尾空格和制表符
+    sed -i 's/[ \t]*$//' "$1"
+    # 去除重复行并跳过空行和注释行
+    if [ -f "$1" ]; then
+        awk '{ line = $0; gsub(/^[ \t]+/, "", line); gsub(/[ \t]+/, " ", line); if (!NF || !seen[line]++) print $0 }' "$1" >"$1.tmp" && mv -f "$1.tmp" "$1"
+    fi
+    chattr +i "$1"
+}
+
 ${PACKAGE_UPDATE[int]}
 if [ $? -ne 0 ]; then
     dpkg --configure -a
@@ -45,12 +56,12 @@ rm "$temp_file_apt_fix"
 install_required_modules() {
     modules=("dos2unix" "wget" "curl" "sudo" "sshpass" "openssh-server" "python3")
     for module in "${modules[@]}"; do
-        if dpkg -s $module >/dev/null 2>&1; then
-            echo "$module 已经安装！"
-        else
-            apt-get install -y $module
+        if ! command -v $module >/dev/null 2>&1; then
+            ${PACKAGE_INSTALL[int]} $module            
             if [ $? -ne 0 ]; then
-                apt-get install -y $module --fix-missing
+                if command -v apt-get >/dev/null 2>&1; then
+                    apt-get install -y $module --fix-missing
+                fi
             fi
             echo "$module 已尝试过安装！"
         fi
@@ -65,6 +76,7 @@ fi
 sshport=22
 service iptables stop 2>/dev/null
 chkconfig iptables off 2>/dev/null
+sysv-rc-conf iptables off 2>/dev/null
 sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/sysconfig/selinux
 sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/selinux/config
 setenforce 0
@@ -91,6 +103,10 @@ if [ -f /etc/ssh/sshd_config.d/50-cloud-init.conf ]; then
     sed -i "s/^#\?PubkeyAuthentication.*/PubkeyAuthentication no/g" /etc/ssh/sshd_config.d/50-cloud-init.conf
     sed -i '/^AuthorizedKeysFile/s/^/#/' /etc/ssh/sshd_config.d/50-cloud-init.conf
 fi
+remove_duplicate_lines /etc/ssh/sshd_config
+remove_duplicate_lines /etc/ssh/sshd_config.d/50-cloud-init.conf
 service ssh restart
 service sshd restart
+systemctl restart sshd
+systemctl restart ssh
 rm -rf "$0"
