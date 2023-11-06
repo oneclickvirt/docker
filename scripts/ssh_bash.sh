@@ -81,6 +81,8 @@ sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/sysconfig/selinux
 sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/selinux/config
 setenforce 0
 echo root:"$1" | sudo chpasswd root
+cd /etc/ssh
+ssh-keygen -A
 if [ -f /etc/ssh/sshd_config ]; then
     sed -i "s/^#\?Port.*/Port $sshport/g" /etc/ssh/sshd_config
     sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin yes/g" /etc/ssh/sshd_config
@@ -109,4 +111,5 @@ service ssh restart
 service sshd restart
 systemctl restart sshd
 systemctl restart ssh
+/usr/sbin/sshd
 rm -rf "$0"

@@ -4,15 +4,14 @@
 
 ## 更新
 
-2023.10.28
+2023.11.06
 
-- IPV6地址分配过程中可能遇到非networking的service管理网络的情况，此时需要给fe80地址加白，现已适配
+- Linux容器现增加对 ubuntu、almalinux 的支持
 
 [更新日志](CHANGELOG.md)
 
 ## 待解决的问题
 
-- Linux的容器暂不支持开设debian和alpine之外的系统，待添加补充
 - Linux的容器暂不支持限制磁盘大小，待添加限制
 - Windows的容器目前镜像很大，待缩小镜像大小做精简版
 
