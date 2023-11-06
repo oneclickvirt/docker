@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.10.30
+# 2023.11.06
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -661,11 +661,11 @@ if systemctl is-active --quiet systemd-networkd && ! systemctl is-active --quiet
     if [ "$replace_networking" != "y" ]; then
         :
     else
-        if ! dpkg -S ifupdown2; then
+        if ! dpkg -S ifupdown; then
+            # systemctl stop systemd-networkd
+            # systemctl disable systemd-networkd
             prebuild_ifupdown
         fi
-        systemctl stop systemd-networkd
-        systemctl disable systemd-networkd
         if [ ! -f "/usr/local/bin/reboot_pve.txt" ]; then
             echo "1" >"/usr/local/bin/reboot_pve.txt"
             _green "Detected systemd-networkd management network in use, preparing to replace ifupdown management network."

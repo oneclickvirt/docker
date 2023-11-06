@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/pve
-# 2023.10.30
+# 2023.11.06
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
@@ -20,14 +20,15 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
 done
 
 # 安装ifupdown
-${PACKAGE_INSTALL[int]} ifupdown2
+${PACKAGE_INSTALL[int]} ifupdown
 echo "1" >"/usr/local/bin/ifupdown_installed.txt"
 
 # 删除原有的系统服务
-systemctl stop systemd-networkd
-systemctl disable systemd-networkd
-rm -rf /lib/systemd/system/systemd-networkd.service
+# systemctl stop systemd-networkd
+# systemctl disable systemd-networkd
+# rm -rf /lib/systemd/system/systemd-networkd.service
 systemctl enable networking
+sleep 1
 systemctl restart networking
 
 # 删除一次性服务
