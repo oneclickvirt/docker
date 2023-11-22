@@ -1,5 +1,9 @@
 # 更新日志
 
+2023.11.06
+
+- Linux容器现增加对 ubuntu、almalinux 的支持
+
 2023.10.28
 
 - IPV6地址分配过程中可能遇到非networking的service管理网络的情况，此时需要给fe80地址加白，现已适配
