@@ -759,7 +759,7 @@ if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
     systemctl start check-dns.service
 fi
 systemctl start networking
-if systemctl is-active --quiet systemd-networkd && ! systemctl is-active --quiet networking; then
+if systemctl is-active --quiet systemd-networkd && ! systemctl is-active --quiet networking && [ ! -f "/usr/local/bin/reboot_docker.txt" ]; then
     _green "Detected that systemd-networkd is being used to manage the network, do I need to replace it with networking management? y/[n]"
     reading "检测到正在使用的是 systemd-networkd 管理网络，是否需要替换为 networking 管理？y/[n]" replace_networking
     echo ""
