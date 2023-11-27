@@ -518,19 +518,6 @@ adapt_ipv6(){
 if [ ! -f /usr/local/bin/docker_adapt_ipv6 ]; then
     echo "1" >/usr/local/bin/docker_adapt_ipv6
     if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
-        target_mask=${ipv6_prefixlen}
-        ((target_mask += 8 - ($target_mask % 8)))
-        ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
-        ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
-        if [ -n "$ipv6_subnet_2_without_last_segment" ]; then
-            new_subnet="${ipv6_subnet_2}/${target_mask}"
-            _green "Use cuted IPV6 subnet：${new_subnet}"
-            _green "使用切分出来的IPV6子网：${new_subnet}"
-        else
-            _red "The ipv6 subnet 2: ${ipv6_subnet_2}"
-            _red "The ipv6 target mask: ${target_mask}"
-            return false
-        fi
         chattr -i /etc/network/interfaces
         if grep -q "auto he-ipv6" /etc/network/interfaces; then
             status_he=true
@@ -668,6 +655,19 @@ if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
     if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
         check_ipv6
         echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
+    fi
+    target_mask=${ipv6_prefixlen}
+    ((target_mask += 8 - ($target_mask % 8)))
+    ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
+    ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
+    if [ -n "$ipv6_subnet_2_without_last_segment" ]; then
+        new_subnet="${ipv6_subnet_2}/${target_mask}"
+        _green "Use cuted IPV6 subnet：${new_subnet}"
+        _green "使用切分出来的IPV6子网：${new_subnet}"
+    else
+        _red "The ipv6 subnet 2: ${ipv6_subnet_2}"
+        _red "The ipv6 target mask: ${target_mask}"
+        return false
     fi
 fi
     install_docker_and_compose
