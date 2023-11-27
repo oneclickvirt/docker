@@ -516,7 +516,7 @@ install_docker_and_compose(){
 # 检测docker的配置文件
 adapt_ipv6(){
 if [ ! -f /usr/local/bin/docker_adapt_ipv6 ]; then
-    touch /usr/local/bin/docker_adapt_ipv6
+    echo "1" >/usr/local/bin/docker_adapt_ipv6
     if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
         target_mask=${ipv6_prefixlen}
         ((target_mask += 8 - ($target_mask % 8)))
@@ -631,10 +631,9 @@ EOF
                 break
             fi
         fi
-    fi
-    if [ "$status_he" = true ]; then
-        chattr -i /etc/network/interfaces
-        sudo tee -a /etc/network/interfaces <<EOF
+        if [ "$status_he" = true ]; then
+            chattr -i /etc/network/interfaces
+            sudo tee -a /etc/network/interfaces <<EOF
 ${temp_config}
 EOF
     fi
@@ -656,7 +655,8 @@ EOF
     _green "Please reboot the server to enable the new network configuration, wait 20 seconds after the reboot and execute this script again"
     _green "请重启服务器以启用新的网络配置，重启后等待20秒后请再次执行本脚本"
     exit 1
-else
+fi
+if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
     _green "A new network has been detected that has rebooted the server to configure IPV6 and is testing IPV6 connectivity, please be patient!"
     _green "检测到已重启服务器配置IPV6的新网络，正在测试IPV6的连通性，请耐心等待"
     systemctl restart networking
