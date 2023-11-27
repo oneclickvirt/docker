@@ -803,5 +803,5 @@ if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gatew
     systemctl status radvd 2>/dev/null
 fi
 rm -rf /usr/local/bin/ifupdown_installed.txt
-_green "Please run reboot to reboot the machine later"
-_green "请稍后执行 reboot 重启本机"
+_green "Please run reboot to reboot the machine later. The environment has been installed"
+_green "请稍后执行 reboot 重启本机, 环境已安装完毕。"
