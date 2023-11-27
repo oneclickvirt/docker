@@ -745,7 +745,6 @@ fi
     update_sysctl "net.ipv6.conf.all.forwarding=1"
     update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
     update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
-fi
 }
 
 adapt_ipv6
