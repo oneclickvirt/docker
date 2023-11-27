@@ -620,26 +620,30 @@ EOF
             sudo tee -a /etc/network/interfaces <<EOF
 ${temp_config}
 EOF
+        fi
+        chattr +i /etc/network/interfaces
+        # pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
+        chattr -i /etc/network/interfaces.new.bak
+        rm -rf /etc/network/interfaces.new.bak
+        # 设置允许IPV6转发
+        sysctl_path=$(which sysctl)
+        $sysctl_path -w net.ipv6.conf.all.forwarding=1
+        $sysctl_path -w net.ipv6.conf.all.proxy_ndp=1
+        $sysctl_path -w net.ipv6.conf.default.proxy_ndp=1
+        $sysctl_path -w net.ipv6.conf.docker0.proxy_ndp=1
+        $sysctl_path -w net.ipv6.conf.${interface}.proxy_ndp=1
+        if [ "$status_he" = true ]; then
+            $sysctl_path -w net.ipv6.conf.he-ipv6.proxy_ndp=1
+        fi
+        $sysctl_path -f
+        _green "Please reboot the server to enable the new network configuration, wait 20 seconds after the reboot and execute this script again"
+        _green "请重启服务器以启用新的网络配置，重启后等待20秒后请再次执行本脚本"
+        exit 1
     fi
-    chattr +i /etc/network/interfaces
-    # pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
-    chattr -i /etc/network/interfaces.new.bak
-    rm -rf /etc/network/interfaces.new.bak
-    # 设置允许IPV6转发
-    sysctl_path=$(which sysctl)
-    $sysctl_path -w net.ipv6.conf.all.forwarding=1
-    $sysctl_path -w net.ipv6.conf.all.proxy_ndp=1
-    $sysctl_path -w net.ipv6.conf.default.proxy_ndp=1
-    $sysctl_path -w net.ipv6.conf.docker0.proxy_ndp=1
-    $sysctl_path -w net.ipv6.conf.${interface}.proxy_ndp=1
-    if [ "$status_he" = true ]; then
-        $sysctl_path -w net.ipv6.conf.he-ipv6.proxy_ndp=1
-    fi
-    $sysctl_path -f
-    _green "Please reboot the server to enable the new network configuration, wait 20 seconds after the reboot and execute this script again"
-    _green "请重启服务器以启用新的网络配置，重启后等待20秒后请再次执行本脚本"
-    exit 1
 fi
+}
+
+docker_build_ipv6(){
 if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
     _green "A new network has been detected that has rebooted the server to configure IPV6 and is testing IPV6 connectivity, please be patient!"
     _green "检测到已重启服务器配置IPV6的新网络，正在测试IPV6的连通性，请耐心等待"
@@ -745,6 +749,7 @@ fi
 }
 
 adapt_ipv6
+docker_build_ipv6
 install_docker_and_compose
 if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
     wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
