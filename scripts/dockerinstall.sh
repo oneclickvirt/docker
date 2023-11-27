@@ -433,7 +433,14 @@ ipv4_prefixlen=$(echo "$ipv4_address" | cut -d '/' -f 2)
 
 # 检测IPV6相关的信息
 if [ ! -f /usr/local/bin/docker_ipv6_prefixlen ] || [ ! -s /usr/local/bin/docker_ipv6_prefixlen ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_prefixlen)" = "" ]; then
-    ipv6_prefixlen=$(ifconfig ${interface} | grep -oP 'prefixlen \K\d+' | head -n 1)
+    ipv6_prefixlen=""
+    output=$(ifconfig ${interface} | grep -oP 'inet6 [^f][^e][^8][^0].*prefixlen \K\d+')
+    num_lines=$(echo "$output" | wc -l)
+    if [ $num_lines -ge 2 ]; then
+        ipv6_prefixlen=$(echo "$output" | sort -n | head -n 1)
+    else
+        ipv6_prefixlen=$(echo "$output" | head -n 1)
+    fi
     echo "$ipv6_prefixlen" >/usr/local/bin/docker_ipv6_prefixlen
 fi
 if [ ! -f /usr/local/bin/docker_ipv6_gateway ] || [ ! -s /usr/local/bin/docker_ipv6_gateway ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_gateway)" = "" ]; then
