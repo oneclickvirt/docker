@@ -626,9 +626,6 @@ iface $interface inet6 static
         up ip addr del $fe80_address dev $interface
         up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
 EOF
-            else
-                chattr +i /etc/network/interfaces
-                break
             fi
         fi
         if [ "$status_he" = true ]; then
