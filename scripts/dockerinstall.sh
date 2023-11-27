@@ -631,6 +631,7 @@ EOF
                 break
             fi
         fi
+    fi
     if [ "$status_he" = true ]; then
         chattr -i /etc/network/interfaces
         sudo tee -a /etc/network/interfaces <<EOF
