@@ -432,9 +432,6 @@ ipv4_subnet=$(cat /usr/local/bin/docker_ipv4_subnet)
 ipv4_prefixlen=$(echo "$ipv4_address" | cut -d '/' -f 2)
 
 # 检测IPV6相关的信息
-if [ ! -f /usr/local/bin/docker_check_ipv6 ] || [ ! -s /usr/local/bin/docker_check_ipv6 ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_check_ipv6)" = "" ]; then
-    check_ipv6
-fi
 if [ ! -f /usr/local/bin/docker_ipv6_prefixlen ] || [ ! -s /usr/local/bin/docker_ipv6_prefixlen ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_prefixlen)" = "" ]; then
     ipv6_prefixlen=$(ifconfig ${interface} | grep -oP 'prefixlen \K\d+' | head -n 1)
     echo "$ipv6_prefixlen" >/usr/local/bin/docker_ipv6_prefixlen
@@ -461,6 +458,9 @@ if [ ! -f /usr/local/bin/docker_ipv6_gateway ] || [ ! -s /usr/local/bin/docker_i
         ipv6_gateway_fe80="N"
     fi
 fi
+if [ ! -f /usr/local/bin/docker_check_ipv6 ] || [ ! -s /usr/local/bin/docker_check_ipv6 ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_check_ipv6)" = "" ]; then
+    check_ipv6
+fi
 if [ ! -f /usr/local/bin/docker_fe80_address ] || [ ! -s /usr/local/bin/docker_fe80_address ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_fe80_address)" = "" ]; then
     fe80_address=$(ip -6 addr show dev $interface | awk '/inet6 fe80/ {print $2}')
     echo "$fe80_address" >/usr/local/bin/docker_fe80_address
@@ -481,7 +481,6 @@ if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
     check_ipv6
     echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
 fi
-
 
 # docker 和 docker-compose 安装
 install_docker_and_compose(){
