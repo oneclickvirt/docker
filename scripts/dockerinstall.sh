@@ -654,78 +654,79 @@ docker_build_ipv6(){
 if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
     _green "A new network has been detected that has rebooted the server to configure IPV6 and is testing IPV6 connectivity, please be patient!"
     _green "检测到已重启服务器配置IPV6的新网络，正在测试IPV6的连通性，请耐心等待"
-    systemctl restart networking
-    sleep 3
-    # 重构IPV6地址，使用该IPV6子网内的0001结尾的地址
-    ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
-    ipv6_address="${ipv6_address%:*}:1"
-    if [ "$ipv6_address" == "$ipv6_gateway" ]; then
-        ipv6_address="${ipv6_address%:*}:2"
-    fi
-    ipv6_address_without_last_segment="${ipv6_address%:*}:"
-    if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
-        check_ipv6
-        echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
-    fi
-    target_mask=${ipv6_prefixlen}
-    ((target_mask += 8 - ($target_mask % 8)))
-    ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
-    ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
-    if [ -n "$ipv6_subnet_2_without_last_segment" ]; then
-        new_subnet="${ipv6_subnet_2}/${target_mask}"
-        _green "Use cuted IPV6 subnet：${new_subnet}"
-        _green "使用切分出来的IPV6子网：${new_subnet}"
-    else
-        _red "The ipv6 subnet 2: ${ipv6_subnet_2}"
-        _red "The ipv6 target mask: ${target_mask}"
-        return false
-    fi
-fi
-    install_docker_and_compose
-    if [ "$ipv6_prefixlen" -le 112 ]; then
-        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
-            docker network create --ipv6 --subnet=172.26.0.0/16 --subnet=$new_subnet ipv6_net
-            if [ "$system_arch" = "x86" ]; then
-                if [ "$status_he" = true ]; then
-                    docker run -d \
-                        --restart always --cpus 0.02 --memory 64M \
-                        -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                        --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                        --network host --name ndpresponder \
-                        spiritlhl/ndpresponder_x86 -i he-ipv6 -N ipv6_net
-                else
-                    docker run -d \
-                        --restart always --cpus 0.02 --memory 64M \
-                        -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                        --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                        --network host --name ndpresponder \
-                        spiritlhl/ndpresponder_x86 -i ${interface} -N ipv6_net
-                fi
-            elif [ "$system_arch" = "arch" ]; then
-                if [ "$status_he" = true ]; then
-                    docker run -d \
-                        --restart always --cpus 0.02 --memory 64M \
-                        -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                        --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                        --network host --name ndpresponder \
-                        spiritlhl/ndpresponder_aarch64 -i he-ipv6 -N ipv6_net
-                else
-                    docker run -d \
-                        --restart always --cpus 0.02 --memory 64M \
-                        -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                        --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                        --network host --name ndpresponder \
-                        spiritlhl/ndpresponder_aarch64 -i ${interface} -N ipv6_net
+    if [ ! -f /usr/local/bin/docker_build_ipv6 ]; then
+        echo "1" >/usr/local/bin/docker_build_ipv6
+        systemctl restart networking
+        sleep 3
+        # 重构IPV6地址，使用该IPV6子网内的0001结尾的地址
+        ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
+        ipv6_address="${ipv6_address%:*}:1"
+        if [ "$ipv6_address" == "$ipv6_gateway" ]; then
+            ipv6_address="${ipv6_address%:*}:2"
+        fi
+        ipv6_address_without_last_segment="${ipv6_address%:*}:"
+        if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
+            check_ipv6
+            echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
+        fi
+        target_mask=${ipv6_prefixlen}
+        ((target_mask += 8 - ($target_mask % 8)))
+        ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
+        ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
+        if [ -n "$ipv6_subnet_2_without_last_segment" ]; then
+            new_subnet="${ipv6_subnet_2}/${target_mask}"
+            _green "Use cuted IPV6 subnet：${new_subnet}"
+            _green "使用切分出来的IPV6子网：${new_subnet}"
+        else
+            _red "The ipv6 subnet 2: ${ipv6_subnet_2}"
+            _red "The ipv6 target mask: ${target_mask}"
+            return false
+        fi
+        install_docker_and_compose
+        if [ "$ipv6_prefixlen" -le 112 ]; then
+            if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
+                docker network create --ipv6 --subnet=172.26.0.0/16 --subnet=$new_subnet ipv6_net
+                if [ "$system_arch" = "x86" ]; then
+                    if [ "$status_he" = true ]; then
+                        docker run -d \
+                            --restart always --cpus 0.02 --memory 64M \
+                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                            --network host --name ndpresponder \
+                            spiritlhl/ndpresponder_x86 -i he-ipv6 -N ipv6_net
+                    else
+                        docker run -d \
+                            --restart always --cpus 0.02 --memory 64M \
+                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                            --network host --name ndpresponder \
+                            spiritlhl/ndpresponder_x86 -i ${interface} -N ipv6_net
+                    fi
+                elif [ "$system_arch" = "arch" ]; then
+                    if [ "$status_he" = true ]; then
+                        docker run -d \
+                            --restart always --cpus 0.02 --memory 64M \
+                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                            --network host --name ndpresponder \
+                            spiritlhl/ndpresponder_aarch64 -i he-ipv6 -N ipv6_net
+                    else
+                        docker run -d \
+                            --restart always --cpus 0.02 --memory 64M \
+                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                            --network host --name ndpresponder \
+                            spiritlhl/ndpresponder_aarch64 -i ${interface} -N ipv6_net
+                    fi
                 fi
             fi
         fi
-    fi
-    if ! command -v radvd >/dev/null 2>&1; then
-        _yellow "Installing radvd"
-        ${PACKAGE_INSTALL[int]} radvd
-    fi
-    if [ "$status_he" = true ]; then
-        config_content="interface he-ipv6 {
+        if ! command -v radvd >/dev/null 2>&1; then
+            _yellow "Installing radvd"
+            ${PACKAGE_INSTALL[int]} radvd
+        fi
+        if [ "$status_he" = true ]; then
+            config_content="interface he-ipv6 {
   AdvSendAdvert on;
   MinRtrAdvInterval 3;
   MaxRtrAdvInterval 10;
@@ -735,8 +736,8 @@ fi
     AdvRouterAddr on;
   };
 };"
-    else
-        config_content="interface $interface {
+        else
+            config_content="interface $interface {
   AdvSendAdvert on;
   MinRtrAdvInterval 3;
   MaxRtrAdvInterval 10;
@@ -746,12 +747,14 @@ fi
     AdvRouterAddr on;
   };
 };"
+        fi
+        echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
+        systemctl restart radvd
+        update_sysctl "net.ipv6.conf.all.forwarding=1"
+        update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
+        update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
     fi
-    echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
-    systemctl restart radvd
-    update_sysctl "net.ipv6.conf.all.forwarding=1"
-    update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
-    update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
+fi
 }
 
 adapt_ipv6
