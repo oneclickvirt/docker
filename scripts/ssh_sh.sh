@@ -39,4 +39,5 @@ sed -E -i 's/ssh_pwauth:[[:space:]]*false/ssh_pwauth:   true/g' /etc/cloud/cloud
 /usr/sbin/sshd
 rc-update add sshd default
 echo root:"$1" | chpasswd root
+sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf
 rm -f "$0"
