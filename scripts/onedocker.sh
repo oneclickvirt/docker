@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.11.06
+# 2023.12.20
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
 # <disk>
@@ -135,6 +135,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
             alpine /bin/sh -c "tail -f /dev/null"
+        docker_use_ipv6=true
     else
         docker run -d \
             --cpus=${cpu} \
@@ -150,9 +151,13 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
             alpine /bin/sh -c "tail -f /dev/null"
+        docker_use_ipv6=false
     fi
     docker cp ssh_sh.sh ${name}:/ssh_sh.sh
     docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
+    if [ "$docker_use_ipv6" = true ]; then
+        docker exec -it ${name} sh -c "echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -"
+    fi
     if [ "${CN}" == true ]; then
         if [ -f ChangeMirrors.sh ]; then
             docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
@@ -191,6 +196,7 @@ else
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
             ${system} /bin/bash -c "tail -f /dev/null"
+        docker_use_ipv6=true
     else
         docker run -d \
             --cpus=${cpu} \
@@ -206,9 +212,13 @@ else
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
             ${system} /bin/bash -c "tail -f /dev/null"
+        docker_use_ipv6=false
     fi
     docker cp ssh_bash.sh ${name}:/ssh_bash.sh
     docker exec -it ${name} bash -c "bash /ssh_bash.sh ${passwd}"
+    if [ "$docker_use_ipv6" = true ]; then
+        docker exec -it ${name} bash -c "echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -"
+    fi
     if [ "${CN}" == true ]; then
         if [ -f ChangeMirrors.sh ]; then
             docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh

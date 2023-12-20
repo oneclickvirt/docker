@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.11.27
+# 2023.12.20
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -753,6 +753,7 @@ if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
         update_sysctl "net.ipv6.conf.all.forwarding=1"
         update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
         update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
+        echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -
     fi
 fi
 }
