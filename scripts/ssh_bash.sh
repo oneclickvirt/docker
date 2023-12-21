@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.11.28
+# 2023.12.21
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
@@ -66,6 +66,11 @@ install_required_modules() {
             echo "$module 已尝试过安装！"
         fi
     done
+    if command -v apt-get >/dev/null 2>&1; then
+        ${PACKAGE_INSTALL[int]} cron 
+    else
+        ${PACKAGE_INSTALL[int]} cronie
+    fi
 }
 install_required_modules
 
