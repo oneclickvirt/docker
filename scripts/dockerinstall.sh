@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.12.20
+# 2023.12.22
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -388,6 +388,13 @@ fi
 if ! command -v lxcfs >/dev/null 2>&1; then
     _yellow "Installing lxcfs"
     ${PACKAGE_INSTALL[int]} lxcfs
+fi
+if ! command -v crontab >/dev/null 2>&1; then
+    _yellow "Installing crontab"
+    ${PACKAGE_INSTALL[int]} cron
+    if [[ $? -ne 0 ]]; then
+        ${PACKAGE_INSTALL[int]} cronie
+    fi
 fi
 ${PACKAGE_INSTALL[int]} net-tools
 check_china
