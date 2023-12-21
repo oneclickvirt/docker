@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2023.10.22
+# 2023.12.21
 
 if [ "$(cat /etc/os-release | grep -E '^ID=' | cut -d '=' -f 2)" != "alpine" ]; then
   echo "This script only supports Alpine Linux."
@@ -20,7 +20,8 @@ apk add --no-cache openssh-keygen
 apk add --no-cache bash
 apk add --no-cache curl
 apk add --no-cache wget
-
+apk add --no-cache cronie
+apk add --no-cache cron
 if [ -f "/etc/motd" ]; then
   echo 'Related repo https://github.com/spiritLHLS/docker' >>/etc/motd
   echo '--by https://t.me/spiritlhl' >>/etc/motd
