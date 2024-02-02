@@ -84,7 +84,7 @@ docker run -d \
   -e PGID=1000 \
   -e TZ=Etc/UTC \
   -e CHROME_CLI=https://www.spiritlhl.net/ `#optional` \
-  -e FILE__PASSWORD=/usr/local/bin/password_${http_port} \
+  -e PASSWORD=$(cat /usr/local/bin/password_${http_port}) \
   -p 0.0.0.0:${http_port}:3000 \
   -p 0.0.0.0:${https_port}:3001 \
   -v /usr/local/bin/config_${http_port}:/config \
