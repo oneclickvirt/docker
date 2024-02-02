@@ -76,6 +76,7 @@ reading "设置最大占用内存，仅输入数字(留空默认设置为2G内�
 [[ -z "$password" ]] && password="oneclick"
 [[ "$vnc_port" ]] && vnc="-p $vnc_port:5900" && vnc_en="VNC port:$vnc_port, VNC password is the same as the browser access password." && vnc_cn="VNC端口:$vnc_port，VNC密码同浏览器访问密码一致"
 [[ -z "$shm_size" ]] && shm_size="2"
+# https://github.com/jlesage/docker-firefox
 docker run -d \
     --name=firefox_${web_port} \
     $vnc \
