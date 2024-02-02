@@ -86,6 +86,7 @@ echo $password > /usr/local/bin/password_${http_port}
 docker run -d \
   --name=chromium_${http_port} \
   --security-opt seccomp=unconfined `#optional` \
+  -e DOCKER_MODS=linuxserver/mods:universal-internationalization \
   -e PUID=1000 \
   -e PGID=1000 \
   -e TZ=Etc/UTC \
@@ -93,7 +94,6 @@ docker run -d \
   -e CHROME_CLI=https://www.spiritlhl.net/ `#optional` \
   -e CUSTOM_USER=$(cat /usr/local/bin/username_${http_port}) \
   -e PASSWORD=$(cat /usr/local/bin/password_${http_port}) \
-  -e DOCKER_MODS=linuxserver/mods:universal-internationalization \
   -p 0.0.0.0:${http_port}:3000 \
   -p 0.0.0.0:${https_port}:3001 \
   -v /usr/local/bin/config_${http_port}:/config \
