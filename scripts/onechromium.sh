@@ -77,6 +77,7 @@ reading "设置最大占用内存，仅输入数字(留空默认设置为2G内�
 [[ -z "$password" ]] && password="oneclick" && echo $password > /usr/local/bin/password_${http_port}
 [[ -z "$shm_size" ]] && shm_size="2"
 
+# https://github.com/linuxserver/docker-chromium
 docker run -d \
   --name=chromium_${http_port} \
   --security-opt seccomp=unconfined `#optional` \
