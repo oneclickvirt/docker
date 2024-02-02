@@ -64,6 +64,8 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 _green "Can be opened more than one, as long as you correspond to the use of different web port and vnc port can be, because the container name and the port corresponds to the port, the port does not repeat the container name is not repeated can be opened more than one"
 _green "可多开，只要你对应使用不同的web端口和vnc端口即可，因为容器名字是和端口对应的，端口不重复容器名字就不重复可多开"
+_green "Browser access username: (leave blank to default to oneclick):"
+reading "浏览器访问用户名(留空则默认为oneclick):" username
 _green "Browser access password: (leave blank to default to oneclick):"
 reading "浏览器访问密码(留空则默认为oneclick):" password
 _green "Browser http access port (default 3004 if left blank):"
@@ -74,7 +76,10 @@ _green "Set the maximum occupied memory, enter the number only (leave blank the 
 reading "设置最大占用内存，仅输入数字(留空默认设置为2G内存):" shm_size
 [[ -z "$http_port" ]] && http_port=3004
 [[ -z "$https_port" ]] && https_port=3005
-[[ -z "$password" ]] && password="oneclick" && echo $password > /usr/local/bin/password_${http_port}
+[[ -z "$username" ]] && username="oneclick"
+echo $username > /usr/local/bin/username_${http_port}
+[[ -z "$password" ]] && password="oneclick"
+echo $password > /usr/local/bin/password_${http_port}
 [[ -z "$shm_size" ]] && shm_size="2"
 
 # https://github.com/linuxserver/docker-chromium
@@ -86,6 +91,7 @@ docker run -d \
   -e TZ=Etc/UTC \
   -e LC_ALL=zh_CN.UTF-8 \
   -e CHROME_CLI=https://www.spiritlhl.net/ `#optional` \
+  -e CUSTOM_USER=$(cat /usr/local/bin/username_${http_port}) \
   -e PASSWORD=$(cat /usr/local/bin/password_${http_port}) \
   -p 0.0.0.0:${http_port}:3000 \
   -p 0.0.0.0:${https_port}:3001 \
