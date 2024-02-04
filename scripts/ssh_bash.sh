@@ -75,6 +75,7 @@ install_required_modules() {
 install_required_modules
 
 if [ -f "/etc/motd" ]; then
+    echo '' >/etc/motd
     echo 'Related repo https://github.com/spiritLHLS/docker' >>/etc/motd
     echo '--by https://t.me/spiritlhl' >>/etc/motd
 fi

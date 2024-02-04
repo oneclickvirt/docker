@@ -23,6 +23,7 @@ apk add --no-cache wget
 apk add --no-cache cronie
 apk add --no-cache cron
 if [ -f "/etc/motd" ]; then
+  echo '' >/etc/motd
   echo 'Related repo https://github.com/spiritLHLS/docker' >>/etc/motd
   echo '--by https://t.me/spiritlhl' >>/etc/motd
 fi

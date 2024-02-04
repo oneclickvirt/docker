@@ -74,7 +74,7 @@ if [ "${CN}" == true ]; then
 fi
 
 # 查询名为ipv6_net的网络是否存在
-docker network inspect ipv6_net &> /dev/null
+docker network inspect ipv6_net &>/dev/null
 if [ $? -eq 0 ]; then
     _green "ipv6_net exists in the Docker network"
     _green "ipv6_net 存在于 Docker 网络中"
@@ -86,7 +86,7 @@ else
 fi
 
 # 查询名为ndpresponder的容器是否存在且活跃
-docker inspect ndpresponder &> /dev/null
+docker inspect ndpresponder &>/dev/null
 if [ $? -eq 0 ]; then
     container_status=$(docker inspect -f '{{.State.Status}}' ndpresponder)
     if [ "$container_status" == "running" ]; then

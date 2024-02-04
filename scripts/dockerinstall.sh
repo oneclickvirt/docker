@@ -1,4 +1,3 @@
-
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
@@ -197,7 +196,6 @@ is_private_ipv6() {
     fi
 }
 
-
 check_ipv6() {
     IPV6=$(ip -6 addr show | grep global | awk '{print length, $2}' | sort -nr | head -n 1 | awk '{print $2}' | cut -d '/' -f1)
     if [ ! -f /usr/local/bin/docker_last_ipv6 ] || [ ! -s /usr/local/bin/docker_last_ipv6 ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_last_ipv6)" = "" ]; then
@@ -315,14 +313,14 @@ check_china() {
 }
 
 update_sysctl() {
-  sysctl_config="$1"
-  if grep -q "^$sysctl_config" /etc/sysctl.conf; then
-    if grep -q "^#$sysctl_config" /etc/sysctl.conf; then
-      sed -i "s/^#$sysctl_config/$sysctl_config/" /etc/sysctl.conf
+    sysctl_config="$1"
+    if grep -q "^$sysctl_config" /etc/sysctl.conf; then
+        if grep -q "^#$sysctl_config" /etc/sysctl.conf; then
+            sed -i "s/^#$sysctl_config/$sysctl_config/" /etc/sysctl.conf
+        fi
+    else
+        echo "$sysctl_config" >>/etc/sysctl.conf
     fi
-  else
-    echo "$sysctl_config" >> /etc/sysctl.conf
-  fi
 }
 
 prebuild_ifupdown() {
@@ -337,7 +335,6 @@ prebuild_ifupdown() {
         fi
     fi
 }
-
 
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
@@ -556,7 +553,7 @@ if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ $(cat /usr/local/bin/docke
 fi
 
 # docker 和 docker-compose 安装
-install_docker_and_compose(){
+install_docker_and_compose() {
     _green "This may stay for 2~3 minutes, please be patient..."
     _green "此处可能会停留2~3分钟，请耐心等待。。。"
     sleep 1
@@ -587,214 +584,214 @@ install_docker_and_compose(){
 # fi
 
 # 检测docker的配置文件
-adapt_ipv6(){
-if [ ! -f /usr/local/bin/docker_adapt_ipv6 ]; then
-    echo "1" >/usr/local/bin/docker_adapt_ipv6
-    if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
-        chattr -i /etc/network/interfaces
-        if grep -q "auto he-ipv6" /etc/network/interfaces; then
-            status_he=true
-            temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<10' /etc/network/interfaces)
-            cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-        up ip addr del $fe80_address dev $interface
-EOF
-        elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
-            last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
-            cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address ${last_ipv6}
-        gateway ${ipv6_gateway}
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-
-iface $interface inet6 static
-    address $ipv6_address/$ipv6_prefixlen
-EOF
-        elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "N" ]]; then
-            last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
-            cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address ${last_ipv6}
-        gateway ${ipv6_gateway}
-        up ip addr del $fe80_address dev $interface
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-
-iface $interface inet6 static
-    address $ipv6_address/$ipv6_prefixlen
-EOF
-        else
-            if [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
-                cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address $ipv6_address/$ipv6_prefixlen
-        gateway $ipv6_gateway
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-EOF
-            elif [[ "${ipv6_gateway_fe80}" == "N" ]]; then
-                cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address $ipv6_address/$ipv6_prefixlen
-        gateway $ipv6_gateway
-        up ip addr del $fe80_address dev $interface
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-EOF
-            fi
-        fi
-        if [ "$status_he" = true ]; then
+adapt_ipv6() {
+    if [ ! -f /usr/local/bin/docker_adapt_ipv6 ]; then
+        echo "1" >/usr/local/bin/docker_adapt_ipv6
+        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
             chattr -i /etc/network/interfaces
-            sudo tee -a /etc/network/interfaces <<EOF
+            if grep -q "auto he-ipv6" /etc/network/interfaces; then
+                status_he=true
+                temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<10' /etc/network/interfaces)
+                cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+        up ip addr del $fe80_address dev $interface
+EOF
+            elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
+                last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
+                cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+
+iface $interface inet6 static
+        address ${last_ipv6}
+        gateway ${ipv6_gateway}
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
+
+iface $interface inet6 static
+    address $ipv6_address/$ipv6_prefixlen
+EOF
+            elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "N" ]]; then
+                last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
+                cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+
+iface $interface inet6 static
+        address ${last_ipv6}
+        gateway ${ipv6_gateway}
+        up ip addr del $fe80_address dev $interface
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
+
+iface $interface inet6 static
+    address $ipv6_address/$ipv6_prefixlen
+EOF
+            else
+                if [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
+                    cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+
+iface $interface inet6 static
+        address $ipv6_address/$ipv6_prefixlen
+        gateway $ipv6_gateway
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
+EOF
+                elif [[ "${ipv6_gateway_fe80}" == "N" ]]; then
+                    cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+
+iface $interface inet6 static
+        address $ipv6_address/$ipv6_prefixlen
+        gateway $ipv6_gateway
+        up ip addr del $fe80_address dev $interface
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
+EOF
+                fi
+            fi
+            if [ "$status_he" = true ]; then
+                chattr -i /etc/network/interfaces
+                sudo tee -a /etc/network/interfaces <<EOF
 ${temp_config}
 EOF
+            fi
+            chattr +i /etc/network/interfaces
+            # pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
+            chattr -i /etc/network/interfaces.new.bak
+            rm -rf /etc/network/interfaces.new.bak
+            # 设置允许IPV6转发
+            sysctl_path=$(which sysctl)
+            $sysctl_path -w net.ipv6.conf.all.forwarding=1
+            $sysctl_path -w net.ipv6.conf.all.proxy_ndp=1
+            $sysctl_path -w net.ipv6.conf.default.proxy_ndp=1
+            $sysctl_path -w net.ipv6.conf.docker0.proxy_ndp=1
+            $sysctl_path -w net.ipv6.conf.${interface}.proxy_ndp=1
+            if [ "$status_he" = true ]; then
+                $sysctl_path -w net.ipv6.conf.he-ipv6.proxy_ndp=1
+            fi
+            $sysctl_path -f
+            _green "Please reboot the server to enable the new network configuration, wait 20 seconds after the reboot and execute this script again"
+            _green "请重启服务器以启用新的网络配置，重启后等待20秒后请再次执行本脚本"
+            exit 1
         fi
-        chattr +i /etc/network/interfaces
-        # pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
-        chattr -i /etc/network/interfaces.new.bak
-        rm -rf /etc/network/interfaces.new.bak
-        # 设置允许IPV6转发
-        sysctl_path=$(which sysctl)
-        $sysctl_path -w net.ipv6.conf.all.forwarding=1
-        $sysctl_path -w net.ipv6.conf.all.proxy_ndp=1
-        $sysctl_path -w net.ipv6.conf.default.proxy_ndp=1
-        $sysctl_path -w net.ipv6.conf.docker0.proxy_ndp=1
-        $sysctl_path -w net.ipv6.conf.${interface}.proxy_ndp=1
-        if [ "$status_he" = true ]; then
-            $sysctl_path -w net.ipv6.conf.he-ipv6.proxy_ndp=1
-        fi
-        $sysctl_path -f
-        _green "Please reboot the server to enable the new network configuration, wait 20 seconds after the reboot and execute this script again"
-        _green "请重启服务器以启用新的网络配置，重启后等待20秒后请再次执行本脚本"
-        exit 1
     fi
-fi
 }
 
-docker_build_ipv6(){
-if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
-    _green "A new network has been detected that has rebooted the server to configure IPV6 and is testing IPV6 connectivity, please be patient!"
-    _green "检测到已重启服务器配置IPV6的新网络，正在测试IPV6的连通性，请耐心等待"
-    if [ ! -f /usr/local/bin/docker_build_ipv6 ]; then
-        echo "1" >/usr/local/bin/docker_build_ipv6
-        systemctl restart networking
-        sleep 3
-        # 重构IPV6地址，使用该IPV6子网内的0001结尾的地址
-        ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
-        ipv6_address="${ipv6_address%:*}:1"
-        if [ "$ipv6_address" == "$ipv6_gateway" ]; then
-            ipv6_address="${ipv6_address%:*}:2"
-        fi
-        ipv6_address_without_last_segment="${ipv6_address%:*}:"
-        if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
-            check_ipv6
-            echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
-        fi
-        target_mask=${ipv6_prefixlen}
-        echo "Before: target_mask = $target_mask"
-        ((target_mask += 8 - ($target_mask % 8)))
-        echo "After: target_mask = $target_mask"
-        ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
-        ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
-        if [ -n "$ipv6_subnet_2_without_last_segment" ] && [ -n "$target_mask" ]; then
-            new_subnet="${ipv6_subnet_2}/${target_mask}"
-            _green "Use cuted IPV6 subnet：${new_subnet}"
-            _green "使用切分出来的IPV6子网：${new_subnet}"
-        else
-            _red "The ipv6 subnet 2: ${ipv6_subnet_2}"
-            _red "The ipv6 target mask: ${target_mask}"
-            return false
-        fi
-        install_docker_and_compose
-        if [ "$ipv6_prefixlen" -le 112 ]; then
-            if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
-                docker network create --ipv6 --subnet=172.26.0.0/16 --subnet=$new_subnet ipv6_net
-                if [ "$system_arch" = "x86" ]; then
-                    if [ "$status_he" = true ]; then
-                        docker run -d \
-                            --restart always --cpus 0.02 --memory 64M \
-                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                            --network host --name ndpresponder \
-                            spiritlhl/ndpresponder_x86 -i he-ipv6 -N ipv6_net
-                    else
-                        docker run -d \
-                            --restart always --cpus 0.02 --memory 64M \
-                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                            --network host --name ndpresponder \
-                            spiritlhl/ndpresponder_x86 -i ${interface} -N ipv6_net
-                    fi
-                elif [ "$system_arch" = "arch" ]; then
-                    if [ "$status_he" = true ]; then
-                        docker run -d \
-                            --restart always --cpus 0.02 --memory 64M \
-                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                            --network host --name ndpresponder \
-                            spiritlhl/ndpresponder_aarch64 -i he-ipv6 -N ipv6_net
-                    else
-                        docker run -d \
-                            --restart always --cpus 0.02 --memory 64M \
-                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                            --network host --name ndpresponder \
-                            spiritlhl/ndpresponder_aarch64 -i ${interface} -N ipv6_net
+docker_build_ipv6() {
+    if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
+        _green "A new network has been detected that has rebooted the server to configure IPV6 and is testing IPV6 connectivity, please be patient!"
+        _green "检测到已重启服务器配置IPV6的新网络，正在测试IPV6的连通性，请耐心等待"
+        if [ ! -f /usr/local/bin/docker_build_ipv6 ]; then
+            echo "1" >/usr/local/bin/docker_build_ipv6
+            systemctl restart networking
+            sleep 3
+            # 重构IPV6地址，使用该IPV6子网内的0001结尾的地址
+            ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
+            ipv6_address="${ipv6_address%:*}:1"
+            if [ "$ipv6_address" == "$ipv6_gateway" ]; then
+                ipv6_address="${ipv6_address%:*}:2"
+            fi
+            ipv6_address_without_last_segment="${ipv6_address%:*}:"
+            if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
+                check_ipv6
+                echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
+            fi
+            target_mask=${ipv6_prefixlen}
+            echo "Before: target_mask = $target_mask"
+            ((target_mask += 8 - ($target_mask % 8)))
+            echo "After: target_mask = $target_mask"
+            ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
+            ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
+            if [ -n "$ipv6_subnet_2_without_last_segment" ] && [ -n "$target_mask" ]; then
+                new_subnet="${ipv6_subnet_2}/${target_mask}"
+                _green "Use cuted IPV6 subnet：${new_subnet}"
+                _green "使用切分出来的IPV6子网：${new_subnet}"
+            else
+                _red "The ipv6 subnet 2: ${ipv6_subnet_2}"
+                _red "The ipv6 target mask: ${target_mask}"
+                return false
+            fi
+            install_docker_and_compose
+            if [ "$ipv6_prefixlen" -le 112 ]; then
+                if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
+                    docker network create --ipv6 --subnet=172.26.0.0/16 --subnet=$new_subnet ipv6_net
+                    if [ "$system_arch" = "x86" ]; then
+                        if [ "$status_he" = true ]; then
+                            docker run -d \
+                                --restart always --cpus 0.02 --memory 64M \
+                                -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                                --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                                --network host --name ndpresponder \
+                                spiritlhl/ndpresponder_x86 -i he-ipv6 -N ipv6_net
+                        else
+                            docker run -d \
+                                --restart always --cpus 0.02 --memory 64M \
+                                -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                                --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                                --network host --name ndpresponder \
+                                spiritlhl/ndpresponder_x86 -i ${interface} -N ipv6_net
+                        fi
+                    elif [ "$system_arch" = "arch" ]; then
+                        if [ "$status_he" = true ]; then
+                            docker run -d \
+                                --restart always --cpus 0.02 --memory 64M \
+                                -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                                --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                                --network host --name ndpresponder \
+                                spiritlhl/ndpresponder_aarch64 -i he-ipv6 -N ipv6_net
+                        else
+                            docker run -d \
+                                --restart always --cpus 0.02 --memory 64M \
+                                -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                                --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                                --network host --name ndpresponder \
+                                spiritlhl/ndpresponder_aarch64 -i ${interface} -N ipv6_net
+                        fi
                     fi
                 fi
             fi
-        fi
-        if ! command -v radvd >/dev/null 2>&1; then
-            _yellow "Installing radvd"
-            ${PACKAGE_INSTALL[int]} radvd
-        fi
-        if [ "$status_he" = true ]; then
-            config_content="interface he-ipv6 {
+            if ! command -v radvd >/dev/null 2>&1; then
+                _yellow "Installing radvd"
+                ${PACKAGE_INSTALL[int]} radvd
+            fi
+            if [ "$status_he" = true ]; then
+                config_content="interface he-ipv6 {
   AdvSendAdvert on;
   MinRtrAdvInterval 3;
   MaxRtrAdvInterval 10;
@@ -804,8 +801,8 @@ if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
     AdvRouterAddr on;
   };
 };"
-        else
-            config_content="interface $interface {
+            else
+                config_content="interface $interface {
   AdvSendAdvert on;
   MinRtrAdvInterval 3;
   MaxRtrAdvInterval 10;
@@ -815,15 +812,15 @@ if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
     AdvRouterAddr on;
   };
 };"
+            fi
+            echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
+            systemctl restart radvd
+            update_sysctl "net.ipv6.conf.all.forwarding=1"
+            update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
+            update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
+            echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -
         fi
-        echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
-        systemctl restart radvd
-        update_sysctl "net.ipv6.conf.all.forwarding=1"
-        update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
-        update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
-        echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -
     fi
-fi
 }
 
 if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ $(cat /usr/local/bin/docker_maximum_subset) = true ]; then
