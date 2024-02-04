@@ -2,7 +2,7 @@
 #!/bin/bash
 # from
 # https://github.com/spiritLHLS/docker
-# 2024.01.10
+# 2024.02.04
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
