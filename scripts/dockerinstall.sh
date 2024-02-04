@@ -447,7 +447,7 @@ ipv4_prefixlen=$(echo "$ipv4_address" | cut -d '/' -f 2)
 # 检测IPV6相关的信息
 if [ ! -f /usr/local/bin/docker_ipv6_prefixlen ] || [ ! -s /usr/local/bin/docker_ipv6_prefixlen ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_prefixlen)" = "" ]; then
     ipv6_prefixlen=""
-    output=$(ifconfig ${interface} | grep -oP 'inet6 [^f][^e][^8][^0].*prefixlen \K\d+')
+    output=$(ifconfig ${interface} | grep -oP 'inet6 (?!fe80:).*prefixlen \K\d+')
     num_lines=$(echo "$output" | wc -l)
     if [ $num_lines -ge 2 ]; then
         ipv6_prefixlen=$(echo "$output" | sort -n | head -n 1)
@@ -736,10 +736,12 @@ if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
             echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
         fi
         target_mask=${ipv6_prefixlen}
+        echo "Before: target_mask = $target_mask"
         ((target_mask += 8 - ($target_mask % 8)))
+        echo "After: target_mask = $target_mask"
         ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
         ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
-        if [ -n "$ipv6_subnet_2_without_last_segment" ]; then
+        if [ -n "$ipv6_subnet_2_without_last_segment" ] && [ -n "$target_mask" ]; then
             new_subnet="${ipv6_subnet_2}/${target_mask}"
             _green "Use cuted IPV6 subnet：${new_subnet}"
             _green "使用切分出来的IPV6子网：${new_subnet}"
