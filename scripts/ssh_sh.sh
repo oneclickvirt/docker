@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
-# https://github.com/spiritLHLS/docker
-# 2023.12.21
+# https://github.com/oneclickvirt/docker
+# 2024.03.12
 
 if [ "$(cat /etc/os-release | grep -E '^ID=' | cut -d '=' -f 2)" != "alpine" ]; then
   echo "This script only supports Alpine Linux."
@@ -24,7 +24,7 @@ apk add --no-cache cronie
 apk add --no-cache cron
 if [ -f "/etc/motd" ]; then
   echo '' >/etc/motd
-  echo 'Related repo https://github.com/spiritLHLS/docker' >>/etc/motd
+  echo 'Related repo https://github.com/oneclickvirt/docker' >>/etc/motd
   echo '--by https://t.me/spiritlhl' >>/etc/motd
 fi
 cd /etc/ssh

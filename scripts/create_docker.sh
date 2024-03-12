@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
-# https://github.com/spiritLHLS/docker
-# 2023.10.23
+# https://github.com/oneclickvirt/docker
+# 2024.03.12
 
 # cd /root
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -28,23 +28,23 @@ pre_check() {
         exit 1
     fi
     if ! command -v docker >/dev/null 2>&1; then
-        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/pre_build.sh -o pre_build.sh
+        curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/pre_build.sh -o pre_build.sh
         chmod 777 pre_build.sh
         dos2unix pre_build.sh
         bash pre_build.sh
     fi
     if [ ! -f ssh_bash.sh ]; then
-        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh
+        curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh
         chmod 777 ssh_bash.sh
         dos2unix ssh_bash.sh
     fi
     if [ ! -f ssh_sh.sh ]; then
-        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh
+        curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh
         chmod 777 ssh_sh.sh
         dos2unix ssh_sh.sh
     fi
     if [ ! -f buildone.sh ]; then
-        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/onedocker.sh -o onedocker.sh
+        curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/onedocker.sh -o onedocker.sh
         chmod 777 onedocker.sh
         dos2unix onedocker.sh
     fi

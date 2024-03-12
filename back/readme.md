@@ -37,7 +37,7 @@ PS: 如果硬件非常好资源很多，可使用PVE批量开KVM虚拟化的虚�
 - 下载预制脚本
 
 ```
-curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/pre_build.sh -o pre_build.sh && chmod +x pre_build.sh && bash pre_build.sh
+curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/pre_build.sh -o pre_build.sh && chmod +x pre_build.sh && bash pre_build.sh
 ```
 
 ## 单独开设
@@ -45,7 +45,7 @@ curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/pre_bui
 下载脚本
 
 ```
-curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/onedocker.sh -o onedocker.sh && chmod +x onedocker.sh
+curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/onedocker.sh -o onedocker.sh && chmod +x onedocker.sh
 ```
 
 运行
@@ -96,7 +96,7 @@ cat 容器名字
 - 生成多个时为避免SSH连接中断建议在screen中执行
 
 ```
-curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/dockers.sh -o dockers.sh && chmod +x dockers.sh && bash dockers.sh
+curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/dockers.sh -o dockers.sh && chmod +x dockers.sh && bash dockers.sh
 ```
 
 ## 查询批量开设的信息

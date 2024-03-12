@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
-# https://github.com/spiritLHLS/docker
-# 2023.08.13
+# https://github.com/oneclickvirt/docker
+# 2024.03.12
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -51,12 +51,12 @@ rdp_port="${4:-13389}"
 
 image_status=$(docker images | grep -q "windows:${windows_version}")
 if [ -z "$image_status" ]; then
-    curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/startup.sh -o startup.sh
+    curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/startup.sh -o startup.sh
     chmod 777 startup.sh
     _green "The following commands will take at least 20 minutes to execute, so please be patient...."
     _green "以下命令将执行至少20分钟，请耐心等待..."
     if [ ! -f "/root/Dockerfile_${windows_version}" ]; then
-        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/Dockerfile -o /root/Dockerfile_${windows_version}
+        curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/Dockerfile -o /root/Dockerfile_${windows_version}
         chmod 777 /root/Dockerfile_${windows_version}
         docker build -t "windows:${windows_version}" -f "/root/Dockerfile_${windows_version}" .
     fi

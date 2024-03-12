@@ -4,9 +4,9 @@
 
 ## 更新
 
-2024.02.04
+2024.03.12
 
-- 修复docker的IPV6子网掩码的识别更精确
+- 迁移仓库至于组织仓库，方便协同维护
 
 [更新日志](CHANGELOG.md)
 
@@ -33,5 +33,5 @@
 
 ## Stargazers over time
 
-[![Stargazers over time](https://starchart.cc/spiritLHLS/docker.svg)](https://starchart.cc/spiritLHLS/docker)
+[![Stargazers over time](https://starchart.cc/oneclickvirt/docker.svg)](https://starchart.cc/oneclickvirt/docker)
 

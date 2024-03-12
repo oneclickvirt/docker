@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
-# https://github.com/spiritLHLS/docker
-# 2023.12.20
+# https://github.com/oneclickvirt/docker
+# 2024.03.12
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
 # <disk>
@@ -110,7 +110,7 @@ if [ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_i
 fi
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [ ! -f ssh_sh.sh ]; then
-        curl -Lk https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh
+        curl -Lk https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh
         chmod 777 ssh_sh.sh
         dos2unix ssh_sh.sh
     fi
@@ -171,7 +171,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
     if [ ! -f ssh_bash.sh ]; then
-        curl -L https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh
+        curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh
         chmod 777 ssh_bash.sh
         dos2unix ssh_bash.sh
     fi

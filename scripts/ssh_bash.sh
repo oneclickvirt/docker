@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
-# https://github.com/spiritLHLS/docker
-# 2023.12.21
+# https://github.com/oneclickvirt/docker
+# 2024.03.12
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
@@ -76,7 +76,7 @@ install_required_modules
 
 if [ -f "/etc/motd" ]; then
     echo '' >/etc/motd
-    echo 'Related repo https://github.com/spiritLHLS/docker' >>/etc/motd
+    echo 'Related repo https://github.com/oneclickvirt/docker' >>/etc/motd
     echo '--by https://t.me/spiritlhl' >>/etc/motd
 fi
 sshport=22

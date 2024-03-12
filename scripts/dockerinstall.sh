@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
-# https://github.com/spiritLHLS/docker
-# 2024.02.04
+# https://github.com/oneclickvirt/docker
+# 2024.03.12
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -325,8 +325,8 @@ update_sysctl() {
 
 prebuild_ifupdown() {
     if [ ! -f "/usr/local/bin/ifupdown_installed.txt" ]; then
-        wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/install_ifupdown.sh -O /usr/local/bin/install_ifupdown.sh
-        wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/ifupdown-install.service -O /etc/systemd/system/ifupdown-install.service
+        wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/install_ifupdown.sh -O /usr/local/bin/install_ifupdown.sh
+        wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/ifupdown-install.service -O /etc/systemd/system/ifupdown-install.service
         chmod 777 /usr/local/bin/install_ifupdown.sh
         chmod 777 /etc/systemd/system/ifupdown-install.service
         if [ -f "/usr/local/bin/install_ifupdown.sh" ]; then
@@ -400,8 +400,8 @@ cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn3.spiritlhl.net/" "http://cdn
 check_cdn_file
 get_system_arch
 ${PACKAGE_INSTALL[int]} openssl
-curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh && chmod +x ssh_bash.sh && dos2unix ssh_bash.sh
-curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh && chmod +x ssh_sh.sh && dos2unix ssh_sh.sh
+curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh && chmod +x ssh_bash.sh && dos2unix ssh_bash.sh
+curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh && chmod +x ssh_sh.sh && dos2unix ssh_sh.sh
 
 # 检测物理接口
 interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
@@ -829,8 +829,8 @@ if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ $(cat /usr/local/bin/docke
 fi
 install_docker_and_compose
 if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
-    wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
-    wget ${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/docker/main/extra_scripts/check-dns.service -O /etc/systemd/system/check-dns.service
+    wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
+    wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.service -O /etc/systemd/system/check-dns.service
     chmod +x /usr/local/bin/check-dns.sh
     chmod +x /etc/systemd/system/check-dns.service
     systemctl daemon-reload

@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
-# https://github.com/spiritLHLS/docker
-# 2023.08.14
+# https://github.com/oneclickvirt/docker
+# 2024.03.12
 
 set -eou pipefail
 chown root:kvm /dev/kvm

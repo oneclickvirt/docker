@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
-# https://github.com/spiritLHLS/docker
-# 2023.08.11
+# https://github.com/oneclickvirt/docker
+# 2024.03.12
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -82,7 +82,7 @@ if [ -z "$user_password" ]; then
     user_password="oneclick"
 fi
 if [ ! -f /root/oneandroid.sh ]; then
-    curl https://raw.githubusercontent.com/spiritLHLS/docker/main/scripts/oneandroid.sh -o /root/oneandroid.sh
+    curl https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/oneandroid.sh -o /root/oneandroid.sh
     chmod 777 /root/oneandroid.sh
 fi
 rm -rf /root/android_info

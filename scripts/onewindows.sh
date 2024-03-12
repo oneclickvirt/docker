@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
-# https://github.com/spiritLHLS/docker
-# 2023.08.17
+# https://github.com/oneclickvirt/docker
+# 2024.03.12
 
 # 起步10分钟
 cd /root >/dev/null 2>&1
