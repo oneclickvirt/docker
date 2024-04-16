@@ -197,7 +197,7 @@ fi
 ${PACKAGE_INSTALL[int]} g++
 if [ ! -d /root/ws-scrcpy ]; then
     git clone https://github.com/NetrisTV/ws-scrcpy.git
-    cd ws-scrapy
+    cd /root/ws-scrcpy
     npm install
     cd ..
 fi
