@@ -177,9 +177,7 @@ docker run -itd \
     redroid.height=1280 \
     redroid.gpu.mode=guest
 sleep 5
-if ! command -v npm >/dev/null 2>&1; then
-    source ~/.bashrc
-    nvm install 20
+if command -v npm >/dev/null 2>&1; then
     echo "node version:"
     node -v
     echo "npm version:"
