@@ -81,6 +81,21 @@ reading "请输入web验证的密码：(留空则默认密码是oneclick)：" us
 if [ -z "$user_password" ]; then
     user_password="oneclick"
 fi
+current_kernel_version=$(uname -r)
+target_kernel_version="5.0"
+if [[ "$(echo -e "$current_kernel_version\n$target_kernel_version" | sort -V | head -n 1)" == "$target_kernel_version" ]]; then
+    echo "当前内核版本 $current_kernel_version 大于或等于 $target_kernel_version，无需升级。"
+else
+    echo "当前内核版本 $current_kernel_version 小于 $target_kernel_version，请自行升级系统"
+fi
+if ! dpkg -S linux-modules-extra-${current_kernel_version} >/dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} linux-modules-extra-${current_kernel_version}
+fi
+modprobe binder_linux devices="binder,hwbinder,vndbinder"
+modprobe ashmem_linux
+if [ ! -d /usr/local/bin ]; then
+    mkdir -p /usr/local/bin
+fi
 if ! command -v npm >/dev/null 2>&1; then
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
     export NVM_DIR="$HOME/.nvm"
@@ -92,8 +107,15 @@ if ! command -v npm >/dev/null 2>&1; then
     echo "npm version:"
     npm -v
     npm install -g node-gyp
-    _green "Please restart the window or reconnect to ssh to execute this script again to load the default environment configuration"
-    _green "请重启窗口或重新连接ssh再次执行本脚本，以加载默认环境配置"
+    _green "Please reboot the system to execute this script again to load the default environment configuration"
+    _green "请重启本机再次执行本脚本，以加载默认环境配置"
+    echo "1" > /usr/local/bin/reboot_from_android
+    exit 1
+fi
+if [ ! -f /usr/local/bin/reboot_from_android ];then
+    _green "Please reboot the system to execute this script again to load the default environment configuration"
+    _green "请重启本机再次执行本脚本，以加载默认环境配置"
+    echo "1" > /usr/local/bin/reboot_from_android
     exit 1
 fi
 if command -v npm >/dev/null 2>&1; then
