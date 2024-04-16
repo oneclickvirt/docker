@@ -200,23 +200,26 @@ if [ ! -d /root/ws-scrcpy ]; then
     npm install
     cd ..
 fi
-if [ ! -f /etc/systemd/system/ws-scrcpy.service ]; then
-    curl -s https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/ws-scrcpy.service -o /etc/systemd/system/ws-scrcpy.service
-    chmod +x /etc/systemd/system/ws-scrcpy.service
-    if [ -f "/etc/systemd/system/ws-scrcpy.service" ]; then
-        npm_path=$(command -v npm)
-        new_exec_start="ExecStart=${npm_path} start"
-        file_path="/etc/systemd/system/ws-scrcpy.service"
-        line_number=8
-        sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
-    fi
-    systemctl daemon-reload
-    systemctl start ws-scrcpy.service
-    systemctl enable ws-scrcpy.service
-else 
-    systemctl daemon-reload
-    systemctl restart ws-scrcpy.service
-fi
+cd /root/ws-scrcpy
+nohup npm start > nohup-ws.out & 
+# 守护进程似乎无法识别npm项目，待修复
+# if [ ! -f /etc/systemd/system/ws-scrcpy.service ]; then
+#     curl -s https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/ws-scrcpy.service -o /etc/systemd/system/ws-scrcpy.service
+#     chmod +x /etc/systemd/system/ws-scrcpy.service
+#     if [ -f "/etc/systemd/system/ws-scrcpy.service" ]; then
+#         npm_path=$(command -v npm)
+#         new_exec_start="ExecStart=${npm_path} start"
+#         file_path="/etc/systemd/system/ws-scrcpy.service"
+#         line_number=8
+#         sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
+#     fi
+#     systemctl daemon-reload
+#     systemctl start ws-scrcpy.service
+#     systemctl enable ws-scrcpy.service
+# else 
+#     systemctl daemon-reload
+#     systemctl restart ws-scrcpy.service
+# fi
 # 不再使用docker进行web-scrcpy映射，使用上面的守护进程进行映射
 # docker run -itd \
 #     --privileged \
