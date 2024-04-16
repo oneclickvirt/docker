@@ -81,9 +81,14 @@ reading "请输入web验证的密码：(留空则默认密码是oneclick)：" us
 if [ -z "$user_password" ]; then
     user_password="oneclick"
 fi
-if ! command -v npm >/dev/null 2>&1; then
+if ! command -v nvm >/dev/null 2>&1; then
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
     source ~/.bashrc
+    if ! command -v nvm >/dev/null 2>&1; then
+        _green "Please restart the window or reconnect to ssh to execute this script again to load the default environment configuration"
+        _green "请重启窗口或重新连接ssh再次执行本脚本，以加载默认环境配置"
+        exit 1
+    fi
 fi
 if [ ! -f /root/oneandroid.sh ]; then
     curl https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/oneandroid.sh -o /root/oneandroid.sh
