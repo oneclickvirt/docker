@@ -159,6 +159,7 @@ docker run -itd \
     --name ${name} \
     --memory-swappiness=0 \
     --privileged --pull always \
+    -p 5555:5555 \
     -v /root/android/data:/data \
     redroid/redroid:${selected_tag} \
     androidboot.hardware=mt6891 \
@@ -253,8 +254,12 @@ while true; do
     echo "Please be patient while waiting for the container to start..."
     echo "等待容器启动中，请耐心等待..."
 done
-output=$(docker exec -it scrcpy_web adb connect web_${name}:5555)
-if [ $? -ne 0 ] || [[ $output == *"failed to connect to 'web_android:5555': Connection refused"* ]]; then
+killall adb
+rm -rf nohup.out
+nohup adb connect localhost:5555 & 
+sleep 5
+output=$(cat nohup.out)
+if [ $? -ne 0 ] || [[ $output == *"failed to connect to"* ]]; then
     docker rm -f android
     docker rm -f scrcpy_web
     docker rmi $(docker images | grep "redroid" | awk '{print $3}')
