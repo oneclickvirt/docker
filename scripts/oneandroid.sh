@@ -176,7 +176,6 @@ docker run -itd \
     redroid.gpu.mode=guest
 sleep 5
 if ! command -v npm >/dev/null 2>&1; then
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
     source ~/.bashrc
     nvm install 20
     echo "node version:"
