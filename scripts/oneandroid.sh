@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.03.12
+# 2024.04.16
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -179,8 +179,9 @@ docker run -itd \
     --name scrcpy_web \
     -p 127.0.0.1:4888:8000/tcp \
     --link ${name}:web_${name} \
-    maxduke/ws-scrcpy:latest
+    emptysuns/scrcpy-web:v0.1
 # emptysuns/scrcpy-web:v0.1
+# maxduke/ws-scrcpy:latest
 start_time=$(date +%s)
 sleep 5
 MAX_WAIT_TIME=16
