@@ -88,7 +88,8 @@ map \$http_upgrade \$connection_upgrade {
     '' close;
 }
 upstream websocket {
-    server 127.0.0.1:4888;
+    # server 127.0.0.1:4888;
+    server 127.0.0.1:8000;
 }
 server {
     listen 80;
