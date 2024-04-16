@@ -131,18 +131,6 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 check_ipv4
 check_nginx
-current_kernel_version=$(uname -r)
-target_kernel_version="5.0"
-if [[ "$(echo -e "$current_kernel_version\n$target_kernel_version" | sort -V | head -n 1)" == "$target_kernel_version" ]]; then
-    echo "当前内核版本 $current_kernel_version 大于或等于 $target_kernel_version，无需升级。"
-else
-    echo "当前内核版本 $current_kernel_version 小于 $target_kernel_version，请自行升级系统"
-fi
-if ! dpkg -S linux-modules-extra-${current_kernel_version} >/dev/null 2>&1; then
-    ${PACKAGE_INSTALL[int]} linux-modules-extra-${current_kernel_version}
-fi
-modprobe binder_linux devices="binder,hwbinder,vndbinder"
-modprobe ashmem_linux
 rm -rf /root/android/data
 rm -rf /root/scrcpy_web/data
 if [ ! -d "/root/android/data" ]; then
