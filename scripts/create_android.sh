@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.03.12
+# 2024.04.16
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -80,6 +80,10 @@ _green "Please enter the password for web authentication: (leave it blank or the
 reading "请输入web验证的密码：(留空则默认密码是oneclick)：" user_password
 if [ -z "$user_password" ]; then
     user_password="oneclick"
+fi
+if ! command -v npm >/dev/null 2>&1; then
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    source ~/.bashrc
 fi
 if [ ! -f /root/oneandroid.sh ]; then
     curl https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/oneandroid.sh -o /root/oneandroid.sh
