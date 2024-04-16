@@ -102,7 +102,8 @@ server {
         if (\$request_method = 'OPTIONS') {
             return 204;
         }
-        proxy_pass http://localhost:4888;
+        # proxy_pass http://localhost:4888;
+        proxy_pass http://localhost:8000;
         proxy_set_header Host \$host; 
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -161,6 +162,7 @@ docker run -itd \
     -v /root/android/data:/data \
     redroid/redroid:${selected_tag} \
     androidboot.hardware=mt6891 \
+    androidboot.redroid_gpu_mode=guest \
     ro.secure=0 \
     ro.boot.hwc=GLOBAL \
     ro.ril.oem.imei=861503068361145 \
@@ -173,13 +175,50 @@ docker run -itd \
     redroid.height=1280 \
     redroid.gpu.mode=guest
 sleep 5
-docker run -itd \
-    --privileged \
-    -v /root/scrcpy_web/data:/data \
-    --name scrcpy_web \
-    -p 127.0.0.1:4888:8000/tcp \
-    --link ${name}:web_${name} \
-    emptysuns/scrcpy-web:v0.1
+if ! command -v npm >/dev/null 2>&1; then
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    source ~/.bashrc
+    nvm install 20
+    echo "node version:"
+    node -v
+    echo "npm version:"
+    npm -v
+    npm install -g node-gyp
+fi
+if ! command -v make >/dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} make
+fi
+if ! command -v adb >/dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} adb
+fi
+if ! command -v git >/dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} git
+fi
+${PACKAGE_INSTALL[int]} g++
+if [ ! -d /root/ws-scrcpy ]; then
+    git clone https://github.com/NetrisTV/ws-scrcpy.git
+    cd ws-scrapy
+    npm install
+    cd ..
+fi
+if [ ! -f /etc/systemd/system/ws-scrcpy.service ]; then
+    curl -s https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/ws-scrcpy.service -o /etc/systemd/system/ws-scrcpy.service
+    chmod +x /etc/systemd/system/ws-scrcpy.service
+    systemctl daemon-reload
+    systemctl start ws-scrcpy.service
+    systemctl enable ws-scrcpy.service
+else 
+    systemctl daemon-reload
+    systemctl restart ws-scrcpy.service
+fi
+# 不再使用docker进行web-scrcpy映射，使用上面的守护进程进行映射
+# docker run -itd \
+#     --privileged \
+#     -v /root/scrcpy_web/data:/data \
+#     --name scrcpy_web \
+#     -p 127.0.0.1:4888:8000/tcp \
+#     --link ${name}:web_${name} \
+#     emptysuns/scrcpy-web:v0.1
 # emptysuns/scrcpy-web:v0.1
 # maxduke/ws-scrcpy:latest
 start_time=$(date +%s)
