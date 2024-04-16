@@ -96,6 +96,28 @@ if ! command -v npm >/dev/null 2>&1; then
     _green "请重启窗口或重新连接ssh再次执行本脚本，以加载默认环境配置"
     exit 1
 fi
+if command -v npm >/dev/null 2>&1; then
+    echo "node version:"
+    node -v
+    echo "npm version:"
+    npm -v
+    npm install -g node-gyp
+fi
+if ! command -v make >/dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} make
+fi
+if ! command -v adb >/dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} adb
+fi
+if ! command -v git >/dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} git
+fi
+${PACKAGE_INSTALL[int]} g++
+if [ ! -d /root/ws-scrcpy ]; then
+    git clone https://github.com/NetrisTV/ws-scrcpy.git
+    cd /root/ws-scrcpy
+    npm install
+fi
 if [ ! -f /root/oneandroid.sh ]; then
     curl https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/oneandroid.sh -o /root/oneandroid.sh
     chmod 777 /root/oneandroid.sh
