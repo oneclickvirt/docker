@@ -224,7 +224,7 @@ fi
 start_time=$(date +%s)
 sleep 5
 MAX_WAIT_TIME=16
-CONTAINERS=("scrcpy_web" "${name}") # 容器名称列表
+CONTAINERS=("${name}") # 容器名称列表 "scrcpy_web" 
 for container in "${CONTAINERS[@]}"; do
     status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)
     if [ "$status" != "running" ]; then
