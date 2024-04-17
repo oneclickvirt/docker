@@ -165,17 +165,17 @@ docker run -itd \
     redroid.height=1280 \
     redroid.gpu.mode=guest
 sleep 5
-# cd /root/ws-scrcpy
-# nohup npm start > nohup-ws.out & 
 # 守护进程似乎无法识别npm项目，待修复
 if [ ! -f /etc/systemd/system/ws-scrcpy.service ]; then
     curl -s https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/ws-scrcpy.service -o /etc/systemd/system/ws-scrcpy.service
+    curl -s https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/nohup-ws-scrcpy.sh -o /root/ws-scrcpy/nohup-ws-scrcpy.sh
     chmod +x /etc/systemd/system/ws-scrcpy.service
-    if [ -f "/etc/systemd/system/ws-scrcpy.service" ]; then
+    chmod +x /root/ws-scrcpy/nohup-ws-scrcpy.sh
+    if [ -f "/root/ws-scrcpy/nohup-ws-scrcpy.sh" ]; then
         env_path=$(echo $PATH)
-        new_exec_start="Environment=\"PATH=${env_path}\""
-        file_path="/etc/systemd/system/ws-scrcpy.service"
-        line_number=8
+        new_exec_start="export PATH=${env_path}"
+        file_path="/root/ws-scrcpy/nohup-ws-scrcpy.sh"
+        line_number=7
         sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
     fi
     systemctl daemon-reload

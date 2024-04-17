@@ -4,9 +4,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/root/ws-scrcpy
-Environment="NODE_OPTIONS=--openssl-legacy-provider"
-Environment=""
-ExecStart=npm start
+ExecStart=bash nohup-ws-scrcpy.sh
 StandardOutput=syslog
 StandardError=syslog
 SyslogIdentifier=ws-scrcpy
