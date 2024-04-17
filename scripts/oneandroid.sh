@@ -228,9 +228,9 @@ while true; do
     echo "Please be patient while waiting for the container to start..."
     echo "等待容器启动中，请耐心等待..."
 done
-# killall adb
-# rm -rf nohup.out
-# nohup adb connect localhost:5555 & 
+killall adb
+rm -rf nohup.out
+nohup adb connect localhost:5555 & 
 sleep 5
 output=$(cat nohup.out)
 if [ $? -ne 0 ] || [[ $output == *"failed to connect to"* ]]; then
