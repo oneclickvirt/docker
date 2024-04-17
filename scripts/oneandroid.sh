@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.04.16
+# 2024.04.17
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -233,7 +233,7 @@ killall adb
 rm -rf adb-nohup.out
 nohup adb connect localhost:5555 > adb-nohup.out & 
 sleep 5
-output=$(cat nohup.out)
+output=$(cat adb-nohup.out)
 if [ $? -ne 0 ] || [[ $output == *"failed to connect to"* ]]; then
     docker rm -f android
     docker rmi $(docker images | grep "redroid" | awk '{print $3}')
