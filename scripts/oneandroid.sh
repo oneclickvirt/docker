@@ -132,13 +132,13 @@ fi
 check_ipv4
 check_nginx
 rm -rf /root/android/data
-rm -rf /root/scrcpy_web/data
+# rm -rf /root/scrcpy_web/data
 if [ ! -d "/root/android/data" ]; then
     mkdir -p "/root/android/data"
 fi
-if [ ! -d "/root/scrcpy_web/data" ]; then
-    mkdir -p "/root/scrcpy_web/data"
-fi
+# if [ ! -d "/root/scrcpy_web/data" ]; then
+#     mkdir -p "/root/scrcpy_web/data"
+# fi
 name="${1:-android}"
 selected_tag="${2:-'8.1.0-latest'}"
 user_name="${3:-onea}"
@@ -236,7 +236,6 @@ sleep 5
 output=$(cat nohup.out)
 if [ $? -ne 0 ] || [[ $output == *"failed to connect to"* ]]; then
     docker rm -f android
-    docker rm -f scrcpy_web
     docker rmi $(docker images | grep "redroid" | awk '{print $3}')
     rm -rf /etc/nginx/sites-enabled/reverse-proxy
     rm -rf /etc/nginx/sites-available/reverse-proxy
