@@ -81,6 +81,9 @@ reading "请输入web验证的密码：(留空则默认密码是oneclick)：" us
 if [ -z "$user_password" ]; then
     user_password="oneclick"
 fi
+if ! command -v sudo >/dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} sudo
+fi
 current_kernel_version=$(uname -r)
 target_kernel_version="5.0"
 if [[ "$(echo -e "$current_kernel_version\n$target_kernel_version" | sort -V | head -n 1)" == "$target_kernel_version" ]]; then
@@ -120,10 +123,10 @@ if [ ! -f /usr/local/bin/reboot_from_android ];then
 fi
 if command -v npm >/dev/null 2>&1; then
     echo "node version:"
-    node -v
+    sudo node -v
     echo "npm version:"
-    npm -v
-    npm install -g node-gyp
+    sudo npm -v
+    sudo npm install -g node-gyp
 fi
 if ! command -v make >/dev/null 2>&1; then
     ${PACKAGE_INSTALL[int]} make
@@ -138,7 +141,7 @@ ${PACKAGE_INSTALL[int]} g++
 if [ ! -d /root/ws-scrcpy ]; then
     git clone https://github.com/NetrisTV/ws-scrcpy.git
     cd /root/ws-scrcpy
-    npm install
+    sudo npm install
 fi
 if [ ! -f /root/oneandroid.sh ]; then
     curl https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/oneandroid.sh -o /root/oneandroid.sh

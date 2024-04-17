@@ -9,6 +9,7 @@ ExecStart=/usr/bin/npm start
 StandardOutput=syslog
 StandardError=syslog
 SyslogIdentifier=ws-scrcpy
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
