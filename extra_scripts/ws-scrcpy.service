@@ -5,6 +5,7 @@ After=network.target
 [Service]
 WorkingDirectory=/root/ws-scrcpy
 Environment="NODE_OPTIONS=--openssl-legacy-provider"
+Environment=""
 ExecStart=/usr/bin/npm start
 StandardOutput=syslog
 StandardError=syslog

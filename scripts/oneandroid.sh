@@ -172,8 +172,8 @@ if [ ! -f /etc/systemd/system/ws-scrcpy.service ]; then
     curl -s https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/ws-scrcpy.service -o /etc/systemd/system/ws-scrcpy.service
     chmod +x /etc/systemd/system/ws-scrcpy.service
     if [ -f "/etc/systemd/system/ws-scrcpy.service" ]; then
-        npm_path=$(command -v npm)
-        new_exec_start="ExecStart=${npm_path} start"
+        env_path=$(echo $PATH)
+        new_exec_start="Environment=\"PATH=${env_path}\""
         file_path="/etc/systemd/system/ws-scrcpy.service"
         line_number=8
         sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
