@@ -7,6 +7,6 @@ export NODE_OPTIONS=--openssl-legacy-provider
 export PATH=
 echo $PATH
 killall adb
-rm -rf nohup.out
-nohup adb connect localhost:5555 & 
+rm -rf adb-nohup.out
+nohup adb connect localhost:5555 > adb-nohup.out & 
 npm start
