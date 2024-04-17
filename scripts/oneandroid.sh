@@ -146,6 +146,7 @@ user_password="${4:-oneclick}"
 # https://hub.docker.com/r/redroid/redroid/tags
 docker run -itd \
     --name ${name} \
+    --restart=unless-stopped \
     --memory-swappiness=0 \
     --privileged --pull always \
     -p 5555:5555 \
