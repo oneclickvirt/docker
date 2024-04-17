@@ -145,4 +145,6 @@ if [ ! -f /root/oneandroid.sh ]; then
     chmod 777 /root/oneandroid.sh
 fi
 rm -rf /root/android_info
+cd /root >/dev/null 2>&1
+ls
 bash oneandroid.sh ${name} ${selected_tag} ${user_name} ${user_password}
