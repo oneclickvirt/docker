@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.03.12
+# 2024.05.13
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
@@ -113,6 +113,16 @@ if [ -f /etc/ssh/sshd_config.d/50-cloud-init.conf ]; then
 fi
 remove_duplicate_lines /etc/ssh/sshd_config
 remove_duplicate_lines /etc/ssh/sshd_config.d/50-cloud-init.conf
+config_dir="/etc/ssh/sshd_config.d/"
+for file in "$config_dir"*
+do
+    if [ -f "$file" ] && [ -r "$file" ]; then
+        if grep -q "PasswordAuthentication no" "$file"; then
+            sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' "$file"
+            echo "File $file updated"
+        fi
+    fi
+done
 service ssh restart
 service sshd restart
 systemctl restart sshd

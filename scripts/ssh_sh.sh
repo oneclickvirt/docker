@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.03.12
+# 2024.05.13
 
 if [ "$(cat /etc/os-release | grep -E '^ID=' | cut -d '=' -f 2)" != "alpine" ]; then
   echo "This script only supports Alpine Linux."
@@ -12,7 +12,16 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "This script must be executed with root privileges."
   exit 1
 fi
-
+config_dir="/etc/ssh/sshd_config.d/"
+for file in "$config_dir"*
+do
+    if [ -f "$file" ] && [ -r "$file" ]; then
+        if grep -q "PasswordAuthentication no" "$file"; then
+            sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' "$file"
+            echo "File $file updated"
+        fi
+    fi
+done
 apk update
 apk add --no-cache openssh-server
 apk add --no-cache sshpass
