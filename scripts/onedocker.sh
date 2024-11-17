@@ -155,6 +155,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     fi
     docker cp ssh_sh.sh ${name}:/ssh_sh.sh
     docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
+    docker exec -it ${name} bash -c "echo 'export interactionless=true' >> ~/.bashrc"
     docker exec -it ${name} bash -c "echo 'sh /ssh_sh.sh ${passwd}' >> ~/.bashrc"
     if [ "$docker_use_ipv6" = true ]; then
         docker exec -it ${name} sh -c "echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -"
@@ -217,6 +218,7 @@ else
     fi
     docker cp ssh_bash.sh ${name}:/ssh_bash.sh
     docker exec -it ${name} bash -c "bash /ssh_bash.sh ${passwd}"
+    docker exec -it ${name} bash -c "echo 'export interactionless=true' >> ~/.bashrc"
     docker exec -it ${name} bash -c "echo 'bash /ssh_bash.sh ${passwd}' >> ~/.bashrc"
     if [ "$docker_use_ipv6" = true ]; then
         docker exec -it ${name} bash -c "echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -"

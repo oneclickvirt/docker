@@ -31,27 +31,29 @@ remove_duplicate_lines() {
     chattr +i "$1"
 }
 
-${PACKAGE_UPDATE[int]}
-if [ $? -ne 0 ]; then
-    dpkg --configure -a
+if [ "$interactionless" != "true" ]; then
     ${PACKAGE_UPDATE[int]}
-fi
-if [ $? -ne 0 ]; then
-    ${PACKAGE_INSTALL[int]} gnupg
-fi
-apt_update_output=$(apt-get update 2>&1)
-echo "$apt_update_output" >"$temp_file_apt_fix"
-if grep -q 'NO_PUBKEY' "$temp_file_apt_fix"; then
-    public_keys=$(grep -oE 'NO_PUBKEY [0-9A-F]+' "$temp_file_apt_fix" | awk '{ print $2 }')
-    joined_keys=$(echo "$public_keys" | paste -sd " ")
-    echo "No Public Keys: ${joined_keys}"
-    apt-key adv --keyserver keyserver.ubuntu.com --recv-keys ${joined_keys}
-    apt-get update
-    if [ $? -eq 0 ]; then
-        echo "Fixed"
+    if [ $? -ne 0 ]; then
+        dpkg --configure -a
+        ${PACKAGE_UPDATE[int]}
     fi
+    if [ $? -ne 0 ]; then
+        ${PACKAGE_INSTALL[int]} gnupg
+    fi
+    apt_update_output=$(apt-get update 2>&1)
+    echo "$apt_update_output" >"$temp_file_apt_fix"
+    if grep -q 'NO_PUBKEY' "$temp_file_apt_fix"; then
+        public_keys=$(grep -oE 'NO_PUBKEY [0-9A-F]+' "$temp_file_apt_fix" | awk '{ print $2 }')
+        joined_keys=$(echo "$public_keys" | paste -sd " ")
+        echo "No Public Keys: ${joined_keys}"
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys ${joined_keys}
+        apt-get update
+        if [ $? -eq 0 ]; then
+            echo "Fixed"
+        fi
+    fi
+    rm "$temp_file_apt_fix"
 fi
-rm "$temp_file_apt_fix"
 
 install_required_modules() {
     modules=("dos2unix" "wget" "curl" "sudo" "sshpass" "openssh-server" "python3")
@@ -72,12 +74,14 @@ install_required_modules() {
         ${PACKAGE_INSTALL[int]} cronie
     fi
 }
-install_required_modules
 
-if [ -f "/etc/motd" ]; then
-    echo '' >/etc/motd
-    echo 'Related repo https://github.com/oneclickvirt/docker' >>/etc/motd
-    echo '--by https://t.me/spiritlhl' >>/etc/motd
+if [ "$interactionless" != "true" ]; then
+    install_required_modules
+    if [ -f "/etc/motd" ]; then
+        echo '' >/etc/motd
+        echo 'Related repo https://github.com/oneclickvirt/docker' >>/etc/motd
+        echo '--by https://t.me/spiritlhl' >>/etc/motd
+    fi
 fi
 sshport=22
 service iptables stop 2>/dev/null

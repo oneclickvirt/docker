@@ -22,19 +22,22 @@ do
         fi
     fi
 done
-apk update
-apk add --no-cache openssh-server
-apk add --no-cache sshpass
-apk add --no-cache openssh-keygen
-apk add --no-cache bash
-apk add --no-cache curl
-apk add --no-cache wget
-apk add --no-cache cronie
-apk add --no-cache cron
-if [ -f "/etc/motd" ]; then
-  echo '' >/etc/motd
-  echo 'Related repo https://github.com/oneclickvirt/docker' >>/etc/motd
-  echo '--by https://t.me/spiritlhl' >>/etc/motd
+
+if [ "$interactionless" != "true" ]; then
+    apk update
+    apk add --no-cache openssh-server
+    apk add --no-cache sshpass
+    apk add --no-cache openssh-keygen
+    apk add --no-cache bash
+    apk add --no-cache curl
+    apk add --no-cache wget
+    apk add --no-cache cronie
+    apk add --no-cache cron
+    if [ -f "/etc/motd" ]; then
+      echo '' >/etc/motd
+      echo 'Related repo https://github.com/oneclickvirt/docker' >>/etc/motd
+      echo '--by https://t.me/spiritlhl' >>/etc/motd
+    fi
 fi
 cd /etc/ssh
 ssh-keygen -A
