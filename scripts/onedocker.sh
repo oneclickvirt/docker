@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.11.17
+# 2024.03.12
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
 # <disk>
@@ -134,7 +134,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            alpine /bin/sh -c "service ssh start && tail -f /dev/null"
+            alpine /bin/sh -c "tail -f /dev/null"
         docker_use_ipv6=true
     else
         docker run -d \
@@ -150,7 +150,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            alpine /bin/sh -c "service ssh start && tail -f /dev/null"
+            alpine /bin/sh -c "tail -f /dev/null"
         docker_use_ipv6=false
     fi
     docker cp ssh_sh.sh ${name}:/ssh_sh.sh
@@ -195,7 +195,7 @@ else
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            ${system} /bin/bash -c "service ssh start && tail -f /dev/null"
+            ${system} /bin/bash -c "tail -f /dev/null"
         docker_use_ipv6=true
     else
         docker run -d \
@@ -211,7 +211,7 @@ else
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            ${system} /bin/bash -c "service ssh start && tail -f /dev/null"
+            ${system} /bin/bash -c "tail -f /dev/null"
         docker_use_ipv6=false
     fi
     docker cp ssh_bash.sh ${name}:/ssh_bash.sh

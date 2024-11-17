@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.06.05
+# 2024.11.17
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
@@ -131,4 +131,12 @@ systemctl restart sshd
 systemctl restart ssh
 /usr/sbin/sshd
 sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf
+crontab -l > mycron
+echo "@reboot service ssh restart" >> mycron
+echo "@reboot service sshd restart" >> mycron
+echo "@reboot systemctl restart sshd" >> mycron
+echo "@reboot systemctl restart ssh" >> mycron
+echo "@reboot /usr/sbin/sshd" >> mycron
+crontab mycron
+rm mycron
 rm -rf "$0"
