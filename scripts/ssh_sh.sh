@@ -53,6 +53,7 @@ if [ "$interactionless" != "true" ]; then
 fi
 /usr/sbin/sshd
 rc-update add sshd default
+service ssh restart
 if [ "$interactionless" != "true" ]; then
     echo root:"$1" | chpasswd root
     sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf

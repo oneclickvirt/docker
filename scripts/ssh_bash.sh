@@ -129,11 +129,11 @@ if [ "$interactionless" != "true" ]; then
         fi
     done
 fi
-service ssh restart
 service sshd restart
 systemctl restart sshd
 systemctl restart ssh
 /usr/sbin/sshd
+service ssh restart
 if [ "$interactionless" != "true" ]; then
     sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf
 fi
