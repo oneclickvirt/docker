@@ -195,7 +195,7 @@ else
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            ${system} /bin/bash -c "tail -f /dev/null"
+            ${system} /bin/bash -c "service ssh start && tail -f /dev/null"
         docker_use_ipv6=true
     else
         docker run -d \
@@ -211,7 +211,7 @@ else
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            ${system} /bin/bash -c "tail -f /dev/null"
+            ${system} /bin/bash -c "service ssh start && tail -f /dev/null"
         docker_use_ipv6=false
     fi
     docker cp ssh_bash.sh ${name}:/ssh_bash.sh
