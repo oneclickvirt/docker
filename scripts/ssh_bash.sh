@@ -82,56 +82,58 @@ if [ "$interactionless" != "true" ]; then
         echo 'Related repo https://github.com/oneclickvirt/docker' >>/etc/motd
         echo '--by https://t.me/spiritlhl' >>/etc/motd
     fi
-fi
-sshport=22
-service iptables stop 2>/dev/null
-chkconfig iptables off 2>/dev/null
-sysv-rc-conf iptables off 2>/dev/null
-sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/sysconfig/selinux
-sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/selinux/config
-setenforce 0
-echo root:"$1" | sudo chpasswd root
-cd /etc/ssh
-ssh-keygen -A
-update_sshd_config() {
-    local config_file="$1"
-    if [ -f "$config_file" ]; then
-        echo "updating $config_file"
-        sudo sed -i "s/^#\?Port.*/Port 22/g" "$config_file"
-        sudo sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin yes/g" "$config_file"
-        sudo sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g" "$config_file"
-        sudo sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' "$config_file"
-        sudo sed -i 's/#ListenAddress ::/ListenAddress ::/' "$config_file"
-        sudo sed -i 's/#AddressFamily any/AddressFamily any/' "$config_file"
-        sudo sed -i "s/^#\?PubkeyAuthentication.*/PubkeyAuthentication no/g" "$config_file"
-        sudo sed -i '/^#UsePAM\|UsePAM/c #UsePAM no' "$config_file"
-        sudo sed -i '/^AuthorizedKeysFile/s/^/#/' "$config_file"
-        sudo sed -i 's/^#[[:space:]]*KbdInteractiveAuthentication.*\|^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' "$config_file"
-    fi
-}
-update_sshd_config "/etc/ssh/sshd_config"
-remove_duplicate_lines /etc/ssh/sshd_config
-if [ -d /etc/ssh/sshd_config.d ]; then
-    for config_file in /etc/ssh/sshd_config.d/*; do
+    sshport=22
+    service iptables stop 2>/dev/null
+    chkconfig iptables off 2>/dev/null
+    sysv-rc-conf iptables off 2>/dev/null
+    sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/sysconfig/selinux
+    sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/selinux/config
+    setenforce 0
+    echo root:"$1" | sudo chpasswd root
+    cd /etc/ssh
+    ssh-keygen -A
+    update_sshd_config() {
+        local config_file="$1"
         if [ -f "$config_file" ]; then
-            update_sshd_config "$config_file"
-            remove_duplicate_lines "$config_file"
+            echo "updating $config_file"
+            sudo sed -i "s/^#\?Port.*/Port 22/g" "$config_file"
+            sudo sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin yes/g" "$config_file"
+            sudo sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g" "$config_file"
+            sudo sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' "$config_file"
+            sudo sed -i 's/#ListenAddress ::/ListenAddress ::/' "$config_file"
+            sudo sed -i 's/#AddressFamily any/AddressFamily any/' "$config_file"
+            sudo sed -i "s/^#\?PubkeyAuthentication.*/PubkeyAuthentication no/g" "$config_file"
+            sudo sed -i '/^#UsePAM\|UsePAM/c #UsePAM no' "$config_file"
+            sudo sed -i '/^AuthorizedKeysFile/s/^/#/' "$config_file"
+            sudo sed -i 's/^#[[:space:]]*KbdInteractiveAuthentication.*\|^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' "$config_file"
+        fi
+    }
+    update_sshd_config "/etc/ssh/sshd_config"
+    remove_duplicate_lines /etc/ssh/sshd_config
+    if [ -d /etc/ssh/sshd_config.d ]; then
+        for config_file in /etc/ssh/sshd_config.d/*; do
+            if [ -f "$config_file" ]; then
+                update_sshd_config "$config_file"
+                remove_duplicate_lines "$config_file"
+            fi
+        done
+    fi
+    config_dir="/etc/ssh/sshd_config.d/"
+    for file in "$config_dir"*
+    do
+        if [ -f "$file" ] && [ -r "$file" ]; then
+            if grep -q "PasswordAuthentication no" "$file"; then
+                sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' "$file"
+                echo "File $file updated"
+            fi
         fi
     done
 fi
-config_dir="/etc/ssh/sshd_config.d/"
-for file in "$config_dir"*
-do
-    if [ -f "$file" ] && [ -r "$file" ]; then
-        if grep -q "PasswordAuthentication no" "$file"; then
-            sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' "$file"
-            echo "File $file updated"
-        fi
-    fi
-done
 service ssh restart
 service sshd restart
 systemctl restart sshd
 systemctl restart ssh
 /usr/sbin/sshd
-sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf
+if [ "$interactionless" != "true" ]; then
+    sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf
+fi

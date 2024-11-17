@@ -38,20 +38,22 @@ if [ "$interactionless" != "true" ]; then
       echo 'Related repo https://github.com/oneclickvirt/docker' >>/etc/motd
       echo '--by https://t.me/spiritlhl' >>/etc/motd
     fi
+    cd /etc/ssh
+    ssh-keygen -A
+    sed -i '/^#PermitRootLogin\|PermitRootLogin/c PermitRootLogin yes' /etc/ssh/sshd_config
+    sed -i '/^#PasswordAuthentication\|PasswordAuthentication/c PasswordAuthentication yes' /etc/ssh/sshd_config
+    sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config
+    sed -i 's/#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config
+    sed -i '/^#AddressFamily\|AddressFamily/c AddressFamily any' /etc/ssh/sshd_config
+    sed -i "s/^#\?\(Port\).*/\1 22/" /etc/ssh/sshd_config
+    sed -i -E 's/^#?(Port).*/\1 22/' /etc/ssh/sshd_config
+    sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' /etc/cloud/cloud.cfg
+    sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' /etc/cloud/cloud.cfg
+    sed -E -i 's/ssh_pwauth:[[:space:]]*false/ssh_pwauth:   true/g' /etc/cloud/cloud.cfg
 fi
-cd /etc/ssh
-ssh-keygen -A
-sed -i '/^#PermitRootLogin\|PermitRootLogin/c PermitRootLogin yes' /etc/ssh/sshd_config
-sed -i '/^#PasswordAuthentication\|PasswordAuthentication/c PasswordAuthentication yes' /etc/ssh/sshd_config
-sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config
-sed -i 's/#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config
-sed -i '/^#AddressFamily\|AddressFamily/c AddressFamily any' /etc/ssh/sshd_config
-sed -i "s/^#\?\(Port\).*/\1 22/" /etc/ssh/sshd_config
-sed -i -E 's/^#?(Port).*/\1 22/' /etc/ssh/sshd_config
-sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' /etc/cloud/cloud.cfg
-sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' /etc/cloud/cloud.cfg
-sed -E -i 's/ssh_pwauth:[[:space:]]*false/ssh_pwauth:   true/g' /etc/cloud/cloud.cfg
 /usr/sbin/sshd
 rc-update add sshd default
-echo root:"$1" | chpasswd root
-sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf
+if [ "$interactionless" != "true" ]; then
+    echo root:"$1" | chpasswd root
+    sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf
+fi
