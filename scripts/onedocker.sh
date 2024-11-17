@@ -134,7 +134,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            alpine /bin/sh -c "tail -f /dev/null"
+            alpine /bin/sh -c "service ssh start && tail -f /dev/null"
         docker_use_ipv6=true
     else
         docker run -d \
@@ -150,7 +150,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            alpine /bin/sh -c "tail -f /dev/null"
+            alpine /bin/sh -c "service ssh start && tail -f /dev/null"
         docker_use_ipv6=false
     fi
     docker cp ssh_sh.sh ${name}:/ssh_sh.sh
