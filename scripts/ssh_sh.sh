@@ -52,9 +52,3 @@ sed -E -i 's/ssh_pwauth:[[:space:]]*false/ssh_pwauth:   true/g' /etc/cloud/cloud
 rc-update add sshd default
 echo root:"$1" | chpasswd root
 sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf
-crontab -l > mycron
-echo "@reboot /usr/sbin/sshd" >> mycron
-echo "@reboot rc-update add sshd default" >> mycron
-crontab mycron
-rm mycron
-rm -f "$0"

@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.03.12
+# 2024.11.17
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
 # <disk>
@@ -134,7 +134,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            alpine /bin/sh -c "tail -f /dev/null"
+            alpine /bin/sh -c "source ~/.bashrc && tail -f /dev/null"
         docker_use_ipv6=true
     else
         docker run -d \
@@ -150,11 +150,12 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            alpine /bin/sh -c "tail -f /dev/null"
+            alpine /bin/sh -c "source ~/.bashrc && tail -f /dev/null"
         docker_use_ipv6=false
     fi
     docker cp ssh_sh.sh ${name}:/ssh_sh.sh
     docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
+    docker exec -it ${name} bash -c "echo 'sh /ssh_sh.sh ${passwd}' >> ~/.bashrc"
     if [ "$docker_use_ipv6" = true ]; then
         docker exec -it ${name} sh -c "echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -"
     fi
@@ -195,7 +196,7 @@ else
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            ${system} /bin/bash -c "tail -f /dev/null"
+            ${system} /bin/bash -c "source ~/.bashrc && tail -f /dev/null"
         docker_use_ipv6=true
     else
         docker run -d \
@@ -211,11 +212,12 @@ else
             --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
             --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
             --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-            ${system} /bin/bash -c "tail -f /dev/null"
+            ${system} /bin/bash -c "source ~/.bashrc && tail -f /dev/null"
         docker_use_ipv6=false
     fi
     docker cp ssh_bash.sh ${name}:/ssh_bash.sh
     docker exec -it ${name} bash -c "bash /ssh_bash.sh ${passwd}"
+    docker exec -it ${name} bash -c "echo 'bash /ssh_bash.sh ${passwd}' >> ~/.bashrc"
     if [ "$docker_use_ipv6" = true ]; then
         docker exec -it ${name} bash -c "echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -"
     fi
