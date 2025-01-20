@@ -2,6 +2,8 @@
 
 [![Hits](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FspiritLHLS%2Fdocker&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=hits&edge_flat=false)](https://hits.seeyoufarm.com)
 
+[<img src="https://api.gitsponsors.com/api/badge/img?id=633698278" height="20">](https://api.gitsponsors.com/api/badge/link?p=aIfMKJWiaREnG+FVHUFYatPFXo/MhUHe5X+qMt2SE186Qe6O6DgesHXPGTtzf20IM+ZYmBmzdnsKqcgKOGJGabMNpCNo3XtISZ3Lv71O2OCF/mzrwCAoyGTsWOcCNiM37ZGUbISysV/pr5oBDRDhvg==)
+
 ## 更新
 
 2024.11.17
