@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.11.17
+# 2025.02.23
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
 # <disk>
@@ -34,13 +34,6 @@ check_china() {
         if [[ $(curl -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
             echo "根据ipapi.co提供的信息，当前IP可能在中国，使用中国镜像完成相关组件安装"
             CN=true
-        else
-            if [[ $? -ne 0 ]]; then
-                if [[ $(curl -m 6 -s cip.cc) =~ "中国" ]]; then
-                    echo "根据cip.cc提供的信息，当前IP可能在中国，使用中国镜像完成相关组件安装"
-                    CN=true
-                fi
-            fi
         fi
     fi
 }
