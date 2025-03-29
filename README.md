@@ -1,12 +1,12 @@
 # docker
 
-[![Hits](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FspiritLHLS%2Fdocker&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=hits&edge_flat=false)](https://hits.seeyoufarm.com)
+[![Hits](https://hits.spiritlhl.net/docker.svg?action=hit&title=Hits&title_bg=%23555555&count_bg=%230eecf8&edge_flat=false)](https://hits.spiritlhl.net)
 
 ## 更新
 
-2024.11.17
+2025.03.29
 
-- 增加自启动任务，确保容器在意外重启的情况下依然能自启动SSH进程
+- 修复Hits徽章访问量统计，使用 https://github.com/oneclickvirt/hitscounter
 
 [更新日志](CHANGELOG.md)
 
