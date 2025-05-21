@@ -566,115 +566,23 @@ install_docker_and_compose() {
 # 检测docker的配置文件
 adapt_ipv6() {
     if [ ! -f /usr/local/bin/docker_adapt_ipv6 ]; then
-        echo "1" >/usr/local/bin/docker_adapt_ipv6
+        echo "1" > /usr/local/bin/docker_adapt_ipv6
         if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
-            chattr -i /etc/network/interfaces
-            if grep -q "auto he-ipv6" /etc/network/interfaces; then
-                status_he=true
-                temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<10' /etc/network/interfaces)
-                cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-        up ip addr del $fe80_address dev $interface
-EOF
-            elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
-                last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
-                cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address ${last_ipv6}
-        gateway ${ipv6_gateway}
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-
-iface $interface inet6 static
-    address $ipv6_address/$ipv6_prefixlen
-EOF
-            elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "N" ]]; then
-                last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
-                cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address ${last_ipv6}
-        gateway ${ipv6_gateway}
-        up ip addr del $fe80_address dev $interface
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-
-iface $interface inet6 static
-    address $ipv6_address/$ipv6_prefixlen
-EOF
-            else
-                if [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
-                    cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address $ipv6_address/$ipv6_prefixlen
-        gateway $ipv6_gateway
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-EOF
-                elif [[ "${ipv6_gateway_fe80}" == "N" ]]; then
-                    cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address $ipv6_address/$ipv6_prefixlen
-        gateway $ipv6_gateway
-        up ip addr del $fe80_address dev $interface
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-EOF
-                fi
-            fi
-            if [ "$status_he" = true ]; then
-                chattr -i /etc/network/interfaces
-                sudo tee -a /etc/network/interfaces <<EOF
-${temp_config}
-EOF
-            fi
-            chattr +i /etc/network/interfaces
-            # pre-up ip route add $ipv4_gateway/$ipv4_prefixlen dev $interface
-            chattr -i /etc/network/interfaces.new.bak
-            rm -rf /etc/network/interfaces.new.bak
+            network_manager=$(cat /usr/local/bin/docker_network_manager)
+            case "$network_manager" in
+                "systemd-networkd")
+                    configure_systemd_networkd
+                    ;;
+                "NetworkManager")
+                    configure_network_manager
+                    ;;
+                "networking")
+                    configure_networking
+                    ;;
+                *)
+                    configure_networking
+                    ;;
+            esac
             # 设置允许IPV6转发
             sysctl_path=$(which sysctl)
             $sysctl_path -w net.ipv6.conf.all.forwarding=1
@@ -686,11 +594,164 @@ EOF
                 $sysctl_path -w net.ipv6.conf.he-ipv6.proxy_ndp=1
             fi
             $sysctl_path -f
-            _green "Please reboot the server to enable the new network configuration, wait 20 seconds after the reboot and execute this script again"
             _green "请重启服务器以启用新的网络配置，重启后等待20秒后请再次执行本脚本"
             exit 1
         fi
     fi
+}
+
+configure_systemd_networkd() {
+    mkdir -p /etc/systemd/network/
+    cat <<EOF > /etc/systemd/network/10-${interface}.network
+[Match]
+Name=${interface}
+
+[Network]
+Address=${ipv4_address}
+Gateway=${ipv4_gateway}
+DNS=8.8.8.8
+DNS=8.8.4.4
+
+# IPv6配置
+Address=${ipv6_address}/${ipv6_prefixlen}
+Gateway=${ipv6_gateway}
+IPv6AcceptRA=no
+IPv6ProxyNDP=yes
+IPv6SendRA=yes
+
+[IPv6SendRA]
+EmitDNS=yes
+DNS=2001:4860:4860::8888
+DNS=2606:4700:4700::1111
+EOF
+    systemctl restart systemd-networkd
+}
+
+configure_network_manager() {
+    connection_name=$(nmcli -t -f NAME,DEVICE connection show | grep $interface | cut -d':' -f1)
+    if [ -z "$connection_name" ]; then
+        connection_name="${interface}-connection"
+        nmcli connection add type ethernet con-name "$connection_name" ifname $interface
+    fi
+    # 配置IPv4
+    nmcli connection modify "$connection_name" ipv4.method manual
+    nmcli connection modify "$connection_name" ipv4.addresses $ipv4_address/$ipv4_prefixlen
+    nmcli connection modify "$connection_name" ipv4.gateway $ipv4_gateway
+    nmcli connection modify "$connection_name" ipv4.dns "8.8.8.8,8.8.4.4"
+    # 配置IPv6
+    nmcli connection modify "$connection_name" ipv6.method manual
+    nmcli connection modify "$connection_name" ipv6.addresses $ipv6_address/$ipv6_prefixlen
+    nmcli connection modify "$connection_name" ipv6.gateway $ipv6_gateway
+    nmcli connection modify "$connection_name" ipv6.dns "2001:4860:4860::8888,2606:4700:4700::1111"
+    # 重新加载
+    nmcli connection up "$connection_name"
+}
+
+configure_networking() {
+    chattr -i /etc/network/interfaces
+    if grep -q "auto he-ipv6" /etc/network/interfaces; then
+        status_he=true
+        temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<10' /etc/network/interfaces)
+        cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+        up ip addr del $fe80_address dev $interface
+EOF
+    elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
+        last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
+        cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+
+iface $interface inet6 static
+        address ${last_ipv6}
+        gateway ${ipv6_gateway}
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
+
+iface $interface inet6 static
+    address $ipv6_address/$ipv6_prefixlen
+EOF
+    elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "N" ]]; then
+        last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
+        cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+
+iface $interface inet6 static
+        address ${last_ipv6}
+        gateway ${ipv6_gateway}
+        up ip addr del $fe80_address dev $interface
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
+
+iface $interface inet6 static
+    address $ipv6_address/$ipv6_prefixlen
+EOF
+    else
+        if [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
+            cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+
+iface $interface inet6 static
+        address $ipv6_address/$ipv6_prefixlen
+        gateway $ipv6_gateway
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
+EOF
+        elif [[ "${ipv6_gateway_fe80}" == "N" ]]; then
+            cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        gateway $ipv4_gateway
+        netmask $ipv4_subnet
+        dns-nameservers 8.8.8.8 8.8.4.4
+
+iface $interface inet6 static
+        address $ipv6_address/$ipv6_prefixlen
+        gateway $ipv6_gateway
+        up ip addr del $fe80_address dev $interface
+        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
+EOF
+        fi
+    fi
+    if [ "$status_he" = true ]; then
+        chattr -i /etc/network/interfaces
+        sudo tee -a /etc/network/interfaces <<EOF
+${temp_config}
+EOF
+    fi
+    chattr +i /etc/network/interfaces
 }
 
 docker_build_ipv6() {
@@ -803,56 +864,83 @@ docker_build_ipv6() {
     fi
 }
 
-if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ $(cat /usr/local/bin/docker_maximum_subset) = true ]; then
-    adapt_ipv6
-    docker_build_ipv6
-fi
-install_docker_and_compose
-if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
-    wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
-    wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.service -O /etc/systemd/system/check-dns.service
-    chmod +x /usr/local/bin/check-dns.sh
-    chmod +x /etc/systemd/system/check-dns.service
-    systemctl daemon-reload
-    systemctl enable check-dns.service
-    systemctl start check-dns.service
-fi
-systemctl start networking
-if systemctl is-active --quiet systemd-networkd && ! systemctl is-active --quiet networking && [ ! -f "/usr/local/bin/reboot_docker.txt" ]; then
-    _green "Detected that systemd-networkd is being used to manage the network, do I need to replace it with networking management? y/[n]"
-    reading "检测到正在使用的是 systemd-networkd 管理网络，是否需要替换为 networking 管理？y/[n]" replace_networking
-    echo ""
-    if [ "$replace_networking" != "y" ]; then
-        :
-    else
-        if ! dpkg -S ifupdown; then
-            # systemctl stop systemd-networkd
-            # systemctl disable systemd-networkd
-            prebuild_ifupdown
-        fi
-        if [ ! -f "/usr/local/bin/reboot_docker.txt" ]; then
-            echo "1" >"/usr/local/bin/reboot_docker.txt"
-            _green "Detected systemd-networkd management network in use, preparing to replace ifupdown management network."
-            _green "Please run reboot to reboot the machine later, and wait 20 seconds for the reboot to complete before executing this script to continue the installation"
-            _green "检测到正在使用的是 systemd-networkd 管理网络，准备增加使用 ifupdown 管理网络"
-            _green "请稍后执行 reboot 重启本机，重启后待20秒未自重启，再执行本脚本继续后续的安装"
-            exit 1
-        else
-            _yellow "You have rebooted the machine to replace systemd-networkd and ifupdown, but it fails, please leave a message in the repository log for feedback."
-            _yellow "已重启过本机进行 systemd-networkd 和 ifupdown 的替换，但失败了，请仓库留言日志反馈"
-        fi
+handle_networking() {
+    network_manager=$(cat /usr/local/bin/docker_network_manager)
+    case "$network_manager" in
+        "systemd-networkd")
+            systemctl restart systemd-networkd
+            ;;
+        "NetworkManager")
+            systemctl restart NetworkManager
+            ;;
+        "networking")
+            systemctl restart networking
+            ;;
+        *)
+            systemctl restart networking 2>/dev/null || true
+            systemctl restart systemd-networkd 2>/dev/null || true
+            systemctl restart NetworkManager 2>/dev/null || true
+            ;;
+    esac
+}
+
+check_and_adapt_ipv6() {
+    if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ $(cat /usr/local/bin/docker_maximum_subset) = true ]; then
+        adapt_ipv6
+        docker_build_ipv6
     fi
-else
-    systemctl restart networking
-fi
-sysctl_path=$(which sysctl)
-${sysctl_path} -p
-systemctl restart docker
-sleep 4
-systemctl status docker 2>/dev/null
-if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
-    systemctl status radvd 2>/dev/null
-fi
-rm -rf /usr/local/bin/ifupdown_installed.txt
-_green "Please run reboot to reboot the machine later. The environment has been installed"
-_green "请稍后执行 reboot 重启本机, 环境已安装完毕。"
+}
+
+setup_dns_check() {
+    if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
+        wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
+        wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.service -O /etc/systemd/system/check-dns.service
+        chmod +x /usr/local/bin/check-dns.sh
+        chmod +x /etc/systemd/system/check-dns.service
+        systemctl daemon-reload
+        systemctl enable check-dns.service
+        systemctl start check-dns.service
+    fi
+}
+
+detect_network_manager() {
+    if systemctl is-active --quiet systemd-networkd; then
+        network_manager="systemd-networkd"
+    elif systemctl is-active --quiet NetworkManager; then
+        network_manager="NetworkManager"
+    elif systemctl is-active --quiet networking; then
+        network_manager="networking"
+    else
+        network_manager="networking"
+    fi
+    echo "$network_manager" > /usr/local/bin/docker_network_manager
+}
+
+restart_services() {
+    sysctl_path=$(which sysctl)
+    ${sysctl_path} -p
+    systemctl restart docker
+    sleep 4
+    systemctl status docker 2>/dev/null
+    if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
+        systemctl status radvd 2>/dev/null
+    fi
+}
+
+cleanup_and_finish() {
+    rm -rf /usr/local/bin/ifupdown_installed.txt
+    _green "Please run reboot to reboot the machine later. The environment has been installed"
+    _green "请稍后执行 reboot 重启本机, 环境已安装完毕。"
+}
+
+main() {
+    detect_network_manager
+    check_and_adapt_ipv6
+    install_docker_and_compose
+    setup_dns_check
+    handle_networking
+    restart_services
+    cleanup_and_finish
+}
+
+main
