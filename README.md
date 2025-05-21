@@ -4,9 +4,10 @@
 
 ## 更新
 
-2025.03.29
+2025.05.21
 
-- 修复Hits徽章访问量统计，使用 https://github.com/oneclickvirt/hitscounter
+- 不再强制替换网络管理器，尝试适配所有主流的管理器修改
+- 优化DNS检测保活机制
 
 [更新日志](CHANGELOG.md)
 

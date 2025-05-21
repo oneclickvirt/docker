@@ -1,5 +1,9 @@
 # 更新日志
 
+2025.03.29
+
+- 修复Hits徽章访问量统计，使用 https://github.com/oneclickvirt/hitscounter
+
 2024.11.17
 
 - 增加自启动任务，确保容器在意外重启的情况下依然能自启动SSH进程
