@@ -335,8 +335,46 @@ if ! command -v ipcalc >/dev/null 2>&1; then
     _yellow "Installing ipcalc"
     ${PACKAGE_INSTALL[int]} ipcalc
 fi
-if ! command -v sipcalc >/dev/null 2>&1; then
-    _yellow "Installing sipcalc"
+# https://pkgs.org/search/?q=sipcalc
+if [[ "$RELEASE" == "CentOS" ]]; then
+    ARCH=$(uname -m)
+    if [[ "$ARCH" == "x86_64" ]]; then
+        REL_PATH="x86_64/Packages/s/sipcalc-1.1.6-17.el8.x86_64.rpm"
+    elif [[ "$ARCH" == "aarch64" ]]; then
+        REL_PATH="aarch64/Packages/s/sipcalc-1.1.6-17.el8.aarch64.rpm"
+    else
+        echo "Unsupported architecture: $ARCH"
+        exit 1
+    fi
+    FILENAME=$(basename "$REL_PATH")
+    MIRRORS=(
+        "https://dl.fedoraproject.org/pub/epel/8/Everything/$REL_PATH"
+        "https://mirrors.aliyun.com/epel/8/Everything/$REL_PATH"
+        "https://repo.huaweicloud.com/epel/8/Everything/$REL_PATH"
+        "https://mirrors.tuna.tsinghua.edu.cn/epel/8/Everything/$REL_PATH"
+    )
+    echo "rpm detected — installing sipcalc from EPEL ($ARCH)"
+    for URL in "${MIRRORS[@]}"; do
+        echo "Trying $URL"
+        if curl -fLO "$URL"; then
+            echo "Downloaded sipcalc from: $URL"
+            break
+        else
+            echo "Failed to download from: $URL"
+        fi
+    done
+    if command -v dnf >/dev/null 2>&1; then
+        dnf install -y "./$FILENAME"
+    else
+        yum install -y "./$FILENAME"
+    fi
+    rm -f "./$FILENAME"
+    if ! command -v sipcalc >/dev/null 2>&1; then
+        ${PACKAGE_INSTALL[int]} epel-release
+        echo "sipcalc not found after install, trying fallback package installation..."
+        ${PACKAGE_INSTALL[int]} sipcalc
+    fi
+else
     ${PACKAGE_INSTALL[int]} sipcalc
 fi
 if ! command -v bc >/dev/null 2>&1; then
