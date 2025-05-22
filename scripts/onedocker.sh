@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.02.23
+# 2025.05.22
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
 # <disk>
@@ -59,12 +59,32 @@ check_cdn_file() {
     fi
 }
 
+check_lxcfs() {
+    lxcfs_available="N"
+    if systemctl is-active --quiet lxcfs && [ -d "/var/lib/lxcfs/proc" ]; then
+        if [ -f "/var/lib/lxcfs/proc/cpuinfo" ] && [ -f "/var/lib/lxcfs/proc/meminfo" ] && [ -f "/var/lib/lxcfs/proc/stat" ]; then
+            _green "lxcfs is available and running"
+            _green "lxcfs 可用且正在运行"
+            lxcfs_available="Y"
+        else
+            _yellow "lxcfs service is running but proc files are not available"
+            _yellow "lxcfs 服务正在运行但 proc 文件不可用"
+        fi
+    else
+        _yellow "lxcfs is not available or not running"
+        _yellow "lxcfs 不可用或未运行"
+    fi
+}
+
 # 检查是否为中国IP
 check_china
 cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn3.spiritlhl.net/" "http://cdn1.spiritlhl.net/" "https://ghproxy.com/" "http://cdn2.spiritlhl.net/")
 if [ "${CN}" == true ]; then
     check_cdn_file
 fi
+
+# 检查lxcfs可用性
+check_lxcfs
 
 # 查询名为ipv6_net的网络是否存在
 docker network inspect ipv6_net &>/dev/null
@@ -101,6 +121,18 @@ if [ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_i
     ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
     ipv6_address_without_last_segment="${ipv6_address%:*}:"
 fi
+
+# 构建lxcfs挂载参数
+lxcfs_volumes=""
+if [ "$lxcfs_available" = "Y" ]; then
+    lxcfs_volumes="--volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
+        --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
+        --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
+        --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
+        --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
+        --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw"
+fi
+
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [ ! -f ssh_sh.sh ]; then
         curl -Lk https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh
@@ -121,12 +153,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
-            --volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
-            --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
-            --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
-            --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
-            --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
-            --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
+            ${lxcfs_volumes} \
             alpine /bin/sh -c "source ~/.bashrc && tail -f /dev/null"
         docker_use_ipv6=true
     else
@@ -137,12 +164,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
-            --volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
-            --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
-            --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
-            --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
-            --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
-            --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
+            ${lxcfs_volumes} \
             alpine /bin/sh -c "source ~/.bashrc && tail -f /dev/null"
         docker_use_ipv6=false
     fi
@@ -184,12 +206,7 @@ else
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
-            --volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
-            --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
-            --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
-            --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
-            --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
-            --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
+            ${lxcfs_volumes} \
             ${system} /bin/bash -c "source ~/.bashrc && tail -f /dev/null"
         docker_use_ipv6=true
     else
@@ -200,12 +217,7 @@ else
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
-            --volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
-            --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
-            --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
-            --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
-            --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
-            --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
+            ${lxcfs_volumes} \
             ${system} /bin/bash -c "source ~/.bashrc && tail -f /dev/null"
         docker_use_ipv6=false
     fi
