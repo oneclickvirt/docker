@@ -154,7 +154,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
             ${lxcfs_volumes} \
-            alpine /bin/sh -c "source ~/.bashrc && tail -f /dev/null"
+            alpine /bin/sh -c "tail -f /dev/null"
         docker_use_ipv6=true
     else
         docker run -d \
@@ -165,13 +165,13 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
             ${lxcfs_volumes} \
-            alpine /bin/sh -c "source ~/.bashrc && tail -f /dev/null"
+            alpine /bin/sh -c "tail -f /dev/null"
         docker_use_ipv6=false
     fi
     docker cp ssh_sh.sh ${name}:/ssh_sh.sh
     docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
-    docker exec -it ${name} bash -c "echo 'export interactionless=true' >> ~/.bashrc"
-    docker exec -it ${name} bash -c "echo 'sh /ssh_sh.sh' >> ~/.bashrc"
+    docker exec -it ${name} bash -c "echo 'export interactionless=true'"
+    docker exec -it ${name} bash -c "echo 'sh /ssh_sh.sh'"
     if [ "$docker_use_ipv6" = true ]; then
         docker exec -it ${name} sh -c "echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -"
     fi
