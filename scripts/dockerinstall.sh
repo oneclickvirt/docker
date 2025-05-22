@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.05.21
+# 2025.05.22
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -526,28 +526,33 @@ install_docker_and_compose() {
     if ! command -v docker >/dev/null 2>&1; then
         _yellow "Installing docker"
         if [[ -z "${CN}" || "${CN}" != true ]]; then
-            curl -sSL https://get.docker.com/ | sh
+            bash <(curl -sSL https://raw.githubusercontent.com/SuperManito/LinuxMirrors/main/DockerInstallation.sh) \
+                --source download.docker.com \
+                --source-registry registry.hub.docker.com \
+                --protocol http \
+                --install-latest true \
+                --close-firewall true \
+                --ignore-backup-tips | awk '/脚本运行完毕，更多使用教程详见官网/ {exit} {print}'
         else
-            bash <(curl -sSL https://gitee.com/SuperManito/LinuxMirrors/raw/main/DockerInstallation.sh)
+            bash <(curl -sSL https://gitee.com/SuperManito/LinuxMirrors/raw/main/DockerInstallation.sh) \
+                --source mirrors.tencent.com/docker-ce \
+                --source-registry registry.hub.docker.com \
+                --protocol http \
+                --install-latest true \
+                --close-firewall true \
+                --ignore-backup-tips | awk '/脚本运行完毕，更多使用教程详见官网/ {exit} {print}'
         fi
     fi
     if ! command -v docker-compose >/dev/null 2>&1; then
         if [[ -z "${CN}" || "${CN}" != true ]]; then
             _yellow "Installing docker-compose"
-            curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
+            curl -L "${cdn_success_url}https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
             chmod +x /usr/local/bin/docker-compose
             docker-compose --version
         fi
     fi
     sleep 1
 }
-
-# # DNS修补
-# if [ -z "$ipv6_address" ] || [ -z "$ipv6_prefixlen" ] || [ -z "$ipv6_gateway" ]; then
-#     echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4\n" >>${RESOLV_CONF}
-# else
-#     echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888\nnameserver 2001:4860:4860::8844" >>${RESOLV_CONF}
-# fi
 
 # 检测docker的配置文件
 adapt_ipv6() {
