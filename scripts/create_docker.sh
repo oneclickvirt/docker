@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.03.12
+# 2024.05.22
 
 # cd /root
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -119,20 +119,6 @@ build_new_containers() {
             _yellow "输入无效，请输入 'debian' 或 'alpine'。"
         fi
     done
-    #     if lsmod | grep -q xfs; then
-    #       while true; do
-    #           Reading "What size hard drive is assigned to each docker? (Hard drive size per docker, enter 1 if 1G hard drive is requi_red):"
-    #           reading "每个小鸡分配多大硬盘？(每个小鸡硬盘大小，若需要1G硬盘，输入1)：" disk_nums
-    #           if [[ "$disk_nums" =~ ^[1-9][0-9]*$ ]]; then
-    #               break
-    #           else
-    #               _yellow "Invalid input, please enter a positive integer."
-    #               _yellow "输入无效，请输入一个正整数。"
-    #           fi
-    #       done
-    #     else
-    #       disk_nums=""
-    #     fi
     while true; do
         _green "Need to attach a separate IPV6 address to each virtual machine?([N]/y)"
         reading "是否附加独立的IPV6地址？([N]/y)" independent_ipv6
@@ -152,12 +138,7 @@ build_new_containers() {
         public_port_end=$(($public_port_start + 25))
         ori=$(date | md5sum)
         passwd=${ori:2:9}
-        # ./onedocker.sh name cpu memory password sshport startport endport <disk>
-        #         if [ -n "$disk_nums" ]; then
-        #           ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $disk_nums
-        #         else
-        ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $system $independent_ipv6
-        #         fi
+        ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $independent_ipv6 $system
         cat "$container_name" >>dclog
         rm -rf $container_name
     done
