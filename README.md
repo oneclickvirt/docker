@@ -7,6 +7,10 @@
 2025.05.22
 
 - 修复批量开设时存在的参数指定顺序错误的问题
+- 修复sipcalc在rhel系的安装问题
+- 修复alpine最新的镜像不支持加载bashrc的问题
+- 修复lxcfs在非debian/ubuntu系上可能不存在的问题，修复检测后再自动挂载而非都挂载
+- 修复docker安装在rhel系不可用的问题，替换自动安装的脚本
 
 [更新日志](CHANGELOG.md)
 
