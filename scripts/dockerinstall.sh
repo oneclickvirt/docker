@@ -336,7 +336,7 @@ if ! command -v ipcalc >/dev/null 2>&1; then
     ${PACKAGE_INSTALL[int]} ipcalc
 fi
 # https://pkgs.org/search/?q=sipcalc
-if [[ "$RELEASE" == "CentOS" ]]; then
+if [[ "$SYSTEM" == "CentOS" ]]; then
     ARCH=$(uname -m)
     if [[ "$ARCH" == "x86_64" ]]; then
         REL_PATH="x86_64/Packages/s/sipcalc-1.1.6-17.el8.x86_64.rpm"
