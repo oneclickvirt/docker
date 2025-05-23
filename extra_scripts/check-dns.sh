@@ -1,6 +1,6 @@
 #!/bin/bash
 #from https://github.com/oneclickvirt/docker
-# 2025.05.21
+# 2025.05.23
 set -e
 
 DNS_SERVERS_IPV4=(
@@ -138,7 +138,6 @@ if check_nmcli; then
     else
         echo "设置 DNS 服务器..."
         resolvectl dns "$IFACE" "${DNS_SERVERS_IPV4[@]}" "${DNS_SERVERS_IPV6[@]}"
-        resolvectl domain "$IFACE" "spiritlhl.net"
         echo "DNS 配置已更新。"
     fi
 else
