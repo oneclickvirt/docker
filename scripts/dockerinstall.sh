@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.05.22
+# 2025.05.23
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -864,7 +864,7 @@ docker_build_ipv6() {
   AdvSendAdvert on;
   MinRtrAdvInterval 3;
   MaxRtrAdvInterval 10;
-  prefix $ipv6_address_without_last_segment/$ipv6_prefixlen {
+  prefix ${ipv6_address_without_last_segment}0/$ipv6_prefixlen {
     AdvOnLink on;
     AdvAutonomous on;
     AdvRouterAddr on;
@@ -875,7 +875,7 @@ docker_build_ipv6() {
   AdvSendAdvert on;
   MinRtrAdvInterval 3;
   MaxRtrAdvInterval 10;
-  prefix $ipv6_address_without_last_segment/$ipv6_prefixlen {
+  prefix ${ipv6_address_without_last_segment}0/$ipv6_prefixlen {
     AdvOnLink on;
     AdvAutonomous on;
     AdvRouterAddr on;
