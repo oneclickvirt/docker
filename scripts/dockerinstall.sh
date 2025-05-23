@@ -883,7 +883,7 @@ docker_build_ipv6() {
 };"
             fi
             echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
-            systemctl restart radvd
+            systemctl restart radvd && systemctl enable radvd
             update_sysctl "net.ipv6.conf.all.forwarding=1"
             update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
             update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
