@@ -17,8 +17,7 @@ RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/
     sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
 # RUN wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && \
 #     chmod a+x /bin/systemctl
-COPY ssh_sh.sh /ssh_sh.sh
-RUN chmod +x /ssh_sh.sh
+RUN wget https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_sh.sh -O ssh_sh.sh && chmod +x ssh_sh.sh
 ENV ROOT_PASSWORD=oneclick136
 RUN echo '#!/bin/sh\n\
 export interactionless=true\n\
