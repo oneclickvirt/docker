@@ -1,0 +1,31 @@
+FROM ubuntu:latest
+ENV DEBIAN_FRONTEND=noninteractive
+ENV interactionless=true
+RUN apt-get update && \
+    apt-get install -y \
+    openssh-server \
+    curl \
+    wget \
+    cron \
+    systemctl \
+    dos2unix \
+    vim \
+    htop \
+    net-tools
+RUN mkdir /var/run/sshd
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
+RUN wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && \
+    chmod a+x /bin/systemctl
+COPY ssh_bash.sh /ssh_bash.sh
+RUN chmod +x /ssh_bash.sh
+ENV ROOT_PASSWORD=oneclick123
+RUN echo '#!/bin/bash\n\
+export interactionless=true\n\
+bash /ssh_bash.sh $ROOT_PASSWORD\n\
+service ssh start\n\
+tail -f /dev/null' > /start.sh && \
+    chmod +x /start.sh
+EXPOSE 22
+CMD ["/start.sh"]
