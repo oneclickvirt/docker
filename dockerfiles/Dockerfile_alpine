@@ -1,0 +1,35 @@
+FROM alpine:latest
+ENV interactionless=true
+RUN apk update && \
+    apk add --no-cache \
+    openssh \
+    curl \
+    wget \
+    bash \
+    dos2unix \
+    vim \
+    htop \
+    procps \
+    dcron \
+    && rm -rf /var/cache/apk/*
+RUN ssh-keygen -A
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
+# RUN wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && \
+#     chmod a+x /bin/systemctl
+COPY ssh_sh.sh /ssh_sh.sh
+RUN chmod +x /ssh_sh.sh
+ENV ROOT_PASSWORD=oneclick136
+RUN echo '#!/bin/sh\n\
+export interactionless=true\n\
+sh /ssh_sh.sh $ROOT_PASSWORD\n\
+/usr/sbin/sshd\n\
+crond\n\
+if [ "$IPV6_ENABLED" = "true" ]; then\n\
+    echo "*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb" | crontab -\n\
+fi\n\
+tail -f /dev/null' > /start.sh && \
+    chmod +x /start.sh
+EXPOSE 22
+CMD ["/start.sh"]
