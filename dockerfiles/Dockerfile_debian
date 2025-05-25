@@ -1,0 +1,36 @@
+FROM debian:latest
+ENV DEBIAN_FRONTEND=noninteractive
+ENV interactionless=true
+RUN apt-get update && \
+    apt-get install -y \
+    openssh-server \
+    curl \
+    wget \
+    cron \
+    dos2unix \
+    vim \
+    htop \
+    net-tools \
+    procps
+RUN mkdir /var/run/sshd
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
+RUN wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && \
+    chmod a+x /bin/systemctl
+COPY ssh_bash.sh /ssh_bash.sh
+RUN chmod +x /ssh_bash.sh
+ENV ROOT_PASSWORD=oneclick136
+RUN echo 'export interactionless=true' >> ~/.bashrc && \
+    echo 'bash /ssh_bash.sh' >> ~/.bashrc
+RUN echo '#!/bin/bash\n\
+source ~/.bashrc\n\
+bash /ssh_bash.sh $ROOT_PASSWORD\n\
+service ssh start\n\
+if [ "$IPV6_ENABLED" = "true" ]; then\n\
+    echo "*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb" | crontab -\n\
+fi\n\
+tail -f /dev/null' > /start.sh && \
+    chmod +x /start.sh
+EXPOSE 22
+CMD ["/start.sh"]
