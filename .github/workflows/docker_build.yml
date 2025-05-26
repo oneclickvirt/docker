@@ -13,7 +13,7 @@ jobs:
     permissions:
       contents: write
       packages: write
-    
+
     strategy:
       matrix:
         include:
@@ -31,134 +31,39 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Generate version tag
-      id: version
-      run: |
-        if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/}
-        else
-          VERSION=${GITHUB_SHA::8}
-        fi
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "Generated version: $VERSION"
-
     - name: Build Docker image
       run: |
         docker build \
           -f dockerfiles/${{ matrix.dockerfile }} \
           -t ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }} \
-          -t ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }}-${{ steps.version.outputs.version }} \
           .
 
     - name: Save Docker image as tar
       run: |
-        docker save ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }} | gzip > ${{ env.IMAGE_NAME }}-${{ matrix.tag_suffix }}-${{ steps.version.outputs.version }}.tar.gz
+        docker save ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }} | gzip > ${{ env.IMAGE_NAME }}-${{ matrix.tag_suffix }}.tar.gz
         ls -lh *.tar.gz
 
-    - name: Upload tar file as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: docker-image-${{ matrix.tag_suffix }}
-        path: ${{ env.IMAGE_NAME }}-${{ matrix.tag_suffix }}-${{ steps.version.outputs.version }}.tar.gz
-        retention-days: 7
-
-  create-release:
-    needs: build-and-release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Generate version tag
-      id: version
+    - name: Create GitHub Release
       run: |
-        if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/}
-        else
-          VERSION=${GITHUB_SHA::8}
+        TAG=${{ matrix.tag_suffix }}
+        FILENAME=${{ env.IMAGE_NAME }}-${{ matrix.tag_suffix }}.tar.gz
+
+        # Delete tag and release if already exist
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "Release $TAG already exists. Deleting it..."
+          gh release delete "$TAG" -y
+          git push origin --delete "$TAG" || true
         fi
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "Generated version: $VERSION"
 
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: ./artifacts
+        # Create tag
+        git tag "$TAG"
+        git push origin "$TAG"
 
-    - name: Prepare release files
-      run: |
-        mkdir -p release-files
-        find ./artifacts -name "*.tar.gz" -exec cp {} release-files/ \;
-        ls -la release-files/
-
-    - name: Check if release exists
-      id: check_release
-      run: |
-        RELEASE_TAG="docker-images-${{ steps.version.outputs.version }}"
-        echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
-        if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-          echo "release_exists=true" >> $GITHUB_OUTPUT
-          echo "Release $RELEASE_TAG already exists"
-        else
-          echo "release_exists=false" >> $GITHUB_OUTPUT
-          echo "Release $RELEASE_TAG does not exist"
-        fi
+        # Create release
+        gh release create "$TAG" "$FILENAME" \
+          --title "$TAG" \
+          --notes "Docker image for $TAG system." \
+          --prerelease=false \
+          --draft=false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Create Release
-      if: steps.check_release.outputs.release_exists == 'false'
-      run: |
-        gh release create "${{ steps.check_release.outputs.release_tag }}" \
-          --title "Docker Images Release ${{ steps.version.outputs.version }}" \
-          --notes "Automated release of Docker images built from commit ${{ github.sha }}
-
-        ## Images included:
-        - spiritlhl:alpine
-        - spiritlhl:ubuntu  
-        - spiritlhl:debian
-
-        ## Usage:
-        \`\`\`bash
-        # Extract and load image
-        gunzip spiritlhl-alpine-${{ steps.version.outputs.version }}.tar.gz
-        docker load < spiritlhl-alpine-${{ steps.version.outputs.version }}.tar
-        
-        # Run container
-        docker run --rm spiritlhl:alpine
-        \`\`\`
-        " \
-          --draft=false \
-          --prerelease=false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload release assets
-      run: |
-        for file in release-files/*.tar.gz; do
-          if [ -f "$file" ]; then
-            echo "Uploading $file to release ${{ steps.check_release.outputs.release_tag }}"
-            gh release upload "${{ steps.check_release.outputs.release_tag }}" "$file" --clobber
-          fi
-        done
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Release Summary
-      run: |
-        echo "## Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Release Tag:** ${{ steps.check_release.outputs.release_tag }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Uploaded Files:" >> $GITHUB_STEP_SUMMARY
-        for file in release-files/*.tar.gz; do
-          if [ -f "$file" ]; then
-            filename=$(basename "$file")
-            size=$(du -h "$file" | cut -f1)
-            echo "- $filename ($size)" >> $GITHUB_STEP_SUMMARY
-          fi
-        done
