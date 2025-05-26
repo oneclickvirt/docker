@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.05.23
+# 2025.05.26
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -336,7 +336,7 @@ if ! command -v ipcalc >/dev/null 2>&1; then
     ${PACKAGE_INSTALL[int]} ipcalc
 fi
 # https://pkgs.org/search/?q=sipcalc
-if [[ "$SYSTEM" == "CentOS" ]]; then
+if [[ "$SYSTEM" == "CentOS" ]] && ! command -v sipcalc >/dev/null 2>&1; then
     ARCH=$(uname -m)
     if [[ "$ARCH" == "x86_64" ]]; then
         REL_PATH="x86_64/Packages/s/sipcalc-1.1.6-17.el8.x86_64.rpm"
