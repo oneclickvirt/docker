@@ -1,4 +1,4 @@
-FROM rockylinux/rockylinux:latest
+FROM rockylinux/rockylinux:9
 ENV DEBIAN_FRONTEND=noninteractive
 ENV interactionless=true
 ENV ROOT_PASSWORD=oneclick136
