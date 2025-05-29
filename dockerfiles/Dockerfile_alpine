@@ -20,9 +20,9 @@ RUN ssh-keygen -A
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
     sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
-RUN wget https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_sh.sh -O /ssh_sh.sh && \
-    chmod +x /ssh_sh.sh && \
-    sh /ssh_sh.sh $ROOT_PASSWORD
+RUN wget https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_sh.sh -O ssh_sh.sh && \
+    chmod +x ssh_sh.sh && \
+    ./ssh_sh.sh $ROOT_PASSWORD
 RUN printf '#!/bin/sh\n\
 /usr/sbin/sshd\n\
 crond\n\
