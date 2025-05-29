@@ -2,7 +2,7 @@ FROM rockylinux/rockylinux:latest
 ENV DEBIAN_FRONTEND=noninteractive
 ENV interactionless=true
 ENV ROOT_PASSWORD=oneclick136
-RUN dnf update && \
+RUN dnf -y update && \
     dnf install -y --skip-broken \
     openssh-server \
     curl \
