@@ -2,17 +2,17 @@ FROM openeuler/openeuler:latest
 ENV DEBIAN_FRONTEND=noninteractive
 ENV interactionless=true
 ENV ROOT_PASSWORD=oneclick136
-RUN yum update && \
-    yum install -y \
+RUN dnf update && \
+    dnf install -y \
     openssh-server \
     curl \
     wget \
-    cron \
-    systemctl \
+    epel-relase \
+    cronie \
     lsof \
     dos2unix \
     vim \
-    htop \
+    nano \
     net-tools
 RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/banner || true
 RUN echo "--by https://t.me/spiritlhl" >> /etc/motd || true
