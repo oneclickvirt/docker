@@ -7,9 +7,10 @@
 2025.05.29
 
 - 修复基础容器镜像设置SSH的问题
-- 基础镜像使用tar包，不再通过dockerhub下载
+- 基础镜像优先使用离线的tar包，如果无法下载，再通过dockerhub下载
 - 优化cdn轮询检测的逻辑
 - 添加Almalinux，Rockylinux，OpenEuler系统镜像编译
+- 添加对ARM64架构的专门适配
 
 [更新日志](CHANGELOG.md)
 
