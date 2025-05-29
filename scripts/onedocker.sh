@@ -197,7 +197,7 @@ else
 fi
 docker inspect ndpresponder &>/dev/null
 if [ $? -eq 0 ]; then
-    container_status=$(docker inspect -f '{{.State.Status}' ndpresponder)
+    container_status=$(docker inspect -f '{{.State.Status}}' ndpresponder)
     if [ "$container_status" == "running" ]; then
         _green "ndpresponder container exists and is running"
         _green "ndpresponder 容器存在且正在运行"
