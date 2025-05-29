@@ -96,7 +96,8 @@ download_and_load_image() {
     local system_type=$1
     local arch=$(get_arch)
     local tar_filename="spiritlhl_${system_type}_${arch}.tar.gz"
-    local image_tag="spiritlhl:${system_type}"
+    local target_tag="spiritlhl:${system_type}-${arch}"
+    local final_tag="spiritlhl:${system_type}"
     if docker images | grep -q "spiritlhl.*${system_type}"; then
         _green "Image spiritlhl:${system_type} already exists"
         _green "镜像 spiritlhl:${system_type} 已存在"
@@ -136,8 +137,21 @@ download_and_load_image() {
         _yellow "正在从tar文件加载镜像..."
         docker load < "$tar_filename"
         if [ $? -eq 0 ]; then
-            _green "Image loaded successfully from tar file"
-            _green "从tar文件加载镜像成功"
+            if docker images | grep -q "$target_tag"; then
+                docker tag "$target_tag" "$final_tag"
+                _green "Image loaded and tagged successfully as $final_tag"
+                _green "镜像加载并标记为 $final_tag 成功"
+            elif docker images | grep -q "spiritlhl:${system_type}"; then
+                _green "Image loaded successfully with correct tag"
+                _green "镜像以正确标签加载成功"
+            else
+                local loaded_image=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep spiritlhl | head -1)
+                if [ -n "$loaded_image" ]; then
+                    docker tag "$loaded_image" "$final_tag"
+                    _green "Image retagged successfully as $final_tag"
+                    _green "镜像重新标记为 $final_tag 成功"
+                fi
+            fi
             rm -f "$tar_filename"
             return 0
         else
@@ -183,7 +197,7 @@ else
 fi
 docker inspect ndpresponder &>/dev/null
 if [ $? -eq 0 ]; then
-    container_status=$(docker inspect -f '{{.State.Status}}' ndpresponder)
+    container_status=$(docker inspect -f '{{.State.Status}' ndpresponder)
     if [ "$container_status" == "running" ]; then
         _green "ndpresponder container exists and is running"
         _green "ndpresponder 容器存在且正在运行"
@@ -225,7 +239,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -e ROOT_PASSWORD=${passwd} \
             -e IPV6_ENABLED=true \
             ${lxcfs_volumes} \
-            spiritlhl:alpine
+            spiritlhl:${system}
         docker_use_ipv6=true
     else
         docker run -d \
@@ -237,7 +251,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --cap-add=MKNOD \
             -e ROOT_PASSWORD=${passwd} \
             ${lxcfs_volumes} \
-            spiritlhl:alpine
+            spiritlhl:${system}
         docker_use_ipv6=false
     fi
     docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
