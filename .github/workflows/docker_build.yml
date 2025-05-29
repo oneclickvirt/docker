@@ -23,6 +23,12 @@ jobs:
             tag_suffix: ubuntu
           - dockerfile: Dockerfile_debian
             tag_suffix: debian
+          - dockerfile: Dockerfile_almalinux
+            tag_suffix: almalinux
+          - dockerfile: Dockerfile_rockylinux
+            tag_suffix: rockylinux
+          - dockerfile: Dockerfile_openeuler
+            tag_suffix: openeuler
 
     steps:
     - name: Checkout repository

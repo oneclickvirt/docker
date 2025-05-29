@@ -130,8 +130,8 @@ if [ "$interactionless" != "true" ]; then
     done
 fi
 service sshd restart
-systemctl restart sshd
-systemctl restart ssh
+# systemctl restart sshd
+# systemctl restart ssh
 /usr/sbin/sshd
 service ssh restart
 if [ "$interactionless" != "true" ]; then

@@ -99,6 +99,15 @@ download_and_load_image() {
         "alpine")
             curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/alpine/spiritlhl-alpine.tar.gz" -o $tar_filename
             ;;
+        "almalinux")
+            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/almalinux/spiritlhl-almalinux.tar.gz" -o $tar_filename
+            ;;
+        "rockylinux")
+            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/rockylinux/spiritlhl-rockylinux.tar.gz" -o $tar_filename
+            ;;
+        "openeuler")
+            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/openeuler/spiritlhl-openeuler.tar.gz" -o $tar_filename
+            ;;
         *)
             _red "Unsupported system type: $system_type"
             _red "不支持的系统类型: $system_type"
