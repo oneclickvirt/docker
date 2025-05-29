@@ -206,6 +206,8 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             spiritlhl:alpine
         docker_use_ipv6=false
     fi
+    docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
+    docker exec -it ${name} sh -c "echo 'root:${passwd}' | chpasswd"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
@@ -235,6 +237,8 @@ else
             spiritlhl:${system}
         docker_use_ipv6=false
     fi
+    docker exec -it ${name} bash -c "bash /ssh_bash.sh ${passwd}"
+    docker exec -it ${name} bash -c "echo 'root:${passwd}' | chpasswd"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 fi
 
