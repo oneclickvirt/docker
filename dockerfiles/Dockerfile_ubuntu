@@ -1,6 +1,7 @@
 FROM ubuntu:latest
 ENV DEBIAN_FRONTEND=noninteractive
 ENV interactionless=true
+ENV ROOT_PASSWORD=oneclick123
 RUN apt-get update && \
     apt-get install -y \
     openssh-server \
@@ -11,19 +12,22 @@ RUN apt-get update && \
     dos2unix \
     vim \
     htop \
-    net-tools
+    net-tools && \
+    apt-get clean
 RUN mkdir /var/run/sshd
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
     sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
 RUN wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && \
     chmod a+x /bin/systemctl
-RUN wget https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_bash.sh -O ssh_bash.sh && chmod +x ssh_bash.sh
-ENV ROOT_PASSWORD=oneclick123
+RUN wget https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_bash.sh -O ssh_bash.sh && \
+    chmod +x ssh_bash.sh && \
+    bash ssh_bash.sh $ROOT_PASSWORD
 RUN echo '#!/bin/bash\n\
-export interactionless=true\n\
-bash /ssh_bash.sh $ROOT_PASSWORD\n\
 service ssh start\n\
+if [ "$IPV6_ENABLED" = "true" ]; then\n\
+    echo "*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb" | crontab -\n\
+fi\n\
 tail -f /dev/null' > /start.sh && \
     chmod +x /start.sh
 EXPOSE 22

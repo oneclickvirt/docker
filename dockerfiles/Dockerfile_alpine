@@ -1,5 +1,6 @@
 FROM alpine:latest
 ENV interactionless=true
+ENV ROOT_PASSWORD=oneclick136
 RUN apk update && \
     apk add --no-cache \
     openssh \
@@ -15,13 +16,10 @@ RUN ssh-keygen -A
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
     sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
-# RUN wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && \
-#     chmod a+x /bin/systemctl
-RUN wget https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_sh.sh -O ssh_sh.sh && chmod +x ssh_sh.sh
-ENV ROOT_PASSWORD=oneclick136
+RUN wget https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_sh.sh -O /ssh_sh.sh && \
+    chmod +x /ssh_sh.sh && \
+    sh /ssh_sh.sh $ROOT_PASSWORD
 RUN echo '#!/bin/sh\n\
-export interactionless=true\n\
-sh /ssh_sh.sh $ROOT_PASSWORD\n\
 /usr/sbin/sshd\n\
 crond\n\
 if [ "$IPV6_ENABLED" = "true" ]; then\n\
