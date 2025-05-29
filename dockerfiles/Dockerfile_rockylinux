@@ -7,7 +7,6 @@ RUN dnf update && \
     openssh-server \
     curl \
     wget \
-    epel-relase \
     cronie \
     lsof \
     dos2unix \
