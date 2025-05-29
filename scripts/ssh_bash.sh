@@ -129,11 +129,28 @@ if [ "$interactionless" != "true" ]; then
         fi
     done
 fi
-service sshd restart
-systemctl restart sshd
-systemctl restart ssh
-/usr/sbin/sshd || ssh-keygen -A && /usr/sbin/sshd 
-service ssh restart
+if command -v systemctl >/dev/null && systemctl list-units --type=service | grep -qE 'ssh\.service|sshd\.service'; then
+    echo "Using systemctl to restart SSH..."
+    if systemctl list-units --type=service | grep -q 'sshd\.service'; then
+      systemctl restart sshd
+    else
+      systemctl restart ssh
+    fi
+elif command -v service >/dev/null; then
+    echo "Using service to restart SSH..."
+    if service --status-all 2>&1 | grep -q 'sshd'; then
+      service sshd restart
+    else
+      service ssh restart
+    fi
+elif [ -x /usr/sbin/sshd ]; then
+    echo "Using direct sshd invocation..."
+    if ! pgrep -x sshd >/dev/null; then
+      ssh-keygen -A
+    fi
+    pkill sshd 2>/dev/null
+    /usr/sbin/sshd
+fi
 if [ "$interactionless" != "true" ]; then
     sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf
 fi
