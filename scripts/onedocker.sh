@@ -77,36 +77,52 @@ check_lxcfs() {
     fi
 }
 
+get_arch() {
+    local arch=$(uname -m)
+    case $arch in
+        x86_64)
+            echo "amd64"
+            ;;
+        aarch64|arm64)
+            echo "arm64"
+            ;;
+        *)
+            echo "amd64" # 默认使用amd64
+            ;;
+    esac
+}
+
 download_and_load_image() {
     local system_type=$1
-    local tar_filename="spiritlhl-${system_type}.tar.gz"
+    local arch=$(get_arch)
+    local tar_filename="spiritlhl_${system_type}_${arch}.tar.gz"
     local image_tag="spiritlhl:${system_type}"
-    
     if docker images | grep -q "spiritlhl.*${system_type}"; then
         _green "Image spiritlhl:${system_type} already exists"
         _green "镜像 spiritlhl:${system_type} 已存在"
         return 0
     fi
-    _yellow "Downloading ${system_type} image..."
-    _yellow "正在下载 ${system_type} 镜像..."
+    _yellow "Downloading ${system_type} image for ${arch} architecture..."
+    _yellow "正在下载 ${system_type} 的 ${arch} 架构镜像..."
+    local download_url=""
     case $system_type in
         "ubuntu")
-            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/ubuntu/spiritlhl-ubuntu.tar.gz" -o $tar_filename
+            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/ubuntu/spiritlhl_ubuntu_${arch}.tar.gz"
             ;;
         "debian")
-            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/debian/spiritlhl-debian.tar.gz" -o $tar_filename
+            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/debian/spiritlhl_debian_${arch}.tar.gz"
             ;;
         "alpine")
-            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/alpine/spiritlhl-alpine.tar.gz" -o $tar_filename
+            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/alpine/spiritlhl_alpine_${arch}.tar.gz"
             ;;
         "almalinux")
-            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/almalinux/spiritlhl-almalinux.tar.gz" -o $tar_filename
+            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/almalinux/spiritlhl_almalinux_${arch}.tar.gz"
             ;;
         "rockylinux")
-            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/rockylinux/spiritlhl-rockylinux.tar.gz" -o $tar_filename
+            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/rockylinux/spiritlhl_rockylinux_${arch}.tar.gz"
             ;;
         "openeuler")
-            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/openeuler/spiritlhl-openeuler.tar.gz" -o $tar_filename
+            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/openeuler/spiritlhl_openeuler_${arch}.tar.gz"
             ;;
         *)
             _red "Unsupported system type: $system_type"
@@ -114,21 +130,37 @@ download_and_load_image() {
             exit 1
             ;;
     esac
-    if [ ! -f "$tar_filename" ]; then
-        _red "Failed to download image"
-        _red "镜像下载失败"
-        exit 1
-    fi
-    _yellow "Loading image..."
-    _yellow "正在加载镜像..."
-    docker load < $tar_filename
-    if [ $? -eq 0 ]; then
-        _green "Image loaded successfully"
-        _green "镜像加载成功"
-        rm -f $tar_filename
+    curl -L "$download_url" -o "$tar_filename" --connect-timeout 10 --max-time 300
+    if [ -f "$tar_filename" ] && [ -s "$tar_filename" ]; then
+        _yellow "Loading image from tar file..."
+        _yellow "正在从tar文件加载镜像..."
+        docker load < "$tar_filename"
+        if [ $? -eq 0 ]; then
+            _green "Image loaded successfully from tar file"
+            _green "从tar文件加载镜像成功"
+            rm -f "$tar_filename"
+            return 0
+        else
+            _red "Failed to load image from tar file"
+            _red "从tar文件加载镜像失败"
+            rm -f "$tar_filename"
+        fi
     else
-        _red "Failed to load image"
-        _red "镜像加载失败"
+        _yellow "Failed to download tar file or file is empty"
+        _yellow "下载tar文件失败或文件为空"
+        rm -f "$tar_filename" 2>/dev/null
+    fi
+    _yellow "Trying to pull image from Docker Hub: ${system_type}:latest"
+    _yellow "尝试从Docker Hub拉取镜像: ${system_type}:latest"
+    docker pull "${system_type}:latest"
+    if [ $? -eq 0 ]; then
+        docker tag "${system_type}:latest" "spiritlhl:${system_type}"
+        _green "Image pulled and tagged successfully"
+        _green "镜像拉取并标记成功"
+        return 0
+    else
+        _red "Failed to pull image from Docker Hub"
+        _red "从Docker Hub拉取镜像失败"
         exit 1
     fi
 }
@@ -138,9 +170,7 @@ cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn1.spiritlhl.net/" "http://cdn
 if [ "${CN}" == true ]; then
     check_cdn_file
 fi
-
 check_lxcfs
-
 docker network inspect ipv6_net &>/dev/null
 if [ $? -eq 0 ]; then
     _green "ipv6_net exists in the Docker network"
@@ -151,7 +181,6 @@ else
     _yellow "ipv6_net 不存在于 Docker 网络中"
     ipv6_net_status="N"
 fi
-
 docker inspect ndpresponder &>/dev/null
 if [ $? -eq 0 ]; then
     container_status=$(docker inspect -f '{{.State.Status}}' ndpresponder)
@@ -169,12 +198,10 @@ else
     _yellow "ndpresponder 容器不存在"
     ndpresponder_status="N"
 fi
-
 if [ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_ipv6 ] && [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_check_ipv6)" != "" ]; then
     ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
     ipv6_address_without_last_segment="${ipv6_address%:*}:"
 fi
-
 lxcfs_volumes=""
 if [ "$lxcfs_available" = "Y" ]; then
     lxcfs_volumes="--volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
@@ -184,9 +211,7 @@ if [ "$lxcfs_available" = "Y" ]; then
         --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
         --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw"
 fi
-
 download_and_load_image $system
-
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
         docker run -d \
