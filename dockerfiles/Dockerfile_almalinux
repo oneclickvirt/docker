@@ -2,8 +2,8 @@ FROM almalinux:latest
 ENV DEBIAN_FRONTEND=noninteractive
 ENV interactionless=true
 ENV ROOT_PASSWORD=oneclick136
-RUN yum update && \
-    yum install -y \
+RUN dnf update && \
+    dnf install -y \
     openssh-server \
     curl \
     wget \
