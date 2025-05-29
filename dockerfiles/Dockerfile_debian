@@ -13,6 +13,10 @@ RUN apt-get update && \
     htop \
     net-tools \
     procps
+RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/banner || true
+RUN echo "--by https://t.me/spiritlhl" >> /etc/motd || true
+RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/banner || true
+RUN echo "--by https://t.me/spiritlhl" >> /etc/banner || true
 RUN mkdir /var/run/sshd
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
