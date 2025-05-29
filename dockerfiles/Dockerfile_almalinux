@@ -3,7 +3,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV interactionless=true
 ENV ROOT_PASSWORD=oneclick136
 RUN dnf update && \
-    dnf install -y \
+    dnf install -y --skip-broken \
     openssh-server \
     curl \
     wget \
