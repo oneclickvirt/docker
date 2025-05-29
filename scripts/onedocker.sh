@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.05.22
+# 2025.05.29
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
 # <disk>
@@ -40,7 +40,8 @@ check_china() {
 
 check_cdn() {
     local o_url=$1
-    for cdn_url in "${cdn_urls[@]}"; do
+    local shuffled_cdn_urls=($(shuf -e "${cdn_urls[@]}")) # 打乱数组顺序
+    for cdn_url in "${shuffled_cdn_urls[@]}"; do
         if curl -sL -k "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
             export cdn_success_url="$cdn_url"
             return
@@ -76,17 +77,61 @@ check_lxcfs() {
     fi
 }
 
-# 检查是否为中国IP
+download_and_load_image() {
+    local system_type=$1
+    local tar_filename="spiritlhl-${system_type}.tar.gz"
+    local image_tag="spiritlhl:${system_type}"
+    
+    if docker images | grep -q "spiritlhl.*${system_type}"; then
+        _green "Image spiritlhl:${system_type} already exists"
+        _green "镜像 spiritlhl:${system_type} 已存在"
+        return 0
+    fi
+    _yellow "Downloading ${system_type} image..."
+    _yellow "正在下载 ${system_type} 镜像..."
+    case $system_type in
+        "ubuntu")
+            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/ubuntu/spiritlhl-ubuntu.tar.gz" -o $tar_filename
+            ;;
+        "debian")
+            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/debian/spiritlhl-debian.tar.gz" -o $tar_filename
+            ;;
+        "alpine")
+            curl -L "${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/alpine/spiritlhl-alpine.tar.gz" -o $tar_filename
+            ;;
+        *)
+            _red "Unsupported system type: $system_type"
+            _red "不支持的系统类型: $system_type"
+            exit 1
+            ;;
+    esac
+    if [ ! -f "$tar_filename" ]; then
+        _red "Failed to download image"
+        _red "镜像下载失败"
+        exit 1
+    fi
+    _yellow "Loading image..."
+    _yellow "正在加载镜像..."
+    docker load < $tar_filename
+    if [ $? -eq 0 ]; then
+        _green "Image loaded successfully"
+        _green "镜像加载成功"
+        rm -f $tar_filename
+    else
+        _red "Failed to load image"
+        _red "镜像加载失败"
+        exit 1
+    fi
+}
+
 check_china
-cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn3.spiritlhl.net/" "http://cdn1.spiritlhl.net/" "https://ghproxy.com/" "http://cdn2.spiritlhl.net/")
+cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn1.spiritlhl.net/" "http://cdn2.spiritlhl.net/" "http://cdn3.spiritlhl.net/" "http://cdn4.spiritlhl.net/")
 if [ "${CN}" == true ]; then
     check_cdn_file
 fi
 
-# 检查lxcfs可用性
 check_lxcfs
 
-# 查询名为ipv6_net的网络是否存在
 docker network inspect ipv6_net &>/dev/null
 if [ $? -eq 0 ]; then
     _green "ipv6_net exists in the Docker network"
@@ -98,7 +143,6 @@ else
     ipv6_net_status="N"
 fi
 
-# 查询名为ndpresponder的容器是否存在且活跃
 docker inspect ndpresponder &>/dev/null
 if [ $? -eq 0 ]; then
     container_status=$(docker inspect -f '{{.State.Status}}' ndpresponder)
@@ -122,7 +166,6 @@ if [ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_i
     ipv6_address_without_last_segment="${ipv6_address%:*}:"
 fi
 
-# 构建lxcfs挂载参数
 lxcfs_volumes=""
 if [ "$lxcfs_available" = "Y" ]; then
     lxcfs_volumes="--volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
@@ -133,17 +176,9 @@ if [ "$lxcfs_available" = "Y" ]; then
         --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw"
 fi
 
+download_and_load_image $system
+
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
-    if [ ! -f ssh_sh.sh ]; then
-        curl -Lk https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh
-        chmod 777 ssh_sh.sh
-        dos2unix ssh_sh.sh
-    fi
-    if [[ ! -f ChangeMirrors.sh && "${CN}" == true ]]; then
-        curl -Lk https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh -o ChangeMirrors.sh
-        chmod 777 ChangeMirrors.sh
-        dos2unix ChangeMirrors.sh
-    fi
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
         docker run -d \
             --cpus=${cpu} \
@@ -153,8 +188,10 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
+            -e ROOT_PASSWORD=${passwd} \
+            -e IPV6_ENABLED=true \
             ${lxcfs_volumes} \
-            alpine /bin/sh -c "tail -f /dev/null"
+            spiritlhl:alpine
         docker_use_ipv6=true
     else
         docker run -d \
@@ -164,39 +201,13 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
+            -e ROOT_PASSWORD=${passwd} \
             ${lxcfs_volumes} \
-            alpine /bin/sh -c "tail -f /dev/null"
+            spiritlhl:alpine
         docker_use_ipv6=false
-    fi
-    docker cp ssh_sh.sh ${name}:/ssh_sh.sh
-    docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
-    docker exec -it ${name} bash -c "echo 'export interactionless=true'"
-    docker exec -it ${name} bash -c "echo 'sh /ssh_sh.sh'"
-    if [ "$docker_use_ipv6" = true ]; then
-        docker exec -it ${name} sh -c "echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -"
-    fi
-    if [ "${CN}" == true ]; then
-        if [ -f ChangeMirrors.sh ]; then
-            docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
-            docker exec -it ${name} sh -c "sh /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
-            docker exec -it ${name} sh -c "rm -rf /ChangeMirrors.sh"
-        fi
-        docker exec -it ${name} sh -c "wget ${cdn_success_url}https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && chmod a+x /bin/systemctl"
-    else
-        docker exec -it ${name} sh -c "wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && chmod a+x /bin/systemctl"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
-    if [ ! -f ssh_bash.sh ]; then
-        curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh
-        chmod 777 ssh_bash.sh
-        dos2unix ssh_bash.sh
-    fi
-    if [[ ! -f ChangeMirrors.sh && "${CN}" == true ]]; then
-        curl -Lk https://gitee.com/SuperManito/LinuxMirrors/raw/main/ChangeMirrors.sh -o ChangeMirrors.sh
-        chmod 777 ChangeMirrors.sh
-        dos2unix ChangeMirrors.sh
-    fi
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
         docker run -d \
             --cpus=${cpu} \
@@ -206,8 +217,10 @@ else
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
+            -e ROOT_PASSWORD=${passwd} \
+            -e IPV6_ENABLED=true \
             ${lxcfs_volumes} \
-            ${system} /bin/bash -c "source ~/.bashrc && tail -f /dev/null"
+            spiritlhl:${system}
         docker_use_ipv6=true
     else
         docker run -d \
@@ -217,26 +230,10 @@ else
             -p ${sshport}:22 \
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
+            -e ROOT_PASSWORD=${passwd} \
             ${lxcfs_volumes} \
-            ${system} /bin/bash -c "source ~/.bashrc && tail -f /dev/null"
+            spiritlhl:${system}
         docker_use_ipv6=false
-    fi
-    docker cp ssh_bash.sh ${name}:/ssh_bash.sh
-    docker exec -it ${name} bash -c "bash /ssh_bash.sh ${passwd}"
-    docker exec -it ${name} bash -c "echo 'export interactionless=true' >> ~/.bashrc"
-    docker exec -it ${name} bash -c "echo 'bash /ssh_bash.sh' >> ~/.bashrc"
-    if [ "$docker_use_ipv6" = true ]; then
-        docker exec -it ${name} bash -c "echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -"
-    fi
-    if [ "${CN}" == true ]; then
-        if [ -f ChangeMirrors.sh ]; then
-            docker cp ChangeMirrors.sh ${name}:/ChangeMirrors.sh
-            docker exec -it ${name} bash -c "bash /ChangeMirrors.sh --source mirrors.tuna.tsinghua.edu.cn --web-protocol http --intranet false --close-firewall true --backup true --updata-software false --clean-cache false --ignore-backup-tips"
-            docker exec -it ${name} bash -c "rm -rf /ChangeMirrors.sh"
-        fi
-        docker exec -it ${name} bash -c "wget ${cdn_success_url}https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && chmod a+x /bin/systemctl"
-    else
-        docker exec -it ${name} bash -c "wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && chmod a+x /bin/systemctl"
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 fi
