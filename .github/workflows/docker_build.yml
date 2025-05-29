@@ -1,75 +1,139 @@
 name: Build Docker Images and Release
-
 on:
   workflow_dispatch:
-
 env:
   REGISTRY: docker.io
   IMAGE_NAME: spiritlhl
-
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
       packages: write
-
     strategy:
       matrix:
         include:
+          # Alpine builds
           - dockerfile: Dockerfile_alpine
             tag_suffix: alpine
+            arch: amd64
+            runner: ubuntu-latest
+          - dockerfile: Dockerfile_alpine
+            tag_suffix: alpine
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          # Ubuntu builds
           - dockerfile: Dockerfile_ubuntu
             tag_suffix: ubuntu
+            arch: amd64
+            runner: ubuntu-latest
+          - dockerfile: Dockerfile_ubuntu
+            tag_suffix: ubuntu
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          # Debian builds
           - dockerfile: Dockerfile_debian
             tag_suffix: debian
+            arch: amd64
+            runner: ubuntu-latest
+          - dockerfile: Dockerfile_debian
+            tag_suffix: debian
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          # AlmaLinux builds
           - dockerfile: Dockerfile_almalinux
             tag_suffix: almalinux
+            arch: amd64
+            runner: ubuntu-latest
+          - dockerfile: Dockerfile_almalinux
+            tag_suffix: almalinux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          # Rocky Linux builds
           - dockerfile: Dockerfile_rockylinux
             tag_suffix: rockylinux
+            arch: amd64
+            runner: ubuntu-latest
+          - dockerfile: Dockerfile_rockylinux
+            tag_suffix: rockylinux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          # OpenEuler builds
           - dockerfile: Dockerfile_openeuler
             tag_suffix: openeuler
-
+            arch: amd64
+            runner: ubuntu-latest
+          - dockerfile: Dockerfile_openeuler
+            tag_suffix: openeuler
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-
     - name: Build Docker image
       run: |
         docker build \
           -f dockerfiles/${{ matrix.dockerfile }} \
-          -t ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }} \
+          -t ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }}-${{ matrix.arch }} \
+          --platform linux/${{ matrix.arch }} \
           .
-
     - name: Save Docker image as tar
       run: |
-        docker save ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }} | gzip > ${{ env.IMAGE_NAME }}-${{ matrix.tag_suffix }}.tar.gz
+        FILENAME=${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_${{ matrix.arch }}.tar.gz
+        docker save ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }}-${{ matrix.arch }} | gzip > $FILENAME
         ls -lh *.tar.gz
+    - name: Upload artifact for release
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_${{ matrix.arch }}
+        path: ${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_${{ matrix.arch }}.tar.gz
+        retention-days: 1
 
+  create-releases:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        tag_suffix: [alpine, ubuntu, debian, almalinux, rockylinux, openeuler]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Download all artifacts for this OS
+      uses: actions/download-artifact@v4
+      with:
+        pattern: ${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_*
+        merge-multiple: true
     - name: Create GitHub Release
       run: |
         TAG=${{ matrix.tag_suffix }}
-        FILENAME=${{ env.IMAGE_NAME }}-${{ matrix.tag_suffix }}.tar.gz
-
+        AMD64_FILE=${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_amd64.tar.gz
+        ARM64_FILE=${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_arm64.tar.gz
+        
         # Delete tag and release if already exist
         if gh release view "$TAG" >/dev/null 2>&1; then
           echo "Release $TAG already exists. Deleting it..."
           gh release delete "$TAG" -y
           git push origin --delete "$TAG" || true
         fi
-
+        
         # Create tag
         git tag "$TAG"
         git push origin "$TAG"
-
-        # Create release
-        gh release create "$TAG" "$FILENAME" \
+        
+        # Create release with both architecture files
+        gh release create "$TAG" "$AMD64_FILE" "$ARM64_FILE" \
           --title "$TAG" \
-          --notes "Docker image for $TAG system." \
+          --notes "Docker images for $TAG system.
+        
+        Available architectures:
+        - AMD64: $AMD64_FILE
+        - ARM64: $ARM64_FILE" \
           --prerelease=false \
           --draft=false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        IMAGE_NAME: ${{ env.IMAGE_NAME }}
