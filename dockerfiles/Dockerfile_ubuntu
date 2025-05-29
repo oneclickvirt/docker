@@ -1,7 +1,7 @@
 FROM ubuntu:latest
 ENV DEBIAN_FRONTEND=noninteractive
 ENV interactionless=true
-ENV ROOT_PASSWORD=oneclick123
+ENV ROOT_PASSWORD=oneclick136
 RUN apt-get update && \
     apt-get install -y \
     openssh-server \
@@ -12,8 +12,7 @@ RUN apt-get update && \
     dos2unix \
     vim \
     htop \
-    net-tools && \
-    apt-get clean
+    net-tools
 RUN mkdir /var/run/sshd
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
