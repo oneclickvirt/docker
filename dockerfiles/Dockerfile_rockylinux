@@ -26,12 +26,12 @@ RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/
 RUN wget https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_bash.sh -O ssh_bash.sh && \
     chmod +x ssh_bash.sh && \
     bash ssh_bash.sh $ROOT_PASSWORD
-RUN echo '#!/bin/bash\n\
+RUN printf '#!/bin/bash\n\
 service ssh start\n\
 if [ "$IPV6_ENABLED" = "true" ]; then\n\
-    echo "*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb" | crontab -\n\
+  echo "*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb" | crontab -\n\
 fi\n\
-tail -f /dev/null' > /start.sh && \
-    chmod +x /start.sh
+tail -f /dev/null\n' > /start.sh && \
+chmod +x /start.sh
 EXPOSE 22
 CMD ["/start.sh"]
