@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.05.29
+# 2025.05.31
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -521,7 +521,7 @@ if [[ -n "$ipv6_address" ]]; then
     if [ -f /usr/local/bin/docker_slaac_status ] && [ ! -f /usr/local/bin/docker_maximum_subset ] && [ ! -f /usr/local/bin/fix_interfaces_ipv6_auto_type ]; then
         # 大概率由SLAAC动态分配，需要询问使用的子网范围 仅本机IPV6 或 最大子网
         _blue "It is detected that IPV6 addresses are most likely to be dynamically assigned by SLAAC, and if there is no subsequent need to assign separate IPV6 addresses to VMs/containers, the following option is best selected n"
-        _green "检测到IPV6地址大概率由SLAAC动态分配，若后续不需要分配独立的IPV6地址给虚拟机/容器，则下面选项最好选 n"
+        _green "检测到IPV6地址大概率由SLAAC动态分配，若后续不需要分配独立的IPV6地址给虚拟机/容器，则下面选项最好选 n, 选择 y 有概率导致宿主机丢失网络"
         _blue "Is the maximum subnet range feasible with IPV6 used?([n]/y)"
         reading "是否使用IPV6可行的最大子网范围？([n]/y)" select_maximum_subset
         if [ "$select_maximum_subset" = "y" ] || [ "$select_maximum_subset" = "Y" ]; then
