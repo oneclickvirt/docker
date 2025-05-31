@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.05.29
+# 2025.05.31
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
 # <disk>
@@ -179,6 +179,65 @@ download_and_load_image() {
     fi
 }
 
+download_ssh_scripts() {
+    local container_name=$1
+    local system_type=$2
+    
+    # 检查容器内是否已存在SSH脚本
+    if [ "$system_type" = "alpine" ]; then
+        if docker exec "$container_name" sh -c "[ -f /ssh_sh.sh ]" 2>/dev/null; then
+            _green "SSH script already exists in container"
+            _green "容器内SSH脚本已存在"
+            return 0
+        fi
+        script_name="ssh_sh.sh"
+    else
+        if docker exec "$container_name" bash -c "[ -f /ssh_bash.sh ]" 2>/dev/null; then
+            _green "SSH script already exists in container"
+            _green "容器内SSH脚本已存在"
+            return 0
+        fi
+        script_name="ssh_bash.sh"
+    fi
+    
+    _yellow "SSH script not found in container, downloading..."
+    _yellow "容器内未找到SSH脚本，正在下载..."
+    
+    # 构建下载URL
+    local script_url="${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/${script_name}"
+    
+    # 下载脚本到宿主机临时位置
+    local temp_script="/tmp/${script_name}"
+    curl -L "$script_url" -o "$temp_script" --connect-timeout 10 --max-time 30
+    
+    if [ -f "$temp_script" ] && [ -s "$temp_script" ]; then
+        # 复制脚本到容器内
+        docker cp "$temp_script" "${container_name}:/${script_name}"
+        if [ $? -eq 0 ]; then
+            # 给脚本添加执行权限
+            if [ "$system_type" = "alpine" ]; then
+                docker exec "$container_name" sh -c "chmod +x /${script_name}"
+            else
+                docker exec "$container_name" bash -c "chmod +x /${script_name}"
+            fi
+            _green "SSH script downloaded and copied to container successfully"
+            _green "SSH脚本下载并复制到容器成功"
+            rm -f "$temp_script"
+            return 0
+        else
+            _red "Failed to copy SSH script to container"
+            _red "复制SSH脚本到容器失败"
+            rm -f "$temp_script"
+            return 1
+        fi
+    else
+        _red "Failed to download SSH script"
+        _red "下载SSH脚本失败"
+        rm -f "$temp_script" 2>/dev/null
+        return 1
+    fi
+}
+
 check_china
 cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn1.spiritlhl.net/" "http://cdn2.spiritlhl.net/" "http://cdn3.spiritlhl.net/" "http://cdn4.spiritlhl.net/")
 if [ "${CN}" == true ]; then
@@ -254,6 +313,8 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             spiritlhl:${system}
         docker_use_ipv6=false
     fi
+    # 下载SSH脚本（如果需要）
+    download_ssh_scripts ${name} ${system}
     docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
     docker exec -it ${name} sh -c "echo 'root:${passwd}' | chpasswd"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
@@ -285,6 +346,8 @@ else
             spiritlhl:${system}
         docker_use_ipv6=false
     fi
+    # 下载SSH脚本（如果需要）
+    download_ssh_scripts ${name} ${system}
     docker exec -it ${name} bash -c "bash /ssh_bash.sh ${passwd}"
     docker exec -it ${name} bash -c "echo 'root:${passwd}' | chpasswd"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
