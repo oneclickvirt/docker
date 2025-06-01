@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.05.22
+# 2025.06.01
 
 # cd /root
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -108,15 +108,18 @@ build_new_containers() {
             _yellow "输入无效，请输入一个正整数。"
         fi
     done
+    _green "Which system do you want to use? Please enter one of: 'ubuntu', 'debian', 'almalinux', 'rockylinux', 'openeuler' or 'alpine'."
+    reading "想使用哪个系统？请输入上述选项之一：" system_input
+    valid_systems=("ubuntu" "debian" "almalinux" "rockylinux" "openeuler" "alpine")
     while true; do
-        _green "Which system do you want to use? Please enter 'debian' or 'alpine':"
-        reading "您想使用哪个系统？请输入 'debian' 或 'alpine'：" system_input
-        if [[ -z "$system_input" || "$system_input" == "debian" || "$system_input" == "alpine" ]]; then
-            system=${system_input:-"debian"}
+        system_input="${system_input,,}"  # 转小写
+        if [[ " ${valid_systems[*]} " == *" $system_input "* ]]; then
+            system="$system_input"
             break
         else
-            _yellow "Invalid input, please enter 'debian' or 'alpine'."
-            _yellow "输入无效，请输入 'debian' 或 'alpine'。"
+            _yellow "Invalid input, please enter one of: 'ubuntu', 'debian', 'almalinux', 'rockylinux', 'openeuler' or 'alpine'."
+            _yellow "输入无效，请输入上述选项之一。"
+            reading "请重新输入系统名称：" system_input
         fi
     done
     while true; do

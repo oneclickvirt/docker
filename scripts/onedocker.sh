@@ -104,8 +104,8 @@ check_image_exists() {
         return 0
     fi
     
-    # 检查是否已存在spiritlhl:system格式的镜像
-    if docker images | grep -q "spiritlhl:${system_type}[^-]"; then
+    # 检查是否已存在spiritlhl:system格式的镜像（精确匹配，不包含-arch后缀）
+    if docker images | grep -q "^spiritlhl[[:space:]]\+${system_type}[[:space:]]"; then
         _green "Image spiritlhl:${system_type} already exists"
         _green "镜像 spiritlhl:${system_type} 已存在"
         export image_name="spiritlhl:${system_type}"
