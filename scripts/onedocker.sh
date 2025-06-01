@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.05.31
+# 2025.06.01
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
 # <disk>
@@ -92,17 +92,42 @@ get_arch() {
     esac
 }
 
+check_image_exists() {
+    local system_type=$1
+    local arch=$(get_arch)
+    
+    # 检查是否已存在spiritlhl:system-arch格式的镜像
+    if docker images | grep -q "spiritlhl:${system_type}-${arch}"; then
+        _green "Image spiritlhl:${system_type}-${arch} already exists"
+        _green "镜像 spiritlhl:${system_type}-${arch} 已存在"
+        export image_name="spiritlhl:${system_type}-${arch}"
+        return 0
+    fi
+    
+    # 检查是否已存在spiritlhl:system格式的镜像
+    if docker images | grep -q "spiritlhl:${system_type}[^-]"; then
+        _green "Image spiritlhl:${system_type} already exists"
+        _green "镜像 spiritlhl:${system_type} 已存在"
+        export image_name="spiritlhl:${system_type}"
+        return 0
+    fi
+    
+    # 检查是否存在system:latest格式的镜像
+    if docker images | grep -q "^${system_type}.*latest"; then
+        _green "Image ${system_type}:latest already exists"
+        _green "镜像 ${system_type}:latest 已存在"
+        export image_name="${system_type}:latest"
+        return 0
+    fi
+    
+    return 1
+}
+
 download_and_load_image() {
     local system_type=$1
     local arch=$(get_arch)
     local tar_filename="spiritlhl_${system_type}_${arch}.tar.gz"
-    local target_tag="spiritlhl:${system_type}-${arch}"
-    local final_tag="spiritlhl:${system_type}"
-    if docker images | grep -q "spiritlhl.*${system_type}"; then
-        _green "Image spiritlhl:${system_type} already exists"
-        _green "镜像 spiritlhl:${system_type} 已存在"
-        return 0
-    fi
+    
     _yellow "Downloading ${system_type} image for ${arch} architecture..."
     _yellow "正在下载 ${system_type} 的 ${arch} 架构镜像..."
     local download_url=""
@@ -137,22 +162,11 @@ download_and_load_image() {
         _yellow "正在从tar文件加载镜像..."
         docker load < "$tar_filename"
         if [ $? -eq 0 ]; then
-            if docker images | grep -q "$target_tag"; then
-                docker tag "$target_tag" "$final_tag"
-                _green "Image loaded and tagged successfully as $final_tag"
-                _green "镜像加载并标记为 $final_tag 成功"
-            elif docker images | grep -q "spiritlhl:${system_type}"; then
-                _green "Image loaded successfully with correct tag"
-                _green "镜像以正确标签加载成功"
-            else
-                local loaded_image=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep spiritlhl | head -1)
-                if [ -n "$loaded_image" ]; then
-                    docker tag "$loaded_image" "$final_tag"
-                    _green "Image retagged successfully as $final_tag"
-                    _green "镜像重新标记为 $final_tag 成功"
-                fi
-            fi
             rm -f "$tar_filename"
+            # 导入后直接设置镜像名称为导入的格式
+            export image_name="spiritlhl:${system_type}-${arch}"
+            _green "Image loaded successfully"
+            _green "镜像加载成功"
             return 0
         else
             _red "Failed to load image from tar file"
@@ -168,9 +182,9 @@ download_and_load_image() {
     _yellow "尝试从Docker Hub拉取镜像: ${system_type}:latest"
     docker pull "${system_type}:latest"
     if [ $? -eq 0 ]; then
-        docker tag "${system_type}:latest" "spiritlhl:${system_type}"
-        _green "Image pulled and tagged successfully"
-        _green "镜像拉取并标记成功"
+        export image_name="${system_type}:latest"
+        _green "Image pulled successfully"
+        _green "镜像拉取成功"
         return 0
     else
         _red "Failed to pull image from Docker Hub"
@@ -284,7 +298,12 @@ if [ "$lxcfs_available" = "Y" ]; then
         --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
         --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw"
 fi
-download_and_load_image $system
+
+# 先检查镜像是否存在，不存在才下载
+if ! check_image_exists $system; then
+    download_and_load_image $system
+fi
+
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
         docker run -d \
@@ -298,7 +317,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -e ROOT_PASSWORD=${passwd} \
             -e IPV6_ENABLED=true \
             ${lxcfs_volumes} \
-            spiritlhl:${system}
+            ${image_name}
         docker_use_ipv6=true
     else
         docker run -d \
@@ -310,7 +329,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --cap-add=MKNOD \
             -e ROOT_PASSWORD=${passwd} \
             ${lxcfs_volumes} \
-            spiritlhl:${system}
+            ${image_name}
         docker_use_ipv6=false
     fi
     # 下载SSH脚本（如果需要）
@@ -331,7 +350,7 @@ else
             -e ROOT_PASSWORD=${passwd} \
             -e IPV6_ENABLED=true \
             ${lxcfs_volumes} \
-            spiritlhl:${system}
+            ${image_name}
         docker_use_ipv6=true
     else
         docker run -d \
@@ -343,7 +362,7 @@ else
             --cap-add=MKNOD \
             -e ROOT_PASSWORD=${passwd} \
             ${lxcfs_volumes} \
-            spiritlhl:${system}
+            ${image_name}
         docker_use_ipv6=false
     fi
     # 下载SSH脚本（如果需要）
