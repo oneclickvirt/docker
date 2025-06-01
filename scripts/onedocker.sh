@@ -95,31 +95,27 @@ get_arch() {
 check_image_exists() {
     local system_type=$1
     local arch=$(get_arch)
-    
-    # 检查是否已存在spiritlhl:system-arch格式的镜像
-    if docker images | grep -q "spiritlhl:${system_type}-${arch}"; then
+    # 优先查找 spiritlhl:system-arch 格式
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "spiritlhl:${system_type}-${arch}"; then
         _green "Image spiritlhl:${system_type}-${arch} already exists"
         _green "镜像 spiritlhl:${system_type}-${arch} 已存在"
         export image_name="spiritlhl:${system_type}-${arch}"
         return 0
     fi
-    
-    # 检查是否已存在spiritlhl:system格式的镜像（精确匹配，不包含-arch后缀）
-    if docker images | grep -q "^spiritlhl[[:space:]]\+${system_type}[[:space:]]"; then
+    # 再查找 spiritlhl:system 格式（不含 arch）
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "spiritlhl:${system_type}"; then
         _green "Image spiritlhl:${system_type} already exists"
         _green "镜像 spiritlhl:${system_type} 已存在"
         export image_name="spiritlhl:${system_type}"
         return 0
     fi
-    
-    # 检查是否存在system:latest格式的镜像
-    if docker images | grep -q "^${system_type}.*latest"; then
+    # 最后查找 system:latest 格式
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "${system_type}:latest"; then
         _green "Image ${system_type}:latest already exists"
         _green "镜像 ${system_type}:latest 已存在"
         export image_name="${system_type}:latest"
         return 0
     fi
-    
     return 1
 }
 
