@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.04.17
+# 2025.07.17
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -80,7 +80,11 @@ build_reverse_proxy() {
     else
         domain_name="$IPV4"
     fi
-    hashed_password=$(openssl passwd -crypt $user_password)
+    if openssl passwd -help 2>&1 | grep -q -- "-crypt"; then
+        hashed_password=$(openssl passwd -crypt "$user_password")
+    elif openssl passwd -help 2>&1 | grep -q -- "-apr1"; then
+        hashed_password=$(openssl passwd -apr1 "$user_password")
+    fi
     echo -e "$user_name:$hashed_password" >/etc/nginx/passwd_scrcpy_web
     sudo tee /etc/nginx/sites-available/reverse-proxy <<EOF
 map \$http_upgrade \$connection_upgrade {
