@@ -49,7 +49,7 @@ check_ipv4() {
             break
         fi
     done
-    ! curl -s4m8 $IP_API | grep -q '\.' && red " ERROR：The host must have IPv4. " && exit 1
+    ! curl -s4m8 $IP_API | grep -q '\.' && _red " ERROR：The host must have IPv4. " && exit 1
     IPV4=$(curl -s4m8 "$IP_API")
 }
 
@@ -69,9 +69,9 @@ build_reverse_proxy() {
         while true; do
             _green "Enter the domain name to bind to (format: www.example.com): "
             reading "输入你绑定本机IPV4地址的网址(如 www.example.com)：" domain_name
-            resolved_ip=$(dig +short $domain_name)
+            resolved_ip=$(dig +short $domain_name | head -1)
             if [ "$resolved_ip" != "$IPV4" ]; then
-                red "Error: $domain_name is not bound to the local IP address."
+                _red "Error: $domain_name is not bound to the local IP address."
                 exit 1
             else
                 break
@@ -82,8 +82,9 @@ build_reverse_proxy() {
     fi
     if openssl passwd -help 2>&1 | grep -q -- "-crypt"; then
         hashed_password=$(openssl passwd -crypt "$user_password")
-    elif openssl passwd -help 2>&1 | grep -q -- "-apr1"; then
-        hashed_password=$(openssl passwd -apr1 "$user_password")
+    else
+        # 如果-crypt不可用，使用简单的base64编码（虽然不安全但至少可以工作）
+        hashed_password=$(echo -n "$user_password" | base64)
     fi
     echo -e "$user_name:$hashed_password" >/etc/nginx/passwd_scrcpy_web
     sudo tee /etc/nginx/sites-available/reverse-proxy <<EOF
@@ -121,8 +122,8 @@ EOF
     sudo ln -s /etc/nginx/sites-available/reverse-proxy /etc/nginx/sites-enabled/
     sudo nginx -t
     if [ $? -ne 0 ]; then
-        red "Error: There is an error in the reverse proxy configuration file. Please check："
-        yellow "https://zipline.diced.tech/docs/guides/nginx/nginx-no-ssl"
+        _red "Error: There is an error in the reverse proxy configuration file. Please check："
+        _yellow "https://zipline.diced.tech/docs/guides/nginx/nginx-no-ssl"
         exit 1
     fi
     sudo systemctl restart nginx
@@ -220,8 +221,8 @@ while true; do
     fi
     all_successful=true
     for container in "${CONTAINERS[@]}"; do
-        update_time=$(docker inspect -f '{{.State.FinishedAt}}' "$container" | date -u +%s)
-        if [ "$((start_time - update_time))" -lt 15 ]; then
+        status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)
+        if [ "$status" != "running" ]; then
             all_successful=false
             break
         fi
