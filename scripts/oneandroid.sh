@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.07.17
+# 2025.07.19
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -80,13 +80,17 @@ build_reverse_proxy() {
     else
         domain_name="$IPV4"
     fi
-    if openssl passwd -help 2>&1 | grep -q -- "-crypt"; then
+    if openssl passwd -help 2>&1 | grep -q -- " -1"; then
+        hashed_password=$(openssl passwd -1 "$user_password")
+    elif openssl passwd -help 2>&1 | grep -q -- " -crypt"; then
         hashed_password=$(openssl passwd -crypt "$user_password")
+    elif openssl passwd -help 2>&1 | grep -q -- " -apr1"; then
+        hashed_password=$(openssl passwd -apr1 "$user_password")
     else
-        # 如果-crypt不可用，使用简单的base64编码（虽然不安全但至少可以工作）
-        hashed_password=$(echo -n "$user_password" | base64)
+        echo "Error: openssl 不支持 -1、-crypt 或 -apr1，无法生成密码。" >&2
+        exit 1
     fi
-    echo -e "$user_name:$hashed_password" >/etc/nginx/passwd_scrcpy_web
+    echo "$user_name:$hashed_password" > /etc/nginx/passwd_scrcpy_web
     sudo tee /etc/nginx/sites-available/reverse-proxy <<EOF
 map \$http_upgrade \$connection_upgrade {
     default upgrade;
