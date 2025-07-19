@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.06.01
+# 2025.07.19
 
 # cd /root
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -17,6 +17,9 @@ else
     export LANG="$utf8_locale"
     export LANGUAGE="$utf8_locale"
     _green "Locale set to $utf8_locale"
+fi
+if [ ! -d /usr/local/bin ]; then
+    mkdir -p /usr/local/bin
 fi
 cd /root >/dev/null 2>&1
 
