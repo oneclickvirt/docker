@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.04.16
+# 2025.07.19
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -22,6 +22,9 @@ fi
 if [ "$(id -u)" != "0" ]; then
     _red "This script must be run as root" 1>&2
     exit 1
+fi
+if [ ! -d /usr/local/bin ]; then
+    mkdir -p /usr/local/bin
 fi
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
