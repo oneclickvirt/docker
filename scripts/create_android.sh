@@ -26,6 +26,8 @@ fi
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
+export NVM_DIR="$HOME/.nvm"
+source "$NVM_DIR/nvm.sh"
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
 PACKAGE_UPDATE=("! apt-get update && apt-get --fix-broken install -y && apt-get update" "apt-get update" "yum -y update" "yum -y update" "yum -y update" "pacman -Sy")
