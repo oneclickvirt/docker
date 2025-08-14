@@ -291,14 +291,43 @@ check_china() {
 }
 
 update_sysctl() {
-    sysctl_config="$1"
-    if grep -q "^$sysctl_config" /etc/sysctl.conf; then
-        if grep -q "^#$sysctl_config" /etc/sysctl.conf; then
-            sed -i "s/^#$sysctl_config/$sysctl_config/" /etc/sysctl.conf
+    sysctl_config="$1"  # 格式: key=value
+    key="${sysctl_config%%=*}"
+    value="${sysctl_config#*=}"
+    # 目标配置文件（systemd 方式）
+    custom_conf="/etc/sysctl.d/99-custom.conf"
+    mkdir -p /etc/sysctl.d
+    # 检查 /etc/sysctl.conf 是否存在并且在系统加载路径中
+    use_etc_sysctl_conf=false
+    if [ -f /etc/sysctl.conf ]; then
+        if grep -q "/etc/sysctl.conf" /etc/sysctl.d/README* 2>/dev/null || \
+           grep -q "/etc/sysctl.conf" /lib/systemd/system/sysctl.service 2>/dev/null; then
+            use_etc_sysctl_conf=true
         fi
-    else
-        echo "$sysctl_config" >>/etc/sysctl.conf
     fi
+    # 更新 /etc/sysctl.d/99-custom.conf
+    if grep -q "^$sysctl_config" "$custom_conf" 2>/dev/null; then
+        : # 已经有正确配置，跳过
+    elif grep -q "^#$sysctl_config" "$custom_conf" 2>/dev/null; then
+        sed -i "s/^#$sysctl_config/$sysctl_config/" "$custom_conf"
+    elif grep -q "^$key" "$custom_conf" 2>/dev/null; then
+        sed -i "s|^$key.*|$sysctl_config|" "$custom_conf"
+    else
+        echo "$sysctl_config" >> "$custom_conf"
+    fi
+    # 如果系统还在用 /etc/sysctl.conf，也同步更新
+    if [ "$use_etc_sysctl_conf" = true ]; then
+        if grep -q "^$sysctl_config" /etc/sysctl.conf; then
+            : # 已经有正确配置
+        elif grep -q "^#$sysctl_config" /etc/sysctl.conf; then
+            sed -i "s/^#$sysctl_config/$sysctl_config/" /etc/sysctl.conf
+        elif grep -q "^$key" /etc/sysctl.conf; then
+            sed -i "s|^$key.*|$sysctl_config|" /etc/sysctl.conf
+        else
+            echo "$sysctl_config" >> /etc/sysctl.conf
+        fi
+    fi
+    sysctl -w "$key=$value" >/dev/null 2>&1
 }
 
 if [ ! -d /usr/local/bin ]; then
@@ -613,17 +642,15 @@ adapt_ipv6() {
                     configure_networking
                     ;;
             esac
-            # 设置允许IPV6转发
-            sysctl_path=$(which sysctl)
-            $sysctl_path -w net.ipv6.conf.all.forwarding=1
-            $sysctl_path -w net.ipv6.conf.all.proxy_ndp=1
-            $sysctl_path -w net.ipv6.conf.default.proxy_ndp=1
-            $sysctl_path -w net.ipv6.conf.docker0.proxy_ndp=1
-            $sysctl_path -w net.ipv6.conf.${interface}.proxy_ndp=1
+            # 设置允许 IPv6 转发及 NDP 代理（永久生效）
+            update_sysctl "net.ipv6.conf.all.forwarding=1"
+            update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
+            update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
+            update_sysctl "net.ipv6.conf.docker0.proxy_ndp=1"
+            update_sysctl "net.ipv6.conf.${interface}.proxy_ndp=1"
             if [ "$status_he" = true ]; then
-                $sysctl_path -w net.ipv6.conf.he-ipv6.proxy_ndp=1
+                update_sysctl "net.ipv6.conf.he-ipv6.proxy_ndp=1"
             fi
-            $sysctl_path -f
             _green "请重启服务器以启用新的网络配置，重启后等待20秒后请再次执行本脚本"
             exit 1
         fi
