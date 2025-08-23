@@ -66,13 +66,13 @@ check_storage_driver_support() {
     local driver="$1"
     case "$driver" in
         "btrfs")
-            if command -v btrfs >/dev/null 2>&1 && grep -q btrfs /proc/filesystems; then
+            if command -v btrfs >/dev/null 2>&1; then
                 return 0
             fi
             return 1
             ;;
         "zfs")
-            if command -v zfs >/dev/null 2>&1 && grep -q zfs /proc/filesystems; then
+            if command -v zfs >/dev/null 2>&1; then
                 return 0
             fi
             return 1
