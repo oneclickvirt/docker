@@ -119,7 +119,7 @@ setup_docker_btrfs_loop() {
         mv "$mount_point" "${mount_point}.backup.$(date +%Y%m%d-%H%M%S)"
     fi
     _yellow "Creating ${pool_size_gb}GB loop file at $loop_file..."
-    dd if=/dev/zero of="$loop_file" bs=1G count="$pool_size_gb" status=progress
+    fallocate -l "${pool_size_gb}G" "$loop_file"
     loop_device=$(losetup --find --show "$loop_file")
     _green "Loop device created: $loop_device"
     _yellow "Creating btrfs filesystem on $loop_device..."
@@ -534,6 +534,10 @@ if ! command -v crontab >/dev/null 2>&1; then
     if [[ $? -ne 0 ]]; then
         ${PACKAGE_INSTALL[int]} cronie
     fi
+fi
+if ! command -v fallocate >/dev/null 2>&1; then
+    _yellow "Installing util-linux"
+    ${PACKAGE_INSTALL[int]} util-linux
 fi
 ${PACKAGE_INSTALL[int]} net-tools
 check_china
