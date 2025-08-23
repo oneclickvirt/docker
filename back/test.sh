@@ -170,9 +170,9 @@ try_storage_drivers() {
         else
             _yellow "Trying to install storage driver: $driver"
             install_storage_driver "$driver"
+            return 0
         fi
     done
-    _yellow "No advanced storage drivers available. Using default overlay2."
     echo "overlay2" > /usr/local/bin/docker_storage_driver
 }
 
