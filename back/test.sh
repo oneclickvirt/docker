@@ -686,6 +686,7 @@ if [[ -n "$ipv6_address" ]]; then
 fi
 
 detect_virtualization
+try_storage_drivers
 
 install_docker_and_compose() {
     _green "This may stay for 2~3 minutes, please be patient..."
@@ -719,8 +720,6 @@ install_docker_and_compose() {
             docker-compose --version
         fi
     fi
-    
-    try_storage_drivers
     sleep 1
 }
 
@@ -751,7 +750,11 @@ adapt_ipv6() {
             if [ "$status_he" = true ]; then
                 update_sysctl "net.ipv6.conf.he-ipv6.proxy_ndp=1"
             fi
-            _green "请重启服务器以启用新的网络配置，重启后等待20秒后请再次执行本脚本"
+            reboot_message="请重启服务器以启用新的网络配置"
+            if [ -f /usr/local/bin/docker_storage_reboot ]; then
+                reboot_message="${reboot_message}和存储驱动内核模块"
+            fi
+            _green "${reboot_message}，重启后等待20秒后请再次执行本脚本"
             exit 1
         fi
     fi
