@@ -71,12 +71,6 @@ check_storage_driver_support() {
             fi
             return 1
             ;;
-        "zfs")
-            if command -v zfs >/dev/null 2>&1; then
-                return 0
-            fi
-            return 1
-            ;;
         *)
             return 1
             ;;
@@ -94,21 +88,6 @@ install_storage_driver() {
                 modprobe btrfs || true
                 if ! check_storage_driver_support "btrfs"; then
                     _yellow "btrfs module could not be loaded. Need reboot."
-                    need_reboot=true
-                fi
-            fi
-            ;;
-        "zfs")
-            if [[ "$SYSTEM" == "Debian" ]]; then
-                _yellow "ZFS is not supported on Debian in this script. Skipping ZFS installation."
-                return 1
-            fi
-            if ! command -v zfs >/dev/null 2>&1; then
-                _yellow "Installing zfsutils-linux..."
-                ${PACKAGE_INSTALL[int]} zfsutils-linux
-                modprobe zfs || true
-                if ! check_storage_driver_support "zfs"; then
-                    _yellow "ZFS module could not be loaded. Need reboot."
                     need_reboot=true
                 fi
             fi
@@ -158,11 +137,7 @@ try_storage_drivers() {
         return 0
     fi
     local drivers=()
-    if [[ "$SYSTEM" == "Debian" ]]; then
-        drivers=("btrfs")
-    else
-        drivers=("btrfs" "zfs")
-    fi
+    drivers=("btrfs")
     for driver in "${drivers[@]}"; do
         if check_storage_driver_support "$driver"; then
             setup_docker_storage_driver "$driver"
@@ -684,7 +659,16 @@ if [[ -n "$ipv6_address" ]]; then
         fi
     fi
 fi
-
+while true; do
+    _green "How large a Docker storage pool is needed? (unit: GB, e.g., enter 20 for 20G):"
+    reading "需要多大的Docker存储池？（单位GB，例如输入20表示20G）：" docker_pool_size
+    if [[ "$docker_pool_size" =~ ^[1-9][0-9]*$ ]]; then
+        break
+    else
+        _yellow "Invalid input, please enter a positive integer."
+        _yellow "输入无效，请输入一个正整数。"
+    fi
+done
 detect_virtualization
 try_storage_drivers
 
