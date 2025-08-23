@@ -102,17 +102,38 @@ install_storage_driver() {
     fi
 }
 
-setup_docker_storage_driver() {
-    local driver="$1"
-    local daemon_json="/etc/docker/daemon.json"
-    if [ ! -f "$daemon_json" ]; then
-        mkdir -p /etc/docker
-        echo "{}" > "$daemon_json"
+setup_docker_btrfs_loop() {
+    local pool_size_gb="$1"
+    local loop_file="$2"
+    local mount_point="$3"
+    _yellow "Setting up Docker btrfs loop filesystem..."
+    local loop_dir=$(dirname "$loop_file")
+    if [ ! -d "$loop_dir" ]; then
+        mkdir -p "$loop_dir"
     fi
-    local temp_json=$(mktemp)
-    jq --arg driver "$driver" '.["storage-driver"] = $driver' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
-    _green "Docker storage driver set to $driver"
-    echo "$driver" > /usr/local/bin/docker_storage_driver
+    if systemctl is-active --quiet docker; then
+        systemctl stop docker
+    fi
+    if [ -d "$mount_point" ] && [ "$(ls -A $mount_point 2>/dev/null)" ]; then
+        _yellow "Backing up existing Docker data..."
+        mv "$mount_point" "${mount_point}.backup.$(date +%Y%m%d-%H%M%S)"
+    fi
+    _yellow "Creating ${pool_size_gb}GB loop file at $loop_file..."
+    dd if=/dev/zero of="$loop_file" bs=1G count="$pool_size_gb" status=progress
+    loop_device=$(losetup --find --show "$loop_file")
+    _green "Loop device created: $loop_device"
+    _yellow "Creating btrfs filesystem on $loop_device..."
+    mkfs.btrfs -f "$loop_device"
+    mkdir -p "$mount_point"
+    mount "$loop_device" "$mount_point"
+    if ! grep -q "$loop_file" /etc/fstab; then
+        echo "$loop_file $mount_point btrfs loop,defaults 0 0" >> /etc/fstab
+    fi
+    chmod 755 "$mount_point"
+    _green "Docker btrfs loop filesystem setup completed"
+    echo "$loop_device" > /usr/local/bin/docker_loop_device
+    echo "$loop_file" > /usr/local/bin/docker_loop_file
+    echo "$mount_point" > /usr/local/bin/docker_mount_point
 }
 
 try_storage_drivers() {
@@ -669,6 +690,16 @@ while true; do
         _yellow "输入无效，请输入一个正整数。"
     fi
 done
+_green "Where do you want to install Docker? (default: /var/lib/docker):"
+reading "Docker安装路径？（默认：/var/lib/docker）：" docker_install_path
+if [ -z "$docker_install_path" ]; then
+    docker_install_path="/var/lib/docker"
+fi
+_green "Where do you want to store the Docker loop file? (default: /opt/docker-pool.img):"
+reading "Docker循环文件存储位置？（默认：/opt/docker-pool.img）：" docker_loop_file
+if [ -z "$docker_loop_file" ]; then
+    docker_loop_file="/opt/docker-pool.img"
+fi
 detect_virtualization
 try_storage_drivers
 
@@ -676,6 +707,7 @@ install_docker_and_compose() {
     _green "This may stay for 2~3 minutes, please be patient..."
     _green "此处可能会停留2~3分钟，请耐心等待。。。"
     sleep 1
+    setup_docker_btrfs_loop "$docker_pool_size" "$docker_loop_file" "$docker_install_path"
     if ! command -v docker >/dev/null 2>&1; then
         _yellow "Installing docker"
         if [[ -z "${CN}" || "${CN}" != true ]]; then
@@ -704,6 +736,18 @@ install_docker_and_compose() {
             docker-compose --version
         fi
     fi
+    local daemon_json="/etc/docker/daemon.json"
+    if [ ! -f "$daemon_json" ]; then
+        mkdir -p /etc/docker
+        echo "{}" > "$daemon_json"
+    fi
+    local temp_json=$(mktemp)
+    jq '.["storage-driver"] = "btrfs"' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
+    if [ "$docker_install_path" != "/var/lib/docker" ]; then
+        temp_json=$(mktemp)
+        jq --arg path "$docker_install_path" '.["data-root"] = $path' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
+    fi
+    _green "Docker storage driver set to btrfs"
     sleep 1
 }
 
