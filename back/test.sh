@@ -99,6 +99,10 @@ install_storage_driver() {
             fi
             ;;
         "zfs")
+            if [[ "$SYSTEM" == "Debian" ]]; then
+                _yellow "ZFS is not supported on Debian in this script. Skipping ZFS installation."
+                return 1
+            fi
             if ! command -v zfs >/dev/null 2>&1; then
                 _yellow "Installing zfsutils-linux..."
                 ${PACKAGE_INSTALL[int]} zfsutils-linux
@@ -154,7 +158,12 @@ try_storage_drivers() {
         _green "Docker storage driver already configured."
         return 0
     fi
-    local drivers=("btrfs" "zfs")
+    local drivers=()
+    if [[ "$SYSTEM" == "Debian" ]]; then
+        drivers=("btrfs")
+    else
+        drivers=("btrfs" "zfs")
+    fi
     for driver in "${drivers[@]}"; do
         if check_storage_driver_support "$driver"; then
             setup_docker_storage_driver "$driver"
