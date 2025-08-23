@@ -929,7 +929,7 @@ docker_build_ipv6() {
             echo "Before: target_mask = $target_mask"
             ((target_mask += 8 - ($target_mask % 8)))
             echo "After: target_mask = $target_mask"
-            ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^)
+            ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
             ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
             if [ -n "$ipv6_subnet_2_without_last_segment" ] && [ -n "$target_mask" ]; then
                 new_subnet="${ipv6_subnet_2}/${target_mask}"
