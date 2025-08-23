@@ -146,7 +146,6 @@ try_storage_drivers() {
         local reboot_driver=$(cat /usr/local/bin/docker_storage_reboot)
         rm -f /usr/local/bin/docker_storage_reboot
         _green "System rebooted. Checking storage driver: $reboot_driver"
-        
         if check_storage_driver_support "$reboot_driver"; then
             setup_docker_storage_driver "$reboot_driver"
             return 0
