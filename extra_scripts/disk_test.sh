@@ -148,18 +148,6 @@ download_and_load_image() {
 run_storage_test() {
     local storage_limit="${1:-500}"
     local storage_opts=""
-    local limit_unit="M"
-    local limit_value="$storage_limit"
-    
-    if [[ "$storage_limit" =~ ^([0-9]+)([GM])$ ]]; then
-        limit_value="${BASH_REMATCH[1]}"
-        limit_unit="${BASH_REMATCH[2]}"
-        if [ "$limit_unit" = "G" ]; then
-            storage_limit=$((limit_value * 1024))
-        else
-            storage_limit="$limit_value"
-        fi
-    fi
     
     local size1=$((storage_limit / 5))
     local size2=$((storage_limit / 5))
@@ -167,15 +155,15 @@ run_storage_test() {
     local size4=$((storage_limit * 4 / 5))
     
     if [ "$btrfs_support" = "Y" ]; then
-        storage_opts="--storage-opt size=${limit_value}${limit_unit}"
-        _green "Storage limit enabled: ${limit_value}${limit_unit} / 启用存储限制: ${limit_value}${limit_unit}"
+        storage_opts="--storage-opt size=${storage_limit}M"
+        _green "Storage limit enabled: ${storage_limit}MB / 启用存储限制: ${storage_limit}MB"
     else
         _yellow "Storage driver does not support limits, running unlimited test"
         _yellow "存储驱动不支持限制，将进行无限制测试"
     fi
     _blue "=== Starting Docker Storage Limit Test / 开始Docker存储限制测试 ==="
     _yellow "Using image: $image_name / 使用镜像: $image_name"
-    _yellow "Storage limit: ${limit_value}${limit_unit} (if supported) / 存储限制: ${limit_value}${limit_unit} (如果支持)"
+    _yellow "Storage limit: ${storage_limit}MB (if supported) / 存储限制: ${storage_limit}MB (如果支持)"
     docker run --rm $storage_opts $image_name bash -c "
 echo '=== Container Disk Space Check / 容器内磁盘空间检查 ==='
 df -h /
@@ -209,7 +197,7 @@ echo 'Total used / 总共已使用:' \$(du -sh /test_* 2>/dev/null | awk '{sum+=
 echo ''
 echo '=== Test 3: Try to create ${size3}MB file / 测试3: 尝试创建${size3}MB文件 ==='
 if [ '$btrfs_support' = 'Y' ]; then
-    echo '(Under ${limit_value}${limit_unit} limit, this should fail / 在${limit_value}${limit_unit}限制下，这应该失败)'
+    echo '(Under ${storage_limit}MB limit, this should fail / 在${storage_limit}MB限制下，这应该失败)'
 else
     echo '(No storage limit, this should succeed / 无存储限制，这应该成功)'
 fi
@@ -283,8 +271,6 @@ main() {
     else
         _yellow "⚠️  Current storage driver does not support limit functionality"
         _yellow "⚠️  当前存储驱动不支持限制功能"
-        _yellow "Recommend switching to btrfs, zfs or devicemapper driver to use storage limits"
-        _yellow "建议切换到btrfs、zfs或devicemapper驱动来使用存储限制"
     fi
     _green "Test completed! / 测试完成！"
 }
