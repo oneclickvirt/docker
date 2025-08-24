@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.07.19
+# 2025.08.24
 
 # cd /root
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -68,9 +68,7 @@ check_log() {
         password="${last_line_array[2]}"
         public_port_start="${last_line_array[5]}"
         public_port_end="${last_line_array[6]}"
-        #         if lsmod | grep -q xfs; then
-        #           disk="${last_line_array[7]}"
-        #         fi
+        disk="${last_line_array[7]:-0}"
         container_prefix="${container_name%%[0-9]*}"
         container_num="${container_name##*[!0-9]}"
         _yellow "Current information about the last docker:"
@@ -111,6 +109,27 @@ build_new_containers() {
             _yellow "输入无效，请输入一个正整数。"
         fi
     done
+    disk_size=0
+    storage_driver="overlay2"
+    if [ -f /usr/local/bin/docker_storage_driver ]; then
+        storage_driver=$(cat /usr/local/bin/docker_storage_driver)
+    fi
+    if [ "$storage_driver" = "btrfs" ]; then
+        while true; do
+            _green "How much disk space do you want to allocate per container? (unit: GB, e.g., enter 10 for 10GB):"
+            reading "每个容器分配多少硬盘空间？（单位GB，例如输入10表示10GB）：" disk_size
+            if [[ "$disk_size" =~ ^[1-9][0-9]*$ ]]; then
+                break
+            else
+                _yellow "Invalid input, please enter a positive integer."
+                _yellow "输入无效，请输入一个正整数。"
+            fi
+        done
+    else
+        _yellow "Current storage driver ($storage_driver) does not support disk size limitation"
+        _yellow "当前存储驱动($storage_driver)不支持硬盘大小限制"
+        disk_size=0
+    fi
     _green "Which system do you want to use? Please enter one of: 'ubuntu', 'debian', 'almalinux', 'rockylinux', 'openeuler' or 'alpine'."
     reading "想使用哪个系统？请输入上述选项之一：" system_input
     valid_systems=("ubuntu" "debian" "almalinux" "rockylinux" "openeuler" "alpine")
@@ -144,7 +163,7 @@ build_new_containers() {
         public_port_end=$(($public_port_start + 25))
         ori=$(date | md5sum)
         passwd=${ori:2:9}
-        ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $independent_ipv6 $system
+        ./onedocker.sh $container_name 1 $memory_nums $passwd $ssh_port $public_port_start $public_port_end $independent_ipv6 $system $disk_size
         cat "$container_name" >>dclog
         rm -rf $container_name
     done

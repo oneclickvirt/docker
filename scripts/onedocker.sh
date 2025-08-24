@@ -1,10 +1,9 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.06.01
+# 2025.08.24
 
-# ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system>
-# <disk>
+# ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system> <disk>
 
 cd /root >/dev/null 2>&1
 name="${1:-test}"
@@ -17,6 +16,7 @@ endport="${7:-35000}"
 independent_ipv6="${8:-N}"
 independent_ipv6=$(echo "$independent_ipv6" | tr '[:upper:]' '[:lower:]')
 system="${9:-debian}"
+disk="${10:-0}"
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -34,6 +34,26 @@ check_china() {
         if [[ $(curl -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
             echo "根据ipapi.co提供的信息，当前IP可能在中国，使用中国镜像完成相关组件安装"
             CN=true
+        fi
+    fi
+}
+
+check_storage_driver() {
+    storage_driver="overlay2"
+    if [ -f /usr/local/bin/docker_storage_driver ]; then
+        storage_driver=$(cat /usr/local/bin/docker_storage_driver)
+    fi
+    
+    if [ "$storage_driver" = "btrfs" ]; then
+        btrfs_support="Y"
+        _green "Detected btrfs storage driver, disk size limitation is supported"
+        _green "检测到btrfs存储驱动，支持硬盘大小限制"
+    else
+        btrfs_support="N"
+        if [ "$disk" != "0" ]; then
+            _yellow "Current storage driver ($storage_driver) does not support disk size limitation, ignoring disk parameter"
+            _yellow "当前存储驱动($storage_driver)不支持硬盘大小限制，忽略硬盘参数"
+            disk="0"
         fi
     fi
 }
@@ -254,6 +274,7 @@ if [ "${CN}" == true ]; then
     check_cdn_file
 fi
 check_lxcfs
+check_storage_driver
 docker network inspect ipv6_net &>/dev/null
 if [ $? -eq 0 ]; then
     _green "ipv6_net exists in the Docker network"
@@ -299,7 +320,10 @@ fi
 if ! check_image_exists $system; then
     download_and_load_image $system
 fi
-
+storage_opts=""
+if [ "$btrfs_support" = "Y" ] && [ "$disk" != "0" ]; then
+    storage_opts="--storage-opt size=${disk}G"
+fi
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
         docker run -d \
@@ -312,6 +336,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --cap-add=MKNOD \
             -e ROOT_PASSWORD=${passwd} \
             -e IPV6_ENABLED=true \
+            ${storage_opts} \
             ${lxcfs_volumes} \
             ${image_name}
         docker_use_ipv6=true
@@ -324,6 +349,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
             -e ROOT_PASSWORD=${passwd} \
+            ${storage_opts} \
             ${lxcfs_volumes} \
             ${image_name}
         docker_use_ipv6=false
@@ -345,6 +371,7 @@ else
             --cap-add=MKNOD \
             -e ROOT_PASSWORD=${passwd} \
             -e IPV6_ENABLED=true \
+            ${storage_opts} \
             ${lxcfs_volumes} \
             ${image_name}
         docker_use_ipv6=true
@@ -357,6 +384,7 @@ else
             -p ${startport}-${endport}:${startport}-${endport} \
             --cap-add=MKNOD \
             -e ROOT_PASSWORD=${passwd} \
+            ${storage_opts} \
             ${lxcfs_volumes} \
             ${image_name}
         docker_use_ipv6=false
