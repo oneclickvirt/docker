@@ -139,7 +139,8 @@ setup_docker_btrfs_loop() {
 try_storage_drivers() {
     local virt_type=$(cat /usr/local/bin/docker_virt_type 2>/dev/null || echo "")
     if [[ "$virt_type" == "lxc" || "$virt_type" == "docker" ]]; then
-        _yellow "Detected virtualization: $virt_type. Skipping storage driver installation."
+        _yellow "Detected virtualization: $virt_type. Using overlay2 storage driver."
+        echo "overlay2" > /usr/local/bin/docker_storage_driver
         return 0
     fi
     if [ -f /usr/local/bin/docker_storage_reboot ]; then
@@ -147,29 +148,34 @@ try_storage_drivers() {
         rm -f /usr/local/bin/docker_storage_reboot
         _green "System rebooted. Checking storage driver: $reboot_driver"
         if check_storage_driver_support "$reboot_driver"; then
-            setup_docker_storage_driver "$reboot_driver"
+            echo "$reboot_driver" > /usr/local/bin/docker_storage_driver
             return 0
         else
-            _yellow "Storage driver $reboot_driver still not available after reboot."
+            _yellow "Storage driver $reboot_driver still not available after reboot. Falling back to overlay2."
+            echo "overlay2" > /usr/local/bin/docker_storage_driver
+            return 0
         fi
     fi
     if [ -f /usr/local/bin/docker_storage_driver ]; then
-        _green "Docker storage driver already configured."
+        _green "Docker storage driver already configured: $(cat /usr/local/bin/docker_storage_driver)"
         return 0
     fi
-    local drivers=()
-    drivers=("btrfs")
-    for driver in "${drivers[@]}"; do
-        if check_storage_driver_support "$driver"; then
-            setup_docker_storage_driver "$driver"
+    if check_storage_driver_support "btrfs"; then
+        _green "btrfs is available, using btrfs storage driver."
+        echo "btrfs" > /usr/local/bin/docker_storage_driver
+        return 0
+    else
+        _yellow "Trying to install storage driver: btrfs"
+        install_storage_driver "btrfs"
+        if check_storage_driver_support "btrfs"; then
+            echo "btrfs" > /usr/local/bin/docker_storage_driver
             return 0
         else
-            _yellow "Trying to install storage driver: $driver"
-            install_storage_driver "$driver"
+            _yellow "btrfs installation failed. Falling back to overlay2."
+            echo "overlay2" > /usr/local/bin/docker_storage_driver
             return 0
         fi
-    done
-    echo "overlay2" > /usr/local/bin/docker_storage_driver
+    fi
 }
 
 rebuild_cloud_init() {
@@ -694,13 +700,13 @@ while true; do
         _yellow "输入无效，请输入一个正整数。"
     fi
 done
-_green "Where do you want to install Docker? (default: /var/lib/docker):"
-reading "Docker安装路径？（默认：/var/lib/docker）：" docker_install_path
+_green "Where do you want to install Docker? (Enter to default: /var/lib/docker):"
+reading "Docker安装路径？（回车则默认：/var/lib/docker）：" docker_install_path
 if [ -z "$docker_install_path" ]; then
     docker_install_path="/var/lib/docker"
 fi
-_green "Where do you want to store the Docker loop file? (default: /opt/docker-pool.img):"
-reading "Docker循环文件存储位置？（默认：/opt/docker-pool.img）：" docker_loop_file
+_green "Where do you want to store the Docker loop file? (Enter to default: /opt/docker-pool.img):"
+reading "Docker循环文件存储位置？（回车则默认：/opt/docker-pool.img）：" docker_loop_file
 if [ -z "$docker_loop_file" ]; then
     docker_loop_file="/opt/docker-pool.img"
 fi
@@ -746,7 +752,16 @@ install_docker_and_compose() {
         echo "{}" > "$daemon_json"
     fi
     local temp_json=$(mktemp)
-    jq '.["storage-driver"] = "btrfs"' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
+    storage_driver="overlay2"
+    if [ -f /usr/local/bin/docker_storage_driver ]; then
+        storage_driver=$(cat /usr/local/bin/docker_storage_driver)
+    fi
+    jq --arg driver "$storage_driver" '.["storage-driver"] = $driver' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
+    if [ "$storage_driver" != "btrfs" ]; then
+        _green "Docker storage driver set to $storage_driver (skipping btrfs loop setup)"
+        sleep 1
+        return
+    fi
     if [ "$docker_install_path" != "/var/lib/docker" ]; then
         temp_json=$(mktemp)
         jq --arg path "$docker_install_path" '.["data-root"] = $path' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
