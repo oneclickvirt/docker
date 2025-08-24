@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.05.31
+# 2025.08.24
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -42,6 +42,151 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
     fi
 done
 touch /etc/cloud/cloud-init.disabled
+
+detect_virtualization() {
+    VIRT_TYPE=""
+    if [ -f "/proc/1/environ" ]; then
+        if grep -q "container=lxc" /proc/1/environ 2>/dev/null; then
+            VIRT_TYPE="lxc"
+        elif grep -q "container=docker" /proc/1/environ 2>/dev/null; then
+            VIRT_TYPE="docker"
+        fi
+    fi
+    if [ -z "$VIRT_TYPE" ]; then
+        if [ -f "/.dockerenv" ]; then
+            VIRT_TYPE="docker"
+        elif [ -d "/var/lib/lxc" ] && [ -f "/proc/self/cgroup" ] && grep -q "lxc" /proc/self/cgroup 2>/dev/null; then
+            VIRT_TYPE="lxc"
+        fi
+    fi
+    echo "$VIRT_TYPE" > /usr/local/bin/docker_virt_type
+}
+
+check_storage_driver_support() {
+    local driver="$1"
+    case "$driver" in
+        "btrfs")
+            if command -v btrfs >/dev/null 2>&1; then
+                return 0
+            fi
+            return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+install_storage_driver() {
+    local driver="$1"
+    local need_reboot=false
+    case "$driver" in
+        "btrfs")
+            if ! command -v btrfs >/dev/null 2>&1; then
+                _yellow "Installing btrfs-progs..."
+                ${PACKAGE_INSTALL[int]} btrfs-progs
+                modprobe btrfs || true
+                if ! check_storage_driver_support "btrfs"; then
+                    _yellow "btrfs module could not be loaded. Need reboot."
+                    need_reboot=true
+                fi
+            fi
+            ;;
+    esac
+    if [ "$need_reboot" = true ]; then
+        echo "$driver" > /usr/local/bin/docker_storage_reboot
+        _green "Storage driver $driver installed. System will reboot in 5 seconds to load kernel modules."
+        sleep 5
+        reboot
+        exit 0
+    fi
+}
+
+setup_docker_btrfs_loop() {
+    local pool_size_gb="$1"
+    local loop_file="$2"
+    local mount_point="$3"
+    _yellow "Setting up Docker btrfs loop filesystem..."
+    local loop_dir=$(dirname "$loop_file")
+    if [ ! -d "$loop_dir" ]; then
+        mkdir -p "$loop_dir"
+    fi
+    if systemctl is-active --quiet docker; then
+        systemctl stop docker
+    fi
+    if [ -d "$mount_point" ] && [ "$(ls -A $mount_point 2>/dev/null)" ]; then
+        _yellow "Backing up existing Docker data..."
+        mv "$mount_point" "${mount_point}.backup.$(date +%Y%m%d-%H%M%S)"
+    fi
+    _yellow "Creating ${pool_size_gb}GB loop file at $loop_file..."
+    fallocate -l "${pool_size_gb}G" "$loop_file"
+    loop_device=$(losetup --find --show "$loop_file")
+    _green "Loop device created: $loop_device"
+    _yellow "Creating btrfs filesystem on $loop_device..."
+    mkfs.btrfs -f "$loop_device"
+    mkdir -p "$mount_point"
+    mount "$loop_device" "$mount_point"
+    if ! grep -q "$loop_file" /etc/fstab; then
+        echo "$loop_file $mount_point btrfs loop,defaults 0 0" >> /etc/fstab
+    fi
+    chmod 755 "$mount_point"
+    _green "Docker btrfs loop filesystem setup completed"
+    echo "$loop_device" > /usr/local/bin/docker_loop_device
+    echo "$loop_file" > /usr/local/bin/docker_loop_file
+    echo "$mount_point" > /usr/local/bin/docker_mount_point
+}
+
+try_storage_drivers() {
+    local virt_type=$(cat /usr/local/bin/docker_virt_type 2>/dev/null || echo "")
+    need_disk_limit="false"
+    if [ -f /usr/local/bin/docker_need_disk_limit ]; then
+        need_disk_limit=$(cat /usr/local/bin/docker_need_disk_limit)
+    fi
+    if [ "$need_disk_limit" != "true" ]; then
+        _yellow "Using overlay2 storage driver for standard installation."
+        _yellow "标准安装使用overlay2存储驱动。"
+        echo "overlay2" > /usr/local/bin/docker_storage_driver
+        return 0
+    fi
+    if [[ "$virt_type" == "lxc" || "$virt_type" == "docker" ]]; then
+        _yellow "Detected virtualization: $virt_type. Using overlay2 storage driver."
+        echo "overlay2" > /usr/local/bin/docker_storage_driver
+        return 0
+    fi
+    if [ -f /usr/local/bin/docker_storage_reboot ]; then
+        local reboot_driver=$(cat /usr/local/bin/docker_storage_reboot)
+        rm -f /usr/local/bin/docker_storage_reboot
+        _green "System rebooted. Checking storage driver: $reboot_driver"
+        if check_storage_driver_support "$reboot_driver"; then
+            echo "$reboot_driver" > /usr/local/bin/docker_storage_driver
+            return 0
+        else
+            _yellow "Storage driver $reboot_driver still not available after reboot. Falling back to overlay2."
+            echo "overlay2" > /usr/local/bin/docker_storage_driver
+            return 0
+        fi
+    fi
+    if [ -f /usr/local/bin/docker_storage_driver ]; then
+        _green "Docker storage driver already configured: $(cat /usr/local/bin/docker_storage_driver)"
+        return 0
+    fi
+    if check_storage_driver_support "btrfs"; then
+        _green "btrfs is available, using btrfs storage driver."
+        echo "btrfs" > /usr/local/bin/docker_storage_driver
+        return 0
+    else
+        _yellow "Trying to install storage driver: btrfs"
+        install_storage_driver "btrfs"
+        if check_storage_driver_support "btrfs"; then
+            echo "btrfs" > /usr/local/bin/docker_storage_driver
+            return 0
+        else
+            _yellow "btrfs installation failed. Falling back to overlay2."
+            echo "overlay2" > /usr/local/bin/docker_storage_driver
+            return 0
+        fi
+    fi
+}
 
 rebuild_cloud_init() {
     if [ -f "/etc/cloud/cloud.cfg" ]; then
@@ -148,47 +293,36 @@ check_interface() {
 is_private_ipv6() {
     local address=$1
     local temp="0"
-    # 输入为空
     if [[ ! -n $address ]]; then
         temp="1"
     fi
-    # 输入不含:符号
     if [[ -n $address && $address != *":"* ]]; then
         temp="2"
     fi
-    # 检查IPv6地址是否以fe80开头（链接本地地址）
     if [[ $address == fe80:* ]]; then
         temp="3"
     fi
-    # 检查IPv6地址是否以fc00或fd00开头（唯一本地地址）
     if [[ $address == fc00:* || $address == fd00:* ]]; then
         temp="4"
     fi
-    # 检查IPv6地址是否以2001:db8开头（文档前缀）
     if [[ $address == 2001:db8* ]]; then
         temp="5"
     fi
-    # 检查IPv6地址是否以::1开头（环回地址）
     if [[ $address == ::1 ]]; then
         temp="6"
     fi
-    # 检查IPv6地址是否以::ffff:开头（IPv4映射地址）
     if [[ $address == ::ffff:* ]]; then
         temp="7"
     fi
-    # 检查IPv6地址是否以2002:开头（6to4隧道地址）
     if [[ $address == 2002:* ]]; then
         temp="8"
     fi
-    # 检查IPv6地址是否以2001:开头（Teredo隧道地址）
     if [[ $address == 2001:* ]]; then
         temp="9"
     fi
     if [ "$temp" -gt 0 ]; then
-        # 非公网情况
         return 0
     else
-        # 其他情况为公网地址
         return 1
     fi
 }
@@ -199,11 +333,8 @@ check_ipv6() {
         ipv6_list=$(ip -6 addr show | grep global | awk '{print length, $2}' | sort -nr | awk '{print $2}')
         line_count=$(echo "$ipv6_list" | wc -l)
         if [ "$line_count" -ge 2 ]; then
-            # 获取最后一行的内容
             last_ipv6=$(echo "$ipv6_list" | tail -n 1)
-            # 切分最后一个:之前的内容
             last_ipv6_prefix="${last_ipv6%:*}:"
-            # 与${ipv6_gateway}比较是否相同
             if [ "${last_ipv6_prefix}" = "${ipv6_gateway%:*}:" ]; then
                 echo $last_ipv6 >/usr/local/bin/docker_last_ipv6
             fi
@@ -211,7 +342,7 @@ check_ipv6() {
             _green "本机绑定了不止一个IPV6地址"
         fi
     fi
-    if is_private_ipv6 "$IPV6"; then # 由于是内网IPV6地址，需要通过API获取外网地址
+    if is_private_ipv6 "$IPV6"; then
         IPV6=""
         API_NET=("ipv6.ip.sb" "https://ipget.net" "ipv6.ping0.cc" "https://api.my-ip.io/ip" "https://ipv6.icanhazip.com")
         for p in "${API_NET[@]}"; do
@@ -228,7 +359,7 @@ check_ipv6() {
 
 check_cdn() {
     local o_url=$1
-    local shuffled_cdn_urls=($(shuf -e "${cdn_urls[@]}")) # 打乱数组顺序
+    local shuffled_cdn_urls=($(shuf -e "${cdn_urls[@]}"))
     for cdn_url in "${shuffled_cdn_urls[@]}"; do
         if curl -sL -k "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
             export cdn_success_url="$cdn_url"
@@ -253,7 +384,6 @@ get_system_arch() {
     if [ "${sysarch}" = "unknown" ] || [ "${sysarch}" = "" ]; then
         local sysarch="$(arch)"
     fi
-    # 根据架构信息设置系统位数并下载文件,其余 * 包括了 x86_64
     case "${sysarch}" in
     "i386" | "i686" | "x86_64")
         system_arch="x86"
@@ -291,13 +421,11 @@ check_china() {
 }
 
 update_sysctl() {
-    sysctl_config="$1"  # 格式: key=value
+    sysctl_config="$1"
     key="${sysctl_config%%=*}"
     value="${sysctl_config#*=}"
-    # 目标配置文件（systemd 方式）
     custom_conf="/etc/sysctl.d/99-custom.conf"
     mkdir -p /etc/sysctl.d
-    # 检查 /etc/sysctl.conf 是否存在并且在系统加载路径中
     use_etc_sysctl_conf=false
     if [ -f /etc/sysctl.conf ]; then
         if grep -q "/etc/sysctl.conf" /etc/sysctl.d/README* 2>/dev/null || \
@@ -305,9 +433,8 @@ update_sysctl() {
             use_etc_sysctl_conf=true
         fi
     fi
-    # 更新 /etc/sysctl.d/99-custom.conf
     if grep -q "^$sysctl_config" "$custom_conf" 2>/dev/null; then
-        : # 已经有正确配置，跳过
+        :
     elif grep -q "^#$sysctl_config" "$custom_conf" 2>/dev/null; then
         sed -i "s/^#$sysctl_config/$sysctl_config/" "$custom_conf"
     elif grep -q "^$key" "$custom_conf" 2>/dev/null; then
@@ -315,10 +442,9 @@ update_sysctl() {
     else
         echo "$sysctl_config" >> "$custom_conf"
     fi
-    # 如果系统还在用 /etc/sysctl.conf，也同步更新
     if [ "$use_etc_sysctl_conf" = true ]; then
         if grep -q "^$sysctl_config" /etc/sysctl.conf; then
-            : # 已经有正确配置
+            :
         elif grep -q "^#$sysctl_config" /etc/sysctl.conf; then
             sed -i "s/^#$sysctl_config/$sysctl_config/" /etc/sysctl.conf
         elif grep -q "^$key" /etc/sysctl.conf; then
@@ -365,7 +491,6 @@ if ! command -v ipcalc >/dev/null 2>&1; then
     _yellow "Installing ipcalc"
     ${PACKAGE_INSTALL[int]} ipcalc
 fi
-# https://pkgs.org/search/?q=sipcalc
 if [[ "$SYSTEM" == "CentOS" ]] && ! command -v sipcalc >/dev/null 2>&1; then
     ARCH=$(uname -m)
     if [[ "$ARCH" == "x86_64" ]]; then
@@ -426,6 +551,10 @@ if ! command -v crontab >/dev/null 2>&1; then
         ${PACKAGE_INSTALL[int]} cronie
     fi
 fi
+if ! command -v fallocate >/dev/null 2>&1; then
+    _yellow "Installing util-linux"
+    ${PACKAGE_INSTALL[int]} util-linux
+fi
 ${PACKAGE_INSTALL[int]} net-tools
 check_china
 cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn1.spiritlhl.net/" "http://cdn2.spiritlhl.net/" "http://cdn3.spiritlhl.net/" "http://cdn4.spiritlhl.net/")
@@ -435,7 +564,6 @@ ${PACKAGE_INSTALL[int]} openssl
 curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh && chmod +x ssh_bash.sh && dos2unix ssh_bash.sh
 curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh && chmod +x ssh_sh.sh && dos2unix ssh_sh.sh
 
-# 检测物理接口
 interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
 interface_2=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '2p')
 check_interface
@@ -445,35 +573,28 @@ if [ ! -f /usr/local/bin/docker_mac_address ] || [ ! -s /usr/local/bin/docker_ma
 fi
 mac_address=$(cat /usr/local/bin/docker_mac_address)
 
-# 检测主IPV4相关信息
 if [ ! -f /usr/local/bin/docker_main_ipv4 ]; then
     main_ipv4=$(ip -4 addr show | grep global | awk '{print $2}' | cut -d '/' -f1 | head -n 1)
     echo "$main_ipv4" >/usr/local/bin/docker_main_ipv4
 fi
-# 提取主IPV4地址
 main_ipv4=$(cat /usr/local/bin/docker_main_ipv4)
 if [ ! -f /usr/local/bin/docker_ipv4_address ]; then
     ipv4_address=$(ip addr show | awk '/inet .*global/ && !/inet6/ {print $2}' | sed -n '1p')
     echo "$ipv4_address" >/usr/local/bin/docker_ipv4_address
 fi
-# 提取IPV4地址 含子网长度
 ipv4_address=$(cat /usr/local/bin/docker_ipv4_address)
 if [ ! -f /usr/local/bin/docker_ipv4_gateway ]; then
     ipv4_gateway=$(ip route | awk '/default/ {print $3}' | sed -n '1p')
     echo "$ipv4_gateway" >/usr/local/bin/docker_ipv4_gateway
 fi
-# 提取IPV4网关
 ipv4_gateway=$(cat /usr/local/bin/docker_ipv4_gateway)
 if [ ! -f /usr/local/bin/docker_ipv4_subnet ]; then
     ipv4_subnet=$(ipcalc -n "$ipv4_address" | grep -oP 'Netmask:\s+\K.*' | awk '{print $1}')
     echo "$ipv4_subnet" >/usr/local/bin/docker_ipv4_subnet
 fi
-# 提取Netmask
 ipv4_subnet=$(cat /usr/local/bin/docker_ipv4_subnet)
-# 提取子网掩码
 ipv4_prefixlen=$(echo "$ipv4_address" | cut -d '/' -f 2)
 
-# 检测IPV6相关的信息
 if [ ! -f /usr/local/bin/docker_ipv6_prefixlen ] || [ ! -s /usr/local/bin/docker_ipv6_prefixlen ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_prefixlen)" = "" ]; then
     ipv6_prefixlen=""
     output=$(ifconfig ${interface} | grep -oP 'inet6 (?!fe80:).*prefixlen \K\d+')
@@ -500,7 +621,6 @@ if [ ! -f /usr/local/bin/docker_ipv6_gateway ] || [ ! -s /usr/local/bin/docker_i
         fi
     fi
     echo "$ipv6_gateway" >/usr/local/bin/docker_ipv6_gateway
-    # 判断fe80是否已加白
     if [[ $ipv6_gateway == fe80* ]]; then
         ipv6_gateway_fe80="Y"
     else
@@ -520,7 +640,6 @@ ipv6_gateway=$(cat /usr/local/bin/docker_ipv6_gateway)
 fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 if [[ -n "$ipv6_address" ]]; then 
     ipv6_address_without_last_segment="${ipv6_address%:*}:"
-    # 判断是否存在SLAAC机制
     mac_end_suffix=$(echo $mac_address | awk -F: '{print $4$5}')
     ipv6_end_suffix=${ipv6_address##*:}
     slaac_status=false
@@ -546,9 +665,7 @@ if [[ -n "$ipv6_address" ]]; then
         _green "无法在宿主机内部判断上游给了本机多大的子网，详情请询问上游技术人员"
         echo "" >/usr/local/bin/docker_slaac_status
     fi
-    # 提示是否在SLAAC分配的情况下还使用最大IPV6子网范围
     if [ -f /usr/local/bin/docker_slaac_status ] && [ ! -f /usr/local/bin/docker_maximum_subset ] && [ ! -f /usr/local/bin/fix_interfaces_ipv6_auto_type ]; then
-        # 大概率由SLAAC动态分配，需要询问使用的子网范围 仅本机IPV6 或 最大子网
         _blue "It is detected that IPV6 addresses are most likely to be dynamically assigned by SLAAC, and if there is no subsequent need to assign separate IPV6 addresses to VMs/containers, the following option is best selected n"
         _green "检测到IPV6地址大概率由SLAAC动态分配，若后续不需要分配独立的IPV6地址给虚拟机/容器，则下面选项最好选 n, 选择 y 有概率导致宿主机丢失网络"
         _blue "Is the maximum subnet range feasible with IPV6 used?([n]/y)"
@@ -560,11 +677,9 @@ if [[ -n "$ipv6_address" ]]; then
         fi
         echo "" >/usr/local/bin/fix_interfaces_ipv6_auto_type
     fi
-    # 不存在SLAAC机制的情况下或存在时使用最大IPV6子网范围，需要重构IPV6地址
     if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ $(cat /usr/local/bin/docker_maximum_subset) = true ]; then
         ipv6_address_without_last_segment="${ipv6_address%:*}:"
         if [[ $ipv6_address != *:: && $ipv6_address_without_last_segment != *:: ]]; then
-            # 重构IPV6地址，使用该IPV6子网内的0001结尾的地址
             ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
             ipv6_address="${ipv6_address%:*}:1"
             if [ "$ipv6_address" == "$ipv6_gateway" ]; then
@@ -585,12 +700,56 @@ if [[ -n "$ipv6_address" ]]; then
         fi
     fi
 fi
+_green "Do you need Docker with container disk size limitation? (Support btrfs storage driver)"
+_green "是否需要支持容器硬盘大小限制的Docker环境？（支持btrfs存储驱动）"
+_blue "If you choose 'y', you can limit the disk space for each container"
+_blue "If you choose 'n', standard Docker installation without disk limits"
+_blue "如果选择 'y'，可以为每个容器限制磁盘空间"
+_blue "如果选择 'n'，则为标准Docker安装，无磁盘限制"
+reading "Do you need container disk size limitation? ([n]/y): " need_disk_limit
+_green "Where do you want to install Docker? (Enter to default: /var/lib/docker):"
+reading "Docker安装路径？（回车则默认：/var/lib/docker）：" docker_install_path
+if [ -z "$docker_install_path" ]; then
+    docker_install_path="/var/lib/docker"
+fi
+if [ "$need_disk_limit" = "y" ] || [ "$need_disk_limit" = "Y" ]; then
+    echo "true" > /usr/local/bin/docker_need_disk_limit
+    while true; do
+        _green "How large a Docker storage pool is needed? (unit: GB, e.g., enter 20 for 20G):"
+        reading "需要多大的Docker存储池？（单位GB，例如输入20表示20G）：" docker_pool_size
+        if [[ "$docker_pool_size" =~ ^[1-9][0-9]*$ ]]; then
+            break
+        else
+            _yellow "Invalid input, please enter a positive integer."
+            _yellow "输入无效，请输入一个正整数。"
+        fi
+    done
+    _green "Where do you want to store the Docker loop file? (Enter to default: /opt/docker-pool.img):"
+    reading "Docker循环文件存储位置？（回车则默认：/opt/docker-pool.img）：" docker_loop_file
+    if [ -z "$docker_loop_file" ]; then
+        docker_loop_file="/opt/docker-pool.img"
+    fi
+else
+    echo "false" > /usr/local/bin/docker_need_disk_limit
+    docker_pool_size=""
+    docker_loop_file=""
+    _green "Will install standard Docker without container disk size limitation"
+    _green "将安装标准Docker，无容器磁盘大小限制功能"
+fi
+detect_virtualization
+try_storage_drivers
 
-# docker 和 docker-compose 安装
 install_docker_and_compose() {
     _green "This may stay for 2~3 minutes, please be patient..."
     _green "此处可能会停留2~3分钟，请耐心等待。。。"
     sleep 1
+    need_disk_limit="false"
+    if [ -f /usr/local/bin/docker_need_disk_limit ]; then
+        need_disk_limit=$(cat /usr/local/bin/docker_need_disk_limit)
+    fi
+    if [ "$need_disk_limit" = "true" ] && [ -n "$docker_pool_size" ] && [ -n "$docker_loop_file" ]; then
+        setup_docker_btrfs_loop "$docker_pool_size" "$docker_loop_file" "$docker_install_path"
+    fi
     if ! command -v docker >/dev/null 2>&1; then
         _yellow "Installing docker"
         if [[ -z "${CN}" || "${CN}" != true ]]; then
@@ -619,10 +778,31 @@ install_docker_and_compose() {
             docker-compose --version
         fi
     fi
+    local daemon_json="/etc/docker/daemon.json"
+    if [ ! -f "$daemon_json" ]; then
+        mkdir -p /etc/docker
+        echo "{}" > "$daemon_json"
+    fi
+    local temp_json=$(mktemp)
+    storage_driver="overlay2"
+    if [ "$need_disk_limit" = "true" ] && [ -f /usr/local/bin/docker_storage_driver ]; then
+        storage_driver=$(cat /usr/local/bin/docker_storage_driver)
+    fi
+    jq --arg driver "$storage_driver" '.["storage-driver"] = $driver' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
+    if [ "$need_disk_limit" = "true" ] && [ "$storage_driver" = "btrfs" ] && [ "$docker_install_path" != "/var/lib/docker" ]; then
+        temp_json=$(mktemp)
+        jq --arg path "$docker_install_path" '.["data-root"] = $path' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
+    fi
+    if [ "$need_disk_limit" = "true" ] && [ "$storage_driver" = "btrfs" ]; then
+        _green "Docker storage driver set to btrfs with disk limitation support"
+        _green "Docker存储驱动设置为btrfs，支持磁盘限制功能"
+    else
+        _green "Docker storage driver set to $storage_driver (standard installation)"
+        _green "Docker存储驱动设置为$storage_driver（标准安装）"
+    fi
     sleep 1
 }
 
-# 检测docker的配置文件
 adapt_ipv6() {
     if [ ! -f /usr/local/bin/docker_adapt_ipv6 ]; then
         echo "1" > /usr/local/bin/docker_adapt_ipv6
@@ -642,7 +822,6 @@ adapt_ipv6() {
                     configure_networking
                     ;;
             esac
-            # 设置允许 IPv6 转发及 NDP 代理（永久生效）
             update_sysctl "net.ipv6.conf.all.forwarding=1"
             update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
             update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
@@ -651,7 +830,11 @@ adapt_ipv6() {
             if [ "$status_he" = true ]; then
                 update_sysctl "net.ipv6.conf.he-ipv6.proxy_ndp=1"
             fi
-            _green "请重启服务器以启用新的网络配置，重启后等待20秒后请再次执行本脚本"
+            reboot_message="请重启服务器以启用新的网络配置"
+            if [ -f /usr/local/bin/docker_storage_reboot ]; then
+                reboot_message="${reboot_message}和存储驱动内核模块"
+            fi
+            _green "${reboot_message}，重启后等待20秒后请再次执行本脚本"
             exit 1
         fi
     fi
@@ -689,17 +872,14 @@ configure_network_manager() {
         connection_name="${interface}-connection"
         nmcli connection add type ethernet con-name "$connection_name" ifname $interface
     fi
-    # 配置IPv4
     nmcli connection modify "$connection_name" ipv4.method manual
     nmcli connection modify "$connection_name" ipv4.addresses $ipv4_address/$ipv4_prefixlen
     nmcli connection modify "$connection_name" ipv4.gateway $ipv4_gateway
     nmcli connection modify "$connection_name" ipv4.dns "8.8.8.8,8.8.4.4"
-    # 配置IPv6
     nmcli connection modify "$connection_name" ipv6.method manual
     nmcli connection modify "$connection_name" ipv6.addresses $ipv6_address/$ipv6_prefixlen
     nmcli connection modify "$connection_name" ipv6.gateway $ipv6_gateway
     nmcli connection modify "$connection_name" ipv6.dns "2001:4860:4860::8888,2606:4700:4700::1111"
-    # 重新加载
     nmcli connection up "$connection_name"
 }
 
@@ -818,7 +998,6 @@ docker_build_ipv6() {
             echo "1" >/usr/local/bin/docker_build_ipv6
             systemctl restart networking
             sleep 3
-            # 重构IPV6地址，使用该IPV6子网内的0001结尾的地址
             ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
             ipv6_address="${ipv6_address%:*}:1"
             if [ "$ipv6_address" == "$ipv6_gateway" ]; then
