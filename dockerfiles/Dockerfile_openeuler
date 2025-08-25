@@ -17,7 +17,7 @@ RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/motd || t
 RUN echo "--by https://t.me/spiritlhl" >> /etc/motd || true
 RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/banner || true
 RUN echo "--by https://t.me/spiritlhl" >> /etc/banner || true
-RUN mkdir /var/run/sshd
+RUN mkdir /var/run/sshd || true
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
     sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
