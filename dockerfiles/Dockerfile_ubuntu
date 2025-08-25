@@ -13,7 +13,7 @@ RUN apt-get update && \
     vim \
     htop \
     net-tools
-RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/banner || true
+RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/motd || true
 RUN echo "--by https://t.me/spiritlhl" >> /etc/motd || true
 RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/banner || true
 RUN echo "--by https://t.me/spiritlhl" >> /etc/banner || true
