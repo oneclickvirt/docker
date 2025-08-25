@@ -1,5 +1,7 @@
 name: Build Docker Images and Release
 on:
+  schedule:
+    - cron: "0 13 * * *" 
   workflow_dispatch:
 env:
   REGISTRY: docker.io
