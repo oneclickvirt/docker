@@ -115,27 +115,31 @@ jobs:
         AMD64_FILE=${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_amd64.tar.gz
         ARM64_FILE=${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_arm64.tar.gz
         
-        # Delete tag and release if already exist
-        if gh release view "$TAG" >/dev/null 2>&1; then
-          echo "Release $TAG already exists. Deleting it..."
-          gh release delete "$TAG" -y
-          git push origin --delete "$TAG" || true
-        fi
-        
-        # Create tag
-        git tag "$TAG"
-        git push origin "$TAG"
-        
-        # Create release with both architecture files
-        gh release create "$TAG" "$AMD64_FILE" "$ARM64_FILE" \
-          --title "$TAG" \
-          --notes "Docker images for $TAG system.
+        if ! gh release view "$TAG" >/dev/null 2>&1; then
+          git tag "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "Docker images for $TAG system.
         
         Available architectures:
         - AMD64: $AMD64_FILE
         - ARM64: $ARM64_FILE" \
-          --prerelease=false \
-          --draft=false
+            --prerelease=false \
+            --draft=false
+        fi
+        
+        EXISTING_FILES=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+        
+        for FILE in "$AMD64_FILE" "$ARM64_FILE"; do
+          if echo "$EXISTING_FILES" | grep -q "^$FILE$"; then
+            echo "File $FILE already exists in release $TAG. Deleting it..."
+            gh release delete-asset "$TAG" "$FILE" -y
+            sleep 12
+          fi
+        done
+        
+        gh release upload "$TAG" "$AMD64_FILE" "$ARM64_FILE"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         IMAGE_NAME: ${{ env.IMAGE_NAME }}
