@@ -46,10 +46,19 @@ if [ "$interactionless" != "true" ]; then
     sed -i 's/#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config
     sed -i '/^#AddressFamily\|AddressFamily/c AddressFamily any' /etc/ssh/sshd_config
     sed -i "s/^#\?\(Port\).*/\1 22/" /etc/ssh/sshd_config
-    sed -i -E 's/^#?(Port).*/\1 22/' /etc/ssh/sshd_config
-    sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' /etc/cloud/cloud.cfg
-    sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' /etc/cloud/cloud.cfg
-    sed -E -i 's/ssh_pwauth:[[:space:]]*false/ssh_pwauth:   true/g' /etc/cloud/cloud.cfg
+    # 检测 sed 是否支持 -E 选项
+    if echo "test" | sed -E 's/test/test/' >/dev/null 2>&1; then
+        sed -i -E 's/^#?(Port).*/\1 22/' /etc/ssh/sshd_config
+        sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' /etc/cloud/cloud.cfg
+        sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' /etc/cloud/cloud.cfg
+        sed -E -i 's/ssh_pwauth:[[:space:]]*false/ssh_pwauth:   true/g' /etc/cloud/cloud.cfg
+    else
+        # BusyBox 兼容方法，使用基本正则表达式
+        sed -i 's/^#\?\(Port\).*/\1 22/' /etc/ssh/sshd_config
+        sed -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' /etc/cloud/cloud.cfg
+        sed -i 's/disable_root:[[:space:]]*true/disable_root: false/g' /etc/cloud/cloud.cfg
+        sed -i 's/ssh_pwauth:[[:space:]]*false/ssh_pwauth:   true/g' /etc/cloud/cloud.cfg
+    fi
 fi
 /usr/sbin/sshd
 rc-update add sshd default

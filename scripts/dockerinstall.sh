@@ -196,13 +196,25 @@ rebuild_cloud_init() {
         if grep -q "preserve_hostname: true" "/etc/cloud/cloud.cfg"; then
             :
         else
-            sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' "/etc/cloud/cloud.cfg"
+            # 检测 sed 是否支持 -E 选项
+            if echo "test" | sed -E 's/test/test/' >/dev/null 2>&1; then
+                sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' "/etc/cloud/cloud.cfg"
+            else
+                # BusyBox 兼容方法，使用基本正则表达式
+                sed -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' "/etc/cloud/cloud.cfg"
+            fi
             echo "change preserve_hostname to true"
         fi
         if grep -q "disable_root: false" "/etc/cloud/cloud.cfg"; then
             :
         else
-            sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' "/etc/cloud/cloud.cfg"
+            # 检测 sed 是否支持 -E 选项
+            if echo "test" | sed -E 's/test/test/' >/dev/null 2>&1; then
+                sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' "/etc/cloud/cloud.cfg"
+            else
+                # BusyBox 兼容方法，使用基本正则表达式
+                sed -i 's/disable_root:[[:space:]]*true/disable_root: false/g' "/etc/cloud/cloud.cfg"
+            fi
             echo "change disable_root to false"
         fi
         chattr -i /etc/cloud/cloud.cfg
