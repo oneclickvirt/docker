@@ -26,12 +26,12 @@ if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
 temp_file_apt_fix="/tmp/apt_fix.txt"
-REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
-RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
-PACKAGE_UPDATE=("! apt-get update && apt-get --fix-broken install -y && apt-get update" "apt-get update" "yum -y update" "yum -y update" "yum -y update" "pacman -Sy")
-PACKAGE_INSTALL=("apt-get -y install" "apt-get -y install" "yum -y install" "yum -y install" "yum -y install" "pacman -Sy --noconfirm --needed")
-PACKAGE_REMOVE=("apt-get -y remove" "apt-get -y remove" "yum -y remove" "yum -y remove" "yum -y remove" "pacman -Rsc --noconfirm")
-PACKAGE_UNINSTALL=("apt-get -y autoremove" "apt-get -y autoremove" "yum -y autoremove" "yum -y autoremove" "yum -y autoremove" "")
+REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch" "alpine")
+RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch" "Alpine")
+PACKAGE_UPDATE=("! apt-get update && apt-get --fix-broken install -y && apt-get update" "apt-get update" "yum -y update" "yum -y update" "yum -y update" "pacman -Sy" "apk update")
+PACKAGE_INSTALL=("apt-get -y install" "apt-get -y install" "yum -y install" "yum -y install" "yum -y install" "pacman -Sy --noconfirm --needed" "apk add --no-cache")
+PACKAGE_REMOVE=("apt-get -y remove" "apt-get -y remove" "yum -y remove" "yum -y remove" "yum -y remove" "pacman -Rsc --noconfirm" "apk del")
+PACKAGE_UNINSTALL=("apt-get -y autoremove" "apt-get -y autoremove" "yum -y autoremove" "yum -y autoremove" "yum -y autoremove" "" "")
 CMD=("$(grep -i pretty_name /etc/os-release 2>/dev/null | cut -d \" -f2)" "$(hostnamectl 2>/dev/null | grep -i system | cut -d : -f2)" "$(lsb_release -sd 2>/dev/null)" "$(grep -i description /etc/lsb-release 2>/dev/null | cut -d \" -f2)" "$(grep . /etc/redhat-release 2>/dev/null)" "$(grep . /etc/issue 2>/dev/null | cut -d \\ -f1 | sed '/^[ ]*$/d')" "$(grep -i pretty_name /etc/os-release 2>/dev/null | cut -d \" -f2)")
 SYS="${CMD[0]}"
 [[ -n $SYS ]] || exit 1
@@ -111,8 +111,10 @@ setup_docker_btrfs_loop() {
     if [ ! -d "$loop_dir" ]; then
         mkdir -p "$loop_dir"
     fi
-    if systemctl is-active --quiet docker; then
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet docker; then
         systemctl stop docker
+    elif command -v rc-service >/dev/null 2>&1 && rc-service docker status >/dev/null 2>&1; then
+        rc-service docker stop
     fi
     if [ -d "$mount_point" ] && [ "$(ls -A $mount_point 2>/dev/null)" ]; then
         _yellow "Backing up existing Docker data..."
@@ -241,6 +243,8 @@ check_update() {
             fi
         fi
         rm "$temp_file_apt_fix"
+    elif command -v apk >/dev/null 2>&1; then
+        apk update
     else
         ${PACKAGE_UPDATE[int]}
     fi
@@ -485,11 +489,19 @@ if ! command -v dos2unix >/dev/null 2>&1; then
 fi
 if ! command -v lshw >/dev/null 2>&1; then
     _yellow "Installing lshw"
-    ${PACKAGE_INSTALL[int]} lshw
+    if [[ "$SYSTEM" == "Alpine" ]]; then
+        _yellow "Alpine does not have lshw package, skipping..."
+    else
+        ${PACKAGE_INSTALL[int]} lshw
+    fi
 fi
 if ! command -v ipcalc >/dev/null 2>&1; then
     _yellow "Installing ipcalc"
-    ${PACKAGE_INSTALL[int]} ipcalc
+    if [[ "$SYSTEM" == "Alpine" ]]; then
+        ${PACKAGE_INSTALL[int]} ipcalc-ng
+    else
+        ${PACKAGE_INSTALL[int]} ipcalc
+    fi
 fi
 if [[ "$SYSTEM" == "CentOS" ]] && ! command -v sipcalc >/dev/null 2>&1; then
     ARCH=$(uname -m)
@@ -529,8 +541,11 @@ if [[ "$SYSTEM" == "CentOS" ]] && ! command -v sipcalc >/dev/null 2>&1; then
         echo "sipcalc not found after install, trying fallback package installation..."
         ${PACKAGE_INSTALL[int]} sipcalc
     fi
-else
+elif [[ "$SYSTEM" != "Alpine" ]] && ! command -v sipcalc >/dev/null 2>&1; then
     ${PACKAGE_INSTALL[int]} sipcalc
+fi
+if [[ "$SYSTEM" == "Alpine" ]] && ! command -v sipcalc >/dev/null 2>&1; then
+    _yellow "Alpine does not have sipcalc in official repos, will use ipcalc for calculations"
 fi
 if ! command -v bc >/dev/null 2>&1; then
     _yellow "Installing bc"
@@ -542,13 +557,31 @@ if ! command -v ip >/dev/null 2>&1; then
 fi
 if ! command -v lxcfs >/dev/null 2>&1; then
     _yellow "Installing lxcfs"
-    ${PACKAGE_INSTALL[int]} lxcfs
+    if [[ "$SYSTEM" == "Alpine" ]]; then
+        _yellow "lxcfs not available on Alpine, skipping..."
+    else
+        ${PACKAGE_INSTALL[int]} lxcfs
+    fi
 fi
 if ! command -v crontab >/dev/null 2>&1; then
     _yellow "Installing crontab"
-    ${PACKAGE_INSTALL[int]} cron
-    if [[ $? -ne 0 ]]; then
+    if [[ "$SYSTEM" == "Alpine" ]]; then
+        ${PACKAGE_INSTALL[int]} dcron
+        if command -v rc-update >/dev/null 2>&1; then
+            rc-update add dcron default
+            rc-service dcron start
+        fi
+    elif [[ "$SYSTEM" == "Arch" ]]; then
         ${PACKAGE_INSTALL[int]} cronie
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl enable cronie
+            systemctl start cronie
+        fi
+    else
+        ${PACKAGE_INSTALL[int]} cron
+        if [[ $? -ne 0 ]]; then
+            ${PACKAGE_INSTALL[int]} cronie
+        fi
     fi
 fi
 if ! command -v fallocate >/dev/null 2>&1; then
@@ -564,8 +597,13 @@ ${PACKAGE_INSTALL[int]} openssl
 curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh && chmod +x ssh_bash.sh && dos2unix ssh_bash.sh
 curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh && chmod +x ssh_sh.sh && dos2unix ssh_sh.sh
 
-interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
-interface_2=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '2p')
+if [[ "$SYSTEM" == "Alpine" ]]; then
+    interface_1=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {print $2; exit}')
+    interface_2=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {count++; if(count==2) {print $2; exit}}')
+else
+    interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
+    interface_2=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '2p')
+fi
 check_interface
 if [ ! -f /usr/local/bin/docker_mac_address ] || [ ! -s /usr/local/bin/docker_mac_address ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_mac_address)" = "" ]; then
     mac_address=$(ip -o link show dev ${interface} | awk '{print $17}')
@@ -589,7 +627,40 @@ if [ ! -f /usr/local/bin/docker_ipv4_gateway ]; then
 fi
 ipv4_gateway=$(cat /usr/local/bin/docker_ipv4_gateway)
 if [ ! -f /usr/local/bin/docker_ipv4_subnet ]; then
-    ipv4_subnet=$(ipcalc -n "$ipv4_address" | grep -oP 'Netmask:\s+\K.*' | awk '{print $1}')
+    if [[ "$SYSTEM" == "Arch" ]] || [[ "$SYSTEM" == "Alpine" ]]; then
+        # For Arch and Alpine, calculate netmask from CIDR prefix
+        ipv4_prefixlen=$(echo "$ipv4_address" | cut -d '/' -f 2)
+        case $ipv4_prefixlen in
+            8) ipv4_subnet="255.0.0.0" ;;
+            9) ipv4_subnet="255.128.0.0" ;;
+            10) ipv4_subnet="255.192.0.0" ;;
+            11) ipv4_subnet="255.224.0.0" ;;
+            12) ipv4_subnet="255.240.0.0" ;;
+            13) ipv4_subnet="255.248.0.0" ;;
+            14) ipv4_subnet="255.252.0.0" ;;
+            15) ipv4_subnet="255.254.0.0" ;;
+            16) ipv4_subnet="255.255.0.0" ;;
+            17) ipv4_subnet="255.255.128.0" ;;
+            18) ipv4_subnet="255.255.192.0" ;;
+            19) ipv4_subnet="255.255.224.0" ;;
+            20) ipv4_subnet="255.255.240.0" ;;
+            21) ipv4_subnet="255.255.248.0" ;;
+            22) ipv4_subnet="255.255.252.0" ;;
+            23) ipv4_subnet="255.255.254.0" ;;
+            24) ipv4_subnet="255.255.255.0" ;;
+            25) ipv4_subnet="255.255.255.128" ;;
+            26) ipv4_subnet="255.255.255.192" ;;
+            27) ipv4_subnet="255.255.255.224" ;;
+            28) ipv4_subnet="255.255.255.240" ;;
+            29) ipv4_subnet="255.255.255.248" ;;
+            30) ipv4_subnet="255.255.255.252" ;;
+            31) ipv4_subnet="255.255.255.254" ;;
+            32) ipv4_subnet="255.255.255.255" ;;
+            *) ipv4_subnet="255.255.255.0" ;;
+        esac
+    else
+        ipv4_subnet=$(ipcalc -n "$ipv4_address" | grep -oP 'Netmask:\s+\K.*' | awk '{print $1}')
+    fi
     echo "$ipv4_subnet" >/usr/local/bin/docker_ipv4_subnet
 fi
 ipv4_subnet=$(cat /usr/local/bin/docker_ipv4_subnet)
@@ -597,7 +668,11 @@ ipv4_prefixlen=$(echo "$ipv4_address" | cut -d '/' -f 2)
 
 if [ ! -f /usr/local/bin/docker_ipv6_prefixlen ] || [ ! -s /usr/local/bin/docker_ipv6_prefixlen ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_prefixlen)" = "" ]; then
     ipv6_prefixlen=""
-    output=$(ifconfig ${interface} | grep -oP 'inet6 (?!fe80:).*prefixlen \K\d+')
+    if command -v ifconfig >/dev/null 2>&1; then
+        output=$(ifconfig ${interface} | grep -oP 'inet6 (?!fe80:).*prefixlen \K\d+')
+    else
+        output=$(ip -6 addr show ${interface} | grep 'inet6' | grep -v 'fe80:' | awk '{print $2}' | cut -d'/' -f2)
+    fi
     num_lines=$(echo "$output" | wc -l)
     if [ $num_lines -ge 2 ]; then
         ipv6_prefixlen=$(echo "$output" | sort -n | head -n 1)
@@ -752,7 +827,15 @@ install_docker_and_compose() {
     fi
     if ! command -v docker >/dev/null 2>&1; then
         _yellow "Installing docker"
-        if [[ -z "${CN}" || "${CN}" != true ]]; then
+        if [[ "$SYSTEM" == "Alpine" ]]; then
+            _green "Installing Docker on Alpine Linux..."
+            apk update
+            apk add docker docker-compose docker-cli-compose
+            if command -v rc-update >/dev/null 2>&1; then
+                rc-update add docker boot
+                rc-service docker start
+            fi
+        elif [[ -z "${CN}" || "${CN}" != true ]]; then
             bash <(curl -sSL https://raw.githubusercontent.com/SuperManito/LinuxMirrors/main/DockerInstallation.sh) \
                 --source download.docker.com \
                 --source-registry registry.hub.docker.com \
@@ -771,7 +854,12 @@ install_docker_and_compose() {
         fi
     fi
     if ! command -v docker-compose >/dev/null 2>&1; then
-        if [[ -z "${CN}" || "${CN}" != true ]]; then
+        if [[ "$SYSTEM" == "Alpine" ]]; then
+            _yellow "docker-compose should already be installed with docker package on Alpine"
+        elif [[ "$SYSTEM" == "Arch" ]]; then
+            _yellow "Installing docker-compose via pacman"
+            ${PACKAGE_INSTALL[int]} docker-compose
+        elif [[ -z "${CN}" || "${CN}" != true ]]; then
             _yellow "Installing docker-compose"
             curl -L "${cdn_success_url}https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
             chmod +x /usr/local/bin/docker-compose
@@ -863,7 +951,9 @@ EmitDNS=yes
 DNS=2001:4860:4860::8888
 DNS=2606:4700:4700::1111
 EOF
-    systemctl restart systemd-networkd
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl restart systemd-networkd
+    fi
 }
 
 configure_network_manager() {
@@ -884,6 +974,33 @@ configure_network_manager() {
 }
 
 configure_networking() {
+    if [[ "$SYSTEM" == "Alpine" ]]; then
+        _yellow "Configuring Alpine networking..."
+        cat <<EOF >/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $interface
+iface $interface inet static
+        address $ipv4_address
+        netmask $ipv4_subnet
+        gateway $ipv4_gateway
+        dns-nameservers 8.8.8.8 8.8.4.4
+EOF
+        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ]; then
+            cat <<EOF >>/etc/network/interfaces
+
+iface $interface inet6 static
+        address $ipv6_address
+        netmask $ipv6_prefixlen
+        gateway $ipv6_gateway
+EOF
+        fi
+        if command -v rc-service >/dev/null 2>&1; then
+            rc-service networking restart
+        fi
+        return
+    fi
     chattr -i /etc/network/interfaces
     if grep -q "auto he-ipv6" /etc/network/interfaces; then
         status_he=true
@@ -996,7 +1113,11 @@ docker_build_ipv6() {
         _green "检测到已重启服务器配置IPV6的新网络，正在测试IPV6的连通性，请耐心等待"
         if [ ! -f /usr/local/bin/docker_build_ipv6 ]; then
             echo "1" >/usr/local/bin/docker_build_ipv6
-            systemctl restart networking
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl restart networking
+            elif command -v rc-service >/dev/null 2>&1; then
+                rc-service networking restart
+            fi
             sleep 3
             ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
             ipv6_address="${ipv6_address%:*}:1"
@@ -1064,7 +1185,15 @@ docker_build_ipv6() {
             fi
             if ! command -v radvd >/dev/null 2>&1; then
                 _yellow "Installing radvd"
-                ${PACKAGE_INSTALL[int]} radvd
+                if [[ "$SYSTEM" == "Alpine" ]]; then
+                    ${PACKAGE_INSTALL[int]} radvd
+                    if command -v rc-update >/dev/null 2>&1; then
+                        rc-update add radvd default
+                        rc-service radvd start
+                    fi
+                else
+                    ${PACKAGE_INSTALL[int]} radvd
+                fi
             fi
             if [ "$status_he" = true ]; then
                 config_content="interface he-ipv6 {
@@ -1090,7 +1219,11 @@ docker_build_ipv6() {
 };"
             fi
             echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
-            systemctl restart radvd && systemctl enable radvd
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl restart radvd && systemctl enable radvd
+            elif command -v rc-service >/dev/null 2>&1; then
+                rc-service radvd restart
+            fi
             update_sysctl "net.ipv6.conf.all.forwarding=1"
             update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
             update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
@@ -1103,18 +1236,30 @@ handle_networking() {
     network_manager=$(cat /usr/local/bin/docker_network_manager)
     case "$network_manager" in
         "systemd-networkd")
-            systemctl restart systemd-networkd
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl restart systemd-networkd
+            fi
             ;;
         "NetworkManager")
-            systemctl restart NetworkManager
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl restart NetworkManager
+            fi
             ;;
         "networking")
-            systemctl restart networking
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl restart networking
+            elif command -v rc-service >/dev/null 2>&1; then
+                rc-service networking restart
+            fi
             ;;
         *)
-            systemctl restart networking 2>/dev/null || true
-            systemctl restart systemd-networkd 2>/dev/null || true
-            systemctl restart NetworkManager 2>/dev/null || true
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl restart networking 2>/dev/null || true
+                systemctl restart systemd-networkd 2>/dev/null || true
+                systemctl restart NetworkManager 2>/dev/null || true
+            elif command -v rc-service >/dev/null 2>&1; then
+                rc-service networking restart 2>/dev/null || true
+            fi
             ;;
     esac
 }
@@ -1131,21 +1276,31 @@ check_and_adapt_ipv6() {
 setup_dns_check() {
     if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
         wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
-        wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.service -O /etc/systemd/system/check-dns.service
         chmod +x /usr/local/bin/check-dns.sh
-        chmod +x /etc/systemd/system/check-dns.service
-        systemctl daemon-reload
-        systemctl enable check-dns.service
-        systemctl start check-dns.service
+        if command -v systemctl >/dev/null 2>&1; then
+            wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.service -O /etc/systemd/system/check-dns.service
+            chmod +x /etc/systemd/system/check-dns.service
+            systemctl daemon-reload
+            systemctl enable check-dns.service
+            systemctl start check-dns.service
+        elif command -v rc-update >/dev/null 2>&1; then
+            _yellow "Alpine uses OpenRC, DNS check service needs manual setup if required"
+        fi
     fi
 }
 
 detect_network_manager() {
-    if systemctl is-active --quiet systemd-networkd; then
-        network_manager="systemd-networkd"
-    elif systemctl is-active --quiet NetworkManager; then
-        network_manager="NetworkManager"
-    elif systemctl is-active --quiet networking; then
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet systemd-networkd; then
+            network_manager="systemd-networkd"
+        elif systemctl is-active --quiet NetworkManager; then
+            network_manager="NetworkManager"
+        elif systemctl is-active --quiet networking; then
+            network_manager="networking"
+        else
+            network_manager="networking"
+        fi
+    elif command -v rc-service >/dev/null 2>&1; then
         network_manager="networking"
     else
         network_manager="networking"
@@ -1156,11 +1311,20 @@ detect_network_manager() {
 restart_services() {
     sysctl_path=$(which sysctl)
     ${sysctl_path} -p
-    systemctl restart docker
-    sleep 4
-    systemctl status docker 2>/dev/null
-    if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
-        systemctl status radvd 2>/dev/null
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl restart docker
+        sleep 4
+        systemctl status docker 2>/dev/null
+        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
+            systemctl status radvd 2>/dev/null
+        fi
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-service docker restart
+        sleep 4
+        rc-service docker status 2>/dev/null
+        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
+            rc-service radvd status 2>/dev/null
+        fi
     fi
 }
 
