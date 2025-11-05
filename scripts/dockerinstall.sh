@@ -223,8 +223,15 @@ rebuild_cloud_init() {
 statistics_of_run_times() {
     COUNT=$(curl -4 -ksm1 "https://hits.spiritlhl.net/docker?action=hit&title=Hits&title_bg=%23555555&count_bg=%2324dde1&edge_flat=false" 2>/dev/null ||
         curl -6 -ksm1 "https://hits.spiritlhl.net/docker?action=hit&title=Hits&title_bg=%23555555&count_bg=%2324dde1&edge_flat=false" 2>/dev/null)
-    TODAY=$(echo "$COUNT" | grep -oP '"daily":\s*[0-9]+' | sed 's/"daily":\s*\([0-9]*\)/\1/')
-    TOTAL=$(echo "$COUNT" | grep -oP '"total":\s*[0-9]+' | sed 's/"total":\s*\([0-9]*\)/\1/')
+    # 检测 grep 是否支持 -P 选项
+    if echo "test" | grep -P "test" >/dev/null 2>&1; then
+        TODAY=$(echo "$COUNT" | grep -oP '"daily":\s*[0-9]+' | sed 's/"daily":\s*\([0-9]*\)/\1/')
+        TOTAL=$(echo "$COUNT" | grep -oP '"total":\s*[0-9]+' | sed 's/"total":\s*\([0-9]*\)/\1/')
+    else
+        # BusyBox 兼容方法
+        TODAY=$(echo "$COUNT" | sed -n 's/.*"daily":[[:space:]]*\([0-9]*\).*/\1/p')
+        TOTAL=$(echo "$COUNT" | sed -n 's/.*"total":[[:space:]]*\([0-9]*\).*/\1/p')
+    fi
 }
 
 check_update() {
@@ -659,7 +666,13 @@ if [ ! -f /usr/local/bin/docker_ipv4_subnet ]; then
             *) ipv4_subnet="255.255.255.0" ;;
         esac
     else
-        ipv4_subnet=$(ipcalc -n "$ipv4_address" | grep -oP 'Netmask:\s+\K.*' | awk '{print $1}')
+        # 检测 grep 是否支持 -P 选项
+        if echo "test" | grep -P "test" >/dev/null 2>&1; then
+            ipv4_subnet=$(ipcalc -n "$ipv4_address" | grep -oP 'Netmask:\s+\K.*' | awk '{print $1}')
+        else
+            # BusyBox 兼容方法
+            ipv4_subnet=$(ipcalc -n "$ipv4_address" | grep 'Netmask:' | awk '{print $2}')
+        fi
     fi
     echo "$ipv4_subnet" >/usr/local/bin/docker_ipv4_subnet
 fi
@@ -669,7 +682,13 @@ ipv4_prefixlen=$(echo "$ipv4_address" | cut -d '/' -f 2)
 if [ ! -f /usr/local/bin/docker_ipv6_prefixlen ] || [ ! -s /usr/local/bin/docker_ipv6_prefixlen ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_prefixlen)" = "" ]; then
     ipv6_prefixlen=""
     if command -v ifconfig >/dev/null 2>&1; then
-        output=$(ifconfig ${interface} | grep -oP 'inet6 (?!fe80:).*prefixlen \K\d+')
+        # 检测 grep 是否支持 -P 选项
+        if echo "test" | grep -P "test" >/dev/null 2>&1; then
+            output=$(ifconfig ${interface} | grep -oP 'inet6 (?!fe80:).*prefixlen \K\d+')
+        else
+            # BusyBox 兼容方法
+            output=$(ifconfig ${interface} | grep 'inet6' | grep -v 'fe80:' | sed -n 's/.*prefixlen \([0-9]*\).*/\1/p')
+        fi
     else
         output=$(ip -6 addr show ${interface} | grep 'inet6' | grep -v 'fe80:' | awk '{print $2}' | cut -d'/' -f2)
     fi

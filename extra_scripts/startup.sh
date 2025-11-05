@@ -14,7 +14,14 @@ systemctl enable libvirtd virtlogd --now
 VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up
 # --debug
 rdp_info=$(vagrant rdp 2>&1)
-ip_address=$(echo "$rdp_info" | grep -oP 'Address: (\d+\.\d+\.\d+\.\d+)' | grep -oP '(\d+\.\d+\.\d+\.\d+)')
+# 检测 grep 是否支持 -P 选项（Perl正则表达式）
+if echo "test" | grep -P "test" >/dev/null 2>&1; then
+    # 支持 -P 选项，使用原始方法
+    ip_address=$(echo "$rdp_info" | grep -oP 'Address: (\d+\.\d+\.\d+\.\d+)' | grep -oP '(\d+\.\d+\.\d+\.\d+)')
+else
+    # 不支持 -P 选项（如 BusyBox），使用兼容方法
+    ip_address=$(echo "$rdp_info" | grep -o 'Address: [0-9]*\.[0-9]*\.[0-9]*\.[0-9]*' | sed 's/Address: //' | head -1)
+fi
 iptables-save >$HOME/firewall.txt
 iptables -X
 iptables -t nat -F
