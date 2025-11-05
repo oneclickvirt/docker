@@ -774,16 +774,22 @@ if [[ -n "$ipv6_address" ]]; then
     if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ $(cat /usr/local/bin/docker_maximum_subset) = true ]; then
         ipv6_address_without_last_segment="${ipv6_address%:*}:"
         if [[ $ipv6_address != *:: && $ipv6_address_without_last_segment != *:: ]]; then
-            ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
-            ipv6_address="${ipv6_address%:*}:1"
-            if [ "$ipv6_address" == "$ipv6_gateway" ]; then
-                ipv6_address="${ipv6_address%:*}:2"
-            fi
-            ipv6_address_without_last_segment="${ipv6_address%:*}:"
-            if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
-                check_ipv6
-                ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
-                echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
+            # 检测 sipcalc 是否可用
+            if command -v sipcalc >/dev/null 2>&1; then
+                ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
+                ipv6_address="${ipv6_address%:*}:1"
+                if [ "$ipv6_address" == "$ipv6_gateway" ]; then
+                    ipv6_address="${ipv6_address%:*}:2"
+                fi
+                ipv6_address_without_last_segment="${ipv6_address%:*}:"
+                if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
+                    check_ipv6
+                    ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
+                    echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
+                fi
+            else
+                _yellow "sipcalc command not found, skipping IPv6 subnet calculation"
+                _yellow "sipcalc 命令不存在，跳过 IPv6 子网计算"
             fi
         elif [[ $ipv6_address == *:: ]]; then
             ipv6_address="${ipv6_address}1"
@@ -1132,6 +1138,12 @@ docker_build_ipv6() {
         _green "检测到已重启服务器配置IPV6的新网络，正在测试IPV6的连通性，请耐心等待"
         if [ ! -f /usr/local/bin/docker_build_ipv6 ]; then
             echo "1" >/usr/local/bin/docker_build_ipv6
+            # 检测 sipcalc 是否可用
+            if ! command -v sipcalc >/dev/null 2>&1; then
+                _yellow "sipcalc command not found, IPv6 advanced configuration is not available"
+                _yellow "sipcalc 命令不存在，IPv6 高级配置不可用"
+                return 1
+            fi
             if command -v systemctl >/dev/null 2>&1; then
                 systemctl restart networking
             elif command -v rc-service >/dev/null 2>&1; then
@@ -1149,8 +1161,14 @@ docker_build_ipv6() {
                 echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
             fi
             target_mask=${ipv6_prefixlen}
+            # 确保 target_mask 有值
+            if [ -z "$target_mask" ]; then
+                _red "Failed to get IPv6 prefix length"
+                _red "无法获取 IPv6 前缀长度"
+                return 1
+            fi
             echo "Before: target_mask = $target_mask"
-            ((target_mask += 8 - ($target_mask % 8)))
+            ((target_mask += 8 - (target_mask % 8)))
             echo "After: target_mask = $target_mask"
             ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
             ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
@@ -1161,7 +1179,7 @@ docker_build_ipv6() {
             else
                 _red "The ipv6 subnet 2: ${ipv6_subnet_2}"
                 _red "The ipv6 target mask: ${target_mask}"
-                return false
+                return 1
             fi
             install_docker_and_compose
             if [ "$ipv6_prefixlen" -le 112 ]; then
