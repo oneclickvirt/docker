@@ -731,7 +731,7 @@ if [ ! -f /usr/local/bin/docker_ipv6_prefixlen ] || [ ! -s /usr/local/bin/docker
                 real_prefixlen=$(echo "$rdisc6_output" | grep -i "Prefix" | grep -oP '[:：]\s*[0-9a-fA-F:]+/\K\d+' | head -n 1)
             else
                 # BusyBox 兼容方法
-                real_prefixlen=$(echo "$rdisc6_output" | grep -i "Prefix" | sed -n 's/.*[[:：]][[:space:]]*[0-9a-fA-F:]*\/\([0-9]*\).*/\1/p' | head -n 1)
+                real_prefixlen=$(echo "$rdisc6_output" | grep -i "Prefix" | sed -n 's/.*[:：][[:space:]]*[0-9a-fA-F:]*\/\([0-9]*\).*/\1/p' | head -n 1)
             fi
             if [ -n "$real_prefixlen" ] && [ "$real_prefixlen" -gt 0 ] && [ "$real_prefixlen" -le 128 ]; then
                 _green "Found real IPv6 prefix length from router advertisement: /$real_prefixlen"
