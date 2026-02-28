@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.08.24
+# 2026.02.28
 
 # cd /root
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -46,7 +46,7 @@ pre_check() {
         chmod 777 ssh_sh.sh
         dos2unix ssh_sh.sh
     fi
-    if [ ! -f buildone.sh ]; then
+    if [ ! -f onedocker.sh ]; then
         curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/onedocker.sh -o onedocker.sh
         chmod 777 onedocker.sh
         dos2unix onedocker.sh

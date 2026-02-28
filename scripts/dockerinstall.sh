@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.11.05
+# 2026.02.28
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -115,6 +115,17 @@ setup_docker_btrfs_loop() {
         systemctl stop docker
     elif command -v rc-service >/dev/null 2>&1 && rc-service docker status >/dev/null 2>&1; then
         rc-service docker stop
+    fi
+    # 若 loop 文件已存在且已挂载，则跳过格式化以避免损坏已有数据
+    if [ -f "$loop_file" ] && losetup -j "$loop_file" 2>/dev/null | grep -q "$loop_file"; then
+        _green "Loop file $loop_file already exists and is attached, skipping creation."
+        loop_device=$(losetup -j "$loop_file" | cut -d: -f1)
+        mkdir -p "$mount_point"
+        mount "$loop_device" "$mount_point" 2>/dev/null || true
+        echo "$loop_device" > /usr/local/bin/docker_loop_device
+        echo "$loop_file" > /usr/local/bin/docker_loop_file
+        echo "$mount_point" > /usr/local/bin/docker_mount_point
+        return
     fi
     if [ -d "$mount_point" ] && [ "$(ls -A $mount_point 2>/dev/null)" ]; then
         _yellow "Backing up existing Docker data..."
@@ -340,7 +351,8 @@ is_private_ipv6() {
     if [[ $address == 2002:* ]]; then
         temp="8"
     fi
-    if [[ $address == 2001:* ]]; then
+    # 仅匹配 Teredo 隧道地址 2001:0000::/32，不影响其他合法公网 2001: 地址
+    if [[ $address == 2001:0000:* || $address == 2001:0:* ]]; then
         temp="9"
     fi
     if [ "$temp" -gt 0 ]; then

@@ -1,6 +1,6 @@
 #!/bin/bash
 #from https://github.com/oneclickvirt/docker
-# 2025.05.23
+# 2026.02.28
 set -e
 
 DNS_SERVERS_IPV4=(
@@ -92,7 +92,7 @@ write_resolv_conf() {
         for dns in "${DNS_SERVERS_IPV6[@]}"; do
             echo "nameserver $dns"
         done
-    } >>/etc/resolv.conf
+    } >/etc/resolv.conf
     echo "/etc/resolv.conf 更新完成"
 }
 
@@ -147,5 +147,5 @@ else
 fi
 sleep 3
 if grep -q "vmbr0" "/etc/network/interfaces"; then
-    resolvconf -a vmbr0 < ${RESOLV_CONF}
+    resolvconf -a vmbr0 < /etc/resolv.conf
 fi

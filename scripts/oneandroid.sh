@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.11.05
+# 2026.02.28
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -57,6 +57,17 @@ check_nginx() {
     if ! [ -x "$(command -v nginx)" ]; then
         _green "\n Install nginx.\n "
         ${PACKAGE_INSTALL[int]} nginx
+    fi
+}
+
+check_dig() {
+    if ! command -v dig >/dev/null 2>&1; then
+        _green "Installing dig (dnsutils/bind-utils)..."
+        if command -v apt-get >/dev/null 2>&1; then
+            ${PACKAGE_INSTALL[int]} dnsutils
+        elif command -v yum >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1; then
+            ${PACKAGE_INSTALL[int]} bind-utils
+        fi
     fi
 }
 
@@ -140,6 +151,7 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 check_ipv4
 check_nginx
+check_dig
 rm -rf /root/android/data
 # rm -rf /root/scrcpy_web/data
 if [ ! -d "/root/android/data" ]; then

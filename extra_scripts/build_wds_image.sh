@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2024.03.12
+# 2026.02.28
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -42,6 +42,7 @@ count=$(sudo egrep -c '(vmx|svm)' /proc/cpuinfo)
 if [[ -z $count ]] || [[ $count -le 0 ]]; then
     _yellow "Virtualization is not supported, exit the program."
     _yellow "虚拟化不支持，退出程序。"
+    exit 1
 fi
 
 windows_version="${1:-10}"

@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.11.05
+# 2026.02.28
 
 # 起步10分钟
 cd /root >/dev/null 2>&1
@@ -43,6 +43,7 @@ count=$(sudo egrep -c '(vmx|svm)' /proc/cpuinfo)
 if [[ -z $count ]] || [[ $count -le 0 ]]; then
     _yellow "Virtualization is not supported, exit the program."
     _yellow "虚拟化不支持，退出程序。"
+    exit 1
 fi
 ${PACKAGE_INSTALL[int]} openssh-server
 ${PACKAGE_INSTALL[int]} openssh-client

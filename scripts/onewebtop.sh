@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.11.05
+# 2026.02.28
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -49,7 +49,7 @@ check_ipv4() {
       break
     fi
   done
-  ! curl -s4m8 $IP_API | grep -q '\.' && red " ERROR：The host must have IPv4. " && exit 1
+  ! curl -s4m8 $IP_API | grep -q '\.' && _red " ERROR：The host must have IPv4. " && exit 1
   IPV4=$(curl -s4m8 "$IP_API")
 }
 
@@ -85,8 +85,8 @@ docker run -d \
   -e TZ=Etc/UTC \
   -e SUBFOLDER=/ \
   -e TITLE=Webtop \
-  -e CUSTOM_USER="onew" \
-  -e PASSWORD="oneclick" \
+  -e CUSTOM_USER="$username" \
+  -e PASSWORD="$password" \
   -e DOCKER_MODS=linuxserver/mods:universal-internationalization \
   -e LC_ALL=zh_CN.UTF-8 \
   -p ${http_port}:3000 \

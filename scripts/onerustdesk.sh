@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.11.05
+# 2026.02.28
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -49,7 +49,7 @@ check_ipv4() {
             break
         fi
     done
-    ! curl -s4m8 $IP_API | grep -q '\.' && red " ERROR：The host must have IPv4. " && exit 1
+    ! curl -s4m8 $IP_API | grep -q '\.' && _red " ERROR：The host must have IPv4. " && exit 1
     IPV4=$(curl -s4m8 "$IP_API")
 }
 
@@ -84,6 +84,7 @@ iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 iptables -A INPUT -p tcp --match multiport --sports 21115:21119 --dport 21115:21119 -j ACCEPT
 iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
 iptables -A INPUT -p udp --dport 21116 -j ACCEPT
-iptables-save >/etc/iptables/rules.v4
 ${PACKAGE_INSTALL[int]} iptables-persistent
+mkdir -p /etc/iptables
+iptables-save >/etc/iptables/rules.v4
 service netfilter-persistent restart

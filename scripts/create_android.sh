@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.11.05
+# 2026.02.28
 
 cd /root >/dev/null 2>&1
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
@@ -27,7 +27,7 @@ if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
 export NVM_DIR="$HOME/.nvm"
-source "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch" "alpine")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch" "Alpine")
 PACKAGE_UPDATE=("! apt-get update && apt-get --fix-broken install -y && apt-get update" "apt-get update" "yum -y update" "yum -y update" "yum -y update" "pacman -Sy" "apk update")
@@ -93,13 +93,16 @@ if [[ "$(echo -e "$current_kernel_version\n$target_kernel_version" | sort -V | h
 else
     echo "当前内核版本 $current_kernel_version 小于 $target_kernel_version，请自行升级系统"
 fi
-if ! dpkg -S linux-modules-extra-${current_kernel_version} >/dev/null 2>&1; then
-    ${PACKAGE_INSTALL[int]} linux-modules-extra-${current_kernel_version}
-fi
 modprobe binder_linux devices="binder,hwbinder,vndbinder"
 modprobe ashmem_linux
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
+fi
+# 仅在 Debian/Ubuntu 系（有 dpkg）时检查并安装内核模块包
+if command -v dpkg >/dev/null 2>&1; then
+    if ! dpkg -S linux-modules-extra-${current_kernel_version} >/dev/null 2>&1; then
+        ${PACKAGE_INSTALL[int]} linux-modules-extra-${current_kernel_version}
+    fi
 fi
 if ! command -v npm >/dev/null 2>&1; then
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
