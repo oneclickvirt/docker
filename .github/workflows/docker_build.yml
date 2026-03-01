@@ -165,18 +165,11 @@ jobs:
         if ! gh release view "$TAG" >/dev/null 2>&1; then
           git tag "$TAG" 2>/dev/null || true
           git push origin "$TAG" 2>/dev/null || true
+          RELEASE_NOTES=$(printf 'Docker images for %s system.\n\nAvailable architectures:\n- AMD64: `%s`\n- ARM64: `%s`\n\nGHCR images (multi-arch):\n```\ndocker pull %s:%s\n```' \
+            "$TAG" "$AMD64_FILE" "$ARM64_FILE" "${{ env.GHCR_IMAGE }}" "$TAG")
           gh release create "$TAG" \
             --title "$TAG" \
-            --notes "Docker images for $TAG system.
-
-Available architectures:
-- AMD64: \`$AMD64_FILE\`
-- ARM64: \`$ARM64_FILE\`
-
-GHCR images (multi-arch):
-\`\`\`
-docker pull ${{ env.GHCR_IMAGE }}:$TAG
-\`\`\`" \
+            --notes "$RELEASE_NOTES" \
             --prerelease=false \
             --draft=false
         fi
