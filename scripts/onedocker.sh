@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2025.08.24
+# 2026.03.01
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system> <disk>
 
@@ -28,15 +28,8 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
-check_china() {
-    echo "IP area being detected ......"
-    if [[ -z "${CN}" ]]; then
-        if [[ $(curl -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
-            echo "根据ipapi.co提供的信息，当前IP可能在中国，使用中国镜像完成相关组件安装"
-            CN=true
-        fi
-    fi
-}
+cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn1.spiritlhl.net/" "http://cdn2.spiritlhl.net/" "http://cdn3.spiritlhl.net/" "http://cdn4.spiritlhl.net/")
+cdn_success_url=""
 
 check_storage_driver() {
     storage_driver="overlay2"
@@ -115,7 +108,14 @@ get_arch() {
 check_image_exists() {
     local system_type=$1
     local arch=$(get_arch)
-    # 优先查找 spiritlhl:system-arch 格式
+    # 查找 GHCR 镜像（优先）
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "ghcr.io/oneclickvirt/docker:${system_type}-${arch}"; then
+        _green "Image ghcr.io/oneclickvirt/docker:${system_type}-${arch} already exists"
+        _green "镜像 ghcr.io/oneclickvirt/docker:${system_type}-${arch} 已存在"
+        export image_name="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
+        return 0
+    fi
+    # 查找 spiritlhl:system-arch 格式
     if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "spiritlhl:${system_type}-${arch}"; then
         _green "Image spiritlhl:${system_type}-${arch} already exists"
         _green "镜像 spiritlhl:${system_type}-${arch} 已存在"
@@ -143,70 +143,60 @@ download_and_load_image() {
     local system_type=$1
     local arch=$(get_arch)
     local tar_filename="spiritlhl_${system_type}_${arch}.tar.gz"
-    
-    _yellow "Downloading ${system_type} image for ${arch} architecture..."
-    _yellow "正在下载 ${system_type} 的 ${arch} 架构镜像..."
-    local download_url=""
-    case $system_type in
-        "ubuntu")
-            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/ubuntu/spiritlhl_ubuntu_${arch}.tar.gz"
-            ;;
-        "debian")
-            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/debian/spiritlhl_debian_${arch}.tar.gz"
-            ;;
-        "alpine")
-            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/alpine/spiritlhl_alpine_${arch}.tar.gz"
-            ;;
-        "almalinux")
-            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/almalinux/spiritlhl_almalinux_${arch}.tar.gz"
-            ;;
-        "rockylinux")
-            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/rockylinux/spiritlhl_rockylinux_${arch}.tar.gz"
-            ;;
-        "openeuler")
-            download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/openeuler/spiritlhl_openeuler_${arch}.tar.gz"
-            ;;
-        *)
-            _red "Unsupported system type: $system_type"
-            _red "不支持的系统类型: $system_type"
-            exit 1
-            ;;
-    esac
-    curl -L "$download_url" -o "$tar_filename" --connect-timeout 10 --max-time 300
-    if [ -f "$tar_filename" ] && [ -s "$tar_filename" ]; then
+    local canonical_image="spiritlhl:${system_type}-${arch}"
+
+    # 优先：通过 CDN/GitHub Releases 下载离线 tar 包
+    local github_url="https://github.com/oneclickvirt/docker/releases/download/${system_type}/${tar_filename}"
+    local download_url="${cdn_success_url}${github_url}"
+    _yellow "Downloading image tar: $download_url"
+    _yellow "正在下载镜像 tar 包: $download_url"
+
+    if curl -L --connect-timeout 15 --max-time 600 -o "/tmp/${tar_filename}" "$download_url" && \
+       [[ -f "/tmp/${tar_filename}" ]] && [[ -s "/tmp/${tar_filename}" ]]; then
         _yellow "Loading image from tar file..."
-        _yellow "正在从tar文件加载镜像..."
-        docker load < "$tar_filename"
-        if [ $? -eq 0 ]; then
-            rm -f "$tar_filename"
-            # 导入后直接设置镜像名称为导入的格式
-            export image_name="spiritlhl:${system_type}-${arch}"
-            _green "Image loaded successfully"
-            _green "镜像加载成功"
+        _yellow "正在从 tar 文件加载镜像..."
+        if docker load < "/tmp/${tar_filename}"; then
+            rm -f "/tmp/${tar_filename}"
+            export image_name="${canonical_image}"
+            _green "Image loaded successfully: ${image_name}"
+            _green "镜像加载成功: ${image_name}"
             return 0
         else
-            _red "Failed to load image from tar file"
-            _red "从tar文件加载镜像失败"
-            rm -f "$tar_filename"
+            _yellow "Failed to load tar, removing..."
+            _yellow "tar 加载失败，删除文件..."
+            rm -f "/tmp/${tar_filename}"
         fi
     else
-        _yellow "Failed to download tar file or file is empty"
-        _yellow "下载tar文件失败或文件为空"
-        rm -f "$tar_filename" 2>/dev/null
+        _yellow "CDN/direct download failed: ${download_url}"
+        _yellow "CDN/直连下载失败: ${download_url}"
+        rm -f "/tmp/${tar_filename}" 2>/dev/null
     fi
-    _yellow "Trying to pull image from Docker Hub: ${system_type}:latest"
-    _yellow "尝试从Docker Hub拉取镜像: ${system_type}:latest"
-    docker pull "${system_type}:latest"
-    if [ $? -eq 0 ]; then
-        export image_name="${system_type}:latest"
-        _green "Image pulled successfully"
-        _green "镜像拉取成功"
+
+    # 回退：从 GHCR 拉取镜像
+    local ghcr_image="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
+    _yellow "Trying to pull from GHCR: $ghcr_image"
+    _yellow "尝试从 GHCR 拉取镜像: $ghcr_image"
+    if docker pull "${ghcr_image}" 2>/dev/null; then
+        docker tag "${ghcr_image}" "${canonical_image}" 2>/dev/null || true
+        export image_name="${canonical_image}"
+        _green "Image pulled from GHCR: ${ghcr_image}"
+        _green "从 GHCR 拉取镜像成功: ${ghcr_image}"
         return 0
-    else
-        _red "Failed to pull image from Docker Hub"
-        _red "从Docker Hub拉取镜像失败"
-        exit 1
     fi
+
+    # 最后回退：从 Docker Hub 拉取官方基础镜像
+    _yellow "Trying to pull from Docker Hub: ${system_type}:latest"
+    _yellow "尝试从 Docker Hub 拉取镜像: ${system_type}:latest"
+    if docker pull "${system_type}:latest"; then
+        export image_name="${system_type}:latest"
+        _green "Image pulled from Docker Hub: ${image_name}"
+        _green "从 Docker Hub 拉取镜像成功: ${image_name}"
+        return 0
+    fi
+
+    _red "Failed to obtain image for ${system_type}"
+    _red "无法获取 ${system_type} 的镜像，所有方法均失败"
+    exit 1
 }
 
 download_ssh_scripts() {
@@ -268,11 +258,7 @@ download_ssh_scripts() {
     fi
 }
 
-check_china
-cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn1.spiritlhl.net/" "http://cdn2.spiritlhl.net/" "http://cdn3.spiritlhl.net/" "http://cdn4.spiritlhl.net/")
-if [ "${CN}" == true ]; then
-    check_cdn_file
-fi
+check_cdn_file
 check_lxcfs
 check_storage_driver
 docker network inspect ipv6_net &>/dev/null

@@ -1,35 +1,35 @@
 FROM alpine:latest
-ENV interactionless=true
 ENV ROOT_PASSWORD=oneclick136
+
 RUN apk update && \
     apk add --no-cache \
-    openssh \
-    curl \
-    wget \
-    bash \
-    dos2unix \
-    vim \
-    htop \
-    procps \
-    dcron
-RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/motd || true
-RUN echo "--by https://t.me/spiritlhl" >> /etc/motd || true
-RUN echo "Related repo https://github.com/oneclickvirt/docker" >> /etc/banner || true
-RUN echo "--by https://t.me/spiritlhl" >> /etc/banner || true
-RUN ssh-keygen -A
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
-    sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
-RUN wget https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_sh.sh -O ssh_sh.sh && \
-    chmod +x ssh_sh.sh && \
-    ./ssh_sh.sh $ROOT_PASSWORD
-RUN printf '#!/bin/sh\n\
-/usr/sbin/sshd\n\
-crond\n\
-if [ "$IPV6_ENABLED" = "true" ]; then\n\
-  echo "*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb" | crontab -\n\
-fi\n\
-tail -f /dev/null\n' > /start.sh && \
-    chmod +x /start.sh
+        openssh \
+        openssh-server \
+        curl \
+        wget \
+        bash \
+        vim \
+        htop \
+        procps \
+        dcron \
+        shadow
+
+RUN ssh-keygen -A && \
+    mkdir -p /var/run/sshd
+
+RUN sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config
+
+RUN echo 'Related repo https://github.com/oneclickvirt/docker' >> /etc/motd && \
+    echo '--by https://t.me/spiritlhl' >> /etc/motd
+
+RUN wget -qO /ssh_sh.sh \
+    https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_sh.sh && \
+    chmod +x /ssh_sh.sh
+
+COPY entrypoint_alpine.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 22
-CMD ["/start.sh"]
+CMD ["/entrypoint.sh"]
