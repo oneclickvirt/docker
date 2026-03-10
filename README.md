@@ -4,12 +4,9 @@
 
 ## 更新
 
-2026.03.01
+2026.03.10
 
-- 优化重构各脚本逻辑
-- 新增镜像推送到 GHCR，支持多架构 manifest
-- 新增 `dockeruninstall.sh` 一键卸载 Docker 环境
-- 优化镜像拉取逻辑：优先 CDN/Releases 离线包，失败后回退 GHCR
+- 支持无CDN加速模式，增加环境变量检测
 
 [更新日志](CHANGELOG.md)
 

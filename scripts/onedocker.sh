@@ -22,6 +22,12 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+
+without_cdn="false"
+if [[ "${WITHOUTCDN^^}" == "TRUE" ]]; then
+    without_cdn="true"
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
     _yellow "There is no Docker environment on this machine, please execute the main installation first."
     _yellow "没有Docker环境，请先执行主体安装"
@@ -65,6 +71,11 @@ check_cdn() {
 }
 
 check_cdn_file() {
+    if [[ "$without_cdn" == "true" ]]; then
+        export cdn_success_url=""
+        _yellow "WITHOUTCDN=TRUE detected, CDN disabled"
+        return
+    fi
     check_cdn "https://raw.githubusercontent.com/spiritLHLS/ecs/main/back/test"
     if [ -n "$cdn_success_url" ]; then
         _yellow "CDN available, using CDN"

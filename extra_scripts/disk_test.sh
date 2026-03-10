@@ -8,6 +8,11 @@ _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
 
+without_cdn="false"
+if [[ "${WITHOUTCDN^^}" == "TRUE" ]]; then
+    without_cdn="true"
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
     _red "Docker environment not found, please install Docker first"
     _red "Docker环境不存在，请先安装Docker"
@@ -16,6 +21,11 @@ fi
 
 check_china() {
     echo "Detecting IP region... / 正在检测IP地区......"
+    if [[ "$without_cdn" == "true" ]]; then
+        _yellow "WITHOUTCDN=TRUE detected, CDN acceleration disabled"
+        CN=false
+        return
+    fi
     if [[ -z "${CN}" ]]; then
         if [[ $(curl -m 6 -s https://ipapi.co/json 2>/dev/null | grep 'China') != "" ]]; then
             _green "China IP detected, will use CDN acceleration"
@@ -43,6 +53,11 @@ check_cdn() {
 }
 
 check_cdn_file() {
+    if [[ "$without_cdn" == "true" ]]; then
+        export cdn_success_url=""
+        _yellow "WITHOUTCDN=TRUE detected, CDN disabled"
+        return
+    fi
     check_cdn "https://raw.githubusercontent.com/spiritLHLS/ecs/main/back/test"
     if [ -n "$cdn_success_url" ]; then
         _green "CDN available, using CDN acceleration: $cdn_success_url"

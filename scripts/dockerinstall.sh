@@ -25,6 +25,12 @@ fi
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
+
+without_cdn="false"
+if [[ "${WITHOUTCDN^^}" == "TRUE" ]]; then
+    without_cdn="true"
+fi
+
 temp_file_apt_fix="/tmp/apt_fix.txt"
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch" "alpine")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch" "Alpine")
@@ -406,6 +412,11 @@ check_cdn() {
 }
 
 check_cdn_file() {
+    if [[ "$without_cdn" == "true" ]]; then
+        export cdn_success_url=""
+        _yellow "WITHOUTCDN=TRUE detected, CDN disabled"
+        return
+    fi
     check_cdn "https://raw.githubusercontent.com/spiritLHLS/ecs/main/back/test"
     if [ -n "$cdn_success_url" ]; then
         _yellow "CDN available, using CDN"
@@ -631,7 +642,11 @@ fi
 ${PACKAGE_INSTALL[int]} net-tools
 check_china
 cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn1.spiritlhl.net/" "http://cdn2.spiritlhl.net/" "http://cdn3.spiritlhl.net/" "http://cdn4.spiritlhl.net/")
-check_cdn_file
+if [[ "$without_cdn" == "true" ]]; then
+    cdn_success_url=""
+else
+    check_cdn_file
+fi
 get_system_arch
 ${PACKAGE_INSTALL[int]} openssl
 curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh && chmod +x ssh_bash.sh && dos2unix ssh_bash.sh

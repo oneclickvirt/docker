@@ -13,6 +13,11 @@ _blue()   { echo -e "\033[36m\033[01m$*\033[0m"; }
 reading() { read -rp "$(_green "$1")" "$2"; }
 export DEBIAN_FRONTEND=noninteractive
 
+without_cdn="false"
+if [[ "${WITHOUTCDN^^}" == "TRUE" ]]; then
+    without_cdn="true"
+fi
+
 if [ "$(id -u)" != "0" ]; then
     _red "This script must be run as root" 1>&2
     exit 1
@@ -23,13 +28,17 @@ cd /root || exit 1
 
 # ======== CDN 检测 ========
 cdn_success_url=""
-if [[ -f /usr/local/bin/docker_cdn ]]; then
-    cdn_success_url=$(cat /usr/local/bin/docker_cdn)
+if [[ "$without_cdn" == "true" ]]; then
+    _yellow "WITHOUTCDN=TRUE detected, CDN acceleration disabled"
 else
-    ip_info=$(curl -sLk --connect-timeout 5 --max-time 10 "https://ipapi.co/json/" 2>/dev/null || true)
-    if echo "$ip_info" | grep -q '"country": "CN"'; then
-        cdn_success_url="https://cdn.spiritlhl.net/"
-        echo "$cdn_success_url" > /usr/local/bin/docker_cdn
+    if [[ -f /usr/local/bin/docker_cdn ]]; then
+        cdn_success_url=$(cat /usr/local/bin/docker_cdn)
+    else
+        ip_info=$(curl -sLk --connect-timeout 5 --max-time 10 "https://ipapi.co/json/" 2>/dev/null || true)
+        if echo "$ip_info" | grep -q '"country": "CN"'; then
+            cdn_success_url="https://cdn.spiritlhl.net/"
+            echo "$cdn_success_url" > /usr/local/bin/docker_cdn
+        fi
     fi
 fi
 
