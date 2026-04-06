@@ -30,6 +30,15 @@ without_cdn="false"
 if [[ "${WITHOUTCDN^^}" == "TRUE" ]]; then
     without_cdn="true"
 fi
+# 支持的环境变量（一键非交互安装）：
+#   WITHOUTCDN=true          - 禁用 CDN 加速
+#   CN=true                  - 强制使用中国镜像源
+#   CN=false                 - 强制不使用中国镜像源（跳过检测）
+#   IPV6_MAXIMUM_SUBSET=y/n  - 是否使用 IPv6 最大子网范围（SLAAC 场景）
+#   NEED_DISK_LIMIT=y/n      - 是否启用容器磁盘大小限制（btrfs）
+#   DOCKER_INSTALL_PATH=...  - Docker 数据目录（默认 /var/lib/docker）
+#   DOCKER_POOL_SIZE=20      - Docker 存储池大小（单位 GB，需 NEED_DISK_LIMIT=y）
+#   DOCKER_LOOP_FILE=...     - Docker loop 文件路径（默认 /opt/docker-pool.img）
 
 temp_file_apt_fix="/tmp/apt_fix.txt"
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch" "alpine")
@@ -445,6 +454,14 @@ get_system_arch() {
 
 check_china() {
     _yellow "IP area being detected ......"
+    if [[ "${CN^^}" == "TRUE" ]]; then
+        _yellow "CN=TRUE detected, using Chinese mirrors"
+        CN=true
+        return
+    elif [[ "${CN^^}" == "FALSE" ]]; then
+        _yellow "CN=FALSE detected, skipping Chinese mirrors"
+        return
+    fi
     if [[ -z "${CN}" ]]; then
         if [[ $(curl -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
             _yellow "根据ipapi.co提供的信息，当前IP可能在中国"
@@ -857,7 +874,15 @@ if [[ -n "$ipv6_address" ]]; then
         _blue "It is detected that IPV6 addresses are most likely to be dynamically assigned by SLAAC, and if there is no subsequent need to assign separate IPV6 addresses to VMs/containers, the following option is best selected n"
         _green "检测到IPV6地址大概率由SLAAC动态分配，若后续不需要分配独立的IPV6地址给虚拟机/容器，则下面选项最好选 n, 选择 y 有概率导致宿主机丢失网络"
         _blue "Is the maximum subnet range feasible with IPV6 used?([n]/y)"
-        reading "是否使用IPV6可行的最大子网范围？([n]/y)" select_maximum_subset
+        if [[ "${IPV6_MAXIMUM_SUBSET^^}" == "Y" || "${IPV6_MAXIMUM_SUBSET^^}" == "TRUE" ]]; then
+            _yellow "IPV6_MAXIMUM_SUBSET=${IPV6_MAXIMUM_SUBSET} detected, using maximum IPv6 subnet"
+            select_maximum_subset="y"
+        elif [[ "${IPV6_MAXIMUM_SUBSET^^}" == "N" || "${IPV6_MAXIMUM_SUBSET^^}" == "FALSE" ]]; then
+            _yellow "IPV6_MAXIMUM_SUBSET=${IPV6_MAXIMUM_SUBSET} detected, skipping maximum IPv6 subnet"
+            select_maximum_subset="n"
+        else
+            reading "是否使用IPV6可行的最大子网范围？([n]/y)" select_maximum_subset
+        fi
         if [ "$select_maximum_subset" = "y" ] || [ "$select_maximum_subset" = "Y" ]; then
             echo "true" >/usr/local/bin/docker_maximum_subset
         else
@@ -900,26 +925,46 @@ _blue "If you choose 'y', you can limit the disk space for each container"
 _blue "If you choose 'n', standard Docker installation without disk limits"
 _blue "如果选择 'y'，可以为每个容器限制磁盘空间"
 _blue "如果选择 'n'，则为标准Docker安装，无磁盘限制"
-reading "Do you need container disk size limitation? ([n]/y): " need_disk_limit
+if [[ -n "${NEED_DISK_LIMIT}" ]]; then
+    _yellow "NEED_DISK_LIMIT=${NEED_DISK_LIMIT} detected, skipping prompt"
+    need_disk_limit="${NEED_DISK_LIMIT}"
+else
+    reading "Do you need container disk size limitation? ([n]/y): " need_disk_limit
+fi
 _green "Where do you want to install Docker? (Enter to default: /var/lib/docker):"
-reading "Docker安装路径？（回车则默认：/var/lib/docker）：" docker_install_path
+if [[ -n "${DOCKER_INSTALL_PATH}" ]]; then
+    _yellow "DOCKER_INSTALL_PATH=${DOCKER_INSTALL_PATH} detected, skipping prompt"
+    docker_install_path="${DOCKER_INSTALL_PATH}"
+else
+    reading "Docker安装路径？（回车则默认：/var/lib/docker）：" docker_install_path
+fi
 if [ -z "$docker_install_path" ]; then
     docker_install_path="/var/lib/docker"
 fi
 if [ "$need_disk_limit" = "y" ] || [ "$need_disk_limit" = "Y" ]; then
     echo "true" > /usr/local/bin/docker_need_disk_limit
-    while true; do
-        _green "How large a Docker storage pool is needed? (unit: GB, e.g., enter 20 for 20G):"
-        reading "需要多大的Docker存储池？（单位GB，例如输入20表示20G）：" docker_pool_size
-        if [[ "$docker_pool_size" =~ ^[1-9][0-9]*$ ]]; then
-            break
-        else
-            _yellow "Invalid input, please enter a positive integer."
-            _yellow "输入无效，请输入一个正整数。"
-        fi
-    done
+    if [[ -n "${DOCKER_POOL_SIZE}" ]] && [[ "${DOCKER_POOL_SIZE}" =~ ^[1-9][0-9]*$ ]]; then
+        _yellow "DOCKER_POOL_SIZE=${DOCKER_POOL_SIZE} detected, skipping prompt"
+        docker_pool_size="${DOCKER_POOL_SIZE}"
+    else
+        while true; do
+            _green "How large a Docker storage pool is needed? (unit: GB, e.g., enter 20 for 20G):"
+            reading "需要多大的Docker存储池？（单位GB，例如输入20表示20G）：" docker_pool_size
+            if [[ "$docker_pool_size" =~ ^[1-9][0-9]*$ ]]; then
+                break
+            else
+                _yellow "Invalid input, please enter a positive integer."
+                _yellow "输入无效，请输入一个正整数。"
+            fi
+        done
+    fi
     _green "Where do you want to store the Docker loop file? (Enter to default: /opt/docker-pool.img):"
-    reading "Docker循环文件存储位置？（回车则默认：/opt/docker-pool.img）：" docker_loop_file
+    if [[ -n "${DOCKER_LOOP_FILE}" ]]; then
+        _yellow "DOCKER_LOOP_FILE=${DOCKER_LOOP_FILE} detected, skipping prompt"
+        docker_loop_file="${DOCKER_LOOP_FILE}"
+    else
+        reading "Docker循环文件存储位置？（回车则默认：/opt/docker-pool.img）：" docker_loop_file
+    fi
     if [ -z "$docker_loop_file" ]; then
         docker_loop_file="/opt/docker-pool.img"
     fi
