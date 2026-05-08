@@ -24,11 +24,10 @@ RUN sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config &
 RUN echo 'Related repo https://github.com/oneclickvirt/docker' >> /etc/motd && \
     echo '--by https://t.me/spiritlhl' >> /etc/motd
 
-RUN wget -qO /ssh_sh.sh \
-    https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/ssh_sh.sh && \
-    chmod +x /ssh_sh.sh
+COPY scripts/ssh_sh.sh /ssh_sh.sh
+RUN chmod +x /ssh_sh.sh
 
-COPY entrypoint_alpine.sh /entrypoint.sh
+COPY dockerfiles/entrypoint_alpine.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 22
