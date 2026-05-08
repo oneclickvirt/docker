@@ -25,6 +25,10 @@ RUN sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config &
 RUN echo 'Related repo https://github.com/oneclickvirt/docker' >> /etc/motd && \
     echo '--by https://t.me/spiritlhl' >> /etc/motd
 
+# CVE-2026-31431 (copy-fail) 缓解：禁止加载 algif_aead 模块
+RUN mkdir -p /etc/modprobe.d && \
+    echo "install algif_aead /bin/false" > /etc/modprobe.d/disable-algif-aead.conf
+
 COPY scripts/ssh_bash.sh /ssh_bash.sh
 RUN chmod +x /ssh_bash.sh
 

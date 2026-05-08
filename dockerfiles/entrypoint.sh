@@ -5,6 +5,9 @@
 
 set -e
 
+# CVE-2026-31431 (copy-fail) 缓解：尝试卸载 algif_aead 模块
+rmmod algif_aead 2>/dev/null || true
+
 # 设置 root 密码（支持通过环境变量传入）
 if [[ -n "$ROOT_PASSWORD" ]]; then
     echo "root:${ROOT_PASSWORD}" | chpasswd 2>/dev/null || true
