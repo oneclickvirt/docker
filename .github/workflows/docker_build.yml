@@ -90,7 +90,7 @@ jobs:
           -f dockerfiles/${{ matrix.dockerfile }} \
           -t ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }}-${{ matrix.arch }} \
           --platform linux/${{ matrix.arch }} \
-          .
+          dockerfiles/
 
     - name: Push arch-specific image to GHCR
       run: |
