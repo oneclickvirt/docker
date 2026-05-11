@@ -1300,18 +1300,40 @@ docker_build_ipv6() {
                 echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
             fi
             target_mask=${ipv6_prefixlen}
-            # 确保 target_mask 有值
-            if [ -z "$target_mask" ]; then
+            # 确保 target_mask 有值且在合法范围内 [1, 128]
+            if [ -z "$target_mask" ] || ! [[ "$target_mask" =~ ^[0-9]+$ ]]; then
                 _red "Failed to get IPv6 prefix length"
                 _red "无法获取 IPv6 前缀长度"
                 return 1
             fi
+            if [ "$target_mask" -lt 1 ] || [ "$target_mask" -gt 128 ]; then
+                _red "IPv6 prefix length ${target_mask} is out of valid range [1, 128]"
+                _red "IPv6 前缀长度 ${target_mask} 超出合法范围 [1, 128]"
+                return 1
+            fi
             echo "Before: target_mask = $target_mask"
+            # 向上取整到下一个8的倍数（用于子网切分）
+            # 注意：当 target_mask 已是8的倍数时，需额外加8以获得更细分的子网
             ((target_mask += 8 - (target_mask % 8)))
+            # 确保 target_mask 不超过 IPv6 最大前缀长度 128
+            if [ "$target_mask" -gt 128 ]; then
+                _yellow "Warning: computed target_mask=${target_mask} exceeds IPv6 maximum prefix length 128, capping at 128"
+                _yellow "警告: 计算出的 target_mask=${target_mask} 超过 IPv6 最大前缀长度 128，限制为 128"
+                target_mask=128
+            fi
+            # 若 target_mask 不大于 ipv6_prefixlen，则无法进行有效分割
+            if [ "$target_mask" -le "$ipv6_prefixlen" ]; then
+                _yellow "Cannot split subnet: target_mask (/${target_mask}) must be larger than ipv6_prefixlen (/${ipv6_prefixlen}), skipping split"
+                _yellow "无法切分子网：target_mask (/${target_mask}) 必须大于 ipv6_prefixlen (/${ipv6_prefixlen})，跳过切分"
+                install_docker_and_compose
+                return 0
+            fi
             echo "After: target_mask = $target_mask"
             ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
-            ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
-            if [ -n "$ipv6_subnet_2_without_last_segment" ] && [ -n "$target_mask" ]; then
+            # 注意：当 ipv6_subnet_2 为空时，"${ipv6_subnet_2%:*}:" 会得到 ":"（非空），
+            # 因此必须先检查 ipv6_subnet_2 本身是否为空
+            if [ -n "$ipv6_subnet_2" ] && [ -n "$target_mask" ]; then
+                ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
                 new_subnet="${ipv6_subnet_2}/${target_mask}"
                 _green "Use cuted IPV6 subnet：${new_subnet}"
                 _green "使用切分出来的IPV6子网：${new_subnet}"
