@@ -8,7 +8,23 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading() { read -rp "$(_green "$1")" "$2"; }
+is_noninteractive() {
+  case "${noninteractive:-}" in
+    [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+  esac
+  return 1
+}
+reading() {
+  local prompt="$1"
+  local var_name="$2"
+  local default_value="${3:-}"
+  if is_noninteractive; then
+    printf -v "$var_name" '%s' "$default_value"
+    _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+  else
+    read -rp "$(_green "$prompt")" "$var_name"
+  fi
+}
 export DEBIAN_FRONTEND=noninteractive
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
@@ -41,16 +57,17 @@ done
 
 check_ipv4() {
   API_NET=("ip.sb" "ipget.net" "ip.ping0.cc" "https://ip4.seeip.org" "https://api.my-ip.io/ip" "https://ipv4.icanhazip.com" "api.ipify.org")
+  IPV4=""
   for p in "${API_NET[@]}"; do
-    response=$(curl -s4m8 "$p")
+    response=$(curl -s4m8 "$p" | tr -d '[:space:]')
     sleep 1
-    if [ $? -eq 0 ] && ! echo "$response" | grep -q "error"; then
+    if [ $? -eq 0 ] && echo "$response" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
       IP_API="$p"
+      IPV4="$response"
       break
     fi
   done
-  ! curl -s4m8 $IP_API | grep -q '\.' && _red " ERROR：The host must have IPv4. " && exit 1
-  IPV4=$(curl -s4m8 "$IP_API")
+  [ -z "$IPV4" ] && _red " ERROR：The host must have IPv4. " && exit 1
 }
 
 check_ipv4
@@ -62,21 +79,30 @@ fi
 _green "Can be opened more than one, as long as you correspond to the use of different web port and vnc port can be, because the container name and the port corresponds to the port, the port does not repeat the container name is not repeated can be opened more than one"
 _green "可多开，只要你对应使用不同的web端口和vnc端口即可，因为容器名字是和http的端口对应的，端口不重复容器名字就不重复可多开"
 _green "Browser access username: (leave blank to default to onew):"
-reading "浏览器访问用户名(留空则默认为onew):" username
+reading "浏览器访问用户名(留空则默认为onew):" username "${WEBTOP_USER:-onew}"
 _green "Browser access password: (leave blank to default to oneclick):"
-reading "浏览器访问密码(留空则默认为oneclick):" password
+reading "浏览器访问密码(留空则默认为oneclick):" password "${WEBTOP_PASSWORD:-oneclick}"
 _green "Browser access http port (default 3004 if left blank):"
-reading "浏览器访问http端口(留空则默认3004):" http_port
+reading "浏览器访问http端口(留空则默认3004):" http_port "${WEBTOP_HTTP_PORT:-3004}"
 _green "Browser access https port (default 3005 if left blank):"
-reading "浏览器访问https端口(留空则默认3005):" https_port
+reading "浏览器访问https端口(留空则默认3005):" https_port "${WEBTOP_HTTPS_PORT:-3005}"
 _green "Set the maximum occupied memory, enter the number only (leave blank the default setting of 2G memory):"
-reading "设置最大占用内存，仅输入数字(留空默认设置为2G内存):" shm_size
+reading "设置最大占用内存，仅输入数字(留空默认设置为2G内存):" shm_size "${WEBTOP_SHM_GB:-2}"
 [[ -z "$http_port" ]] && http_port=3004
 [[ -z "$https_port" ]] && https_port=3005
 [[ -z "$username" ]] && username="onew"
 [[ -z "$password" ]] && password="oneclick"
 [[ -z "$shm_size" ]] && shm_size="2"
-docker run -d \
+[[ "$http_port" =~ ^[0-9]+$ ]] || http_port=3004
+[[ "$https_port" =~ ^[0-9]+$ ]] || https_port=3005
+[[ "$shm_size" =~ ^[0-9]+$ ]] || shm_size="2"
+config_dir="/usr/local/bin/webtop_${http_port}"
+mkdir -p "$config_dir"
+dri_args=()
+if [ -e /dev/dri ]; then
+  dri_args=(--device /dev/dri:/dev/dri)
+fi
+if ! docker run -d \
   --name=webtop_${http_port} \
   --security-opt seccomp=unconfined \
   --privileged \
@@ -89,14 +115,18 @@ docker run -d \
   -e PASSWORD="$password" \
   -e DOCKER_MODS=linuxserver/mods:universal-internationalization \
   -e LC_ALL=zh_CN.UTF-8 \
-  -p ${http_port}:3000 \
-  -p ${https_port}:3001 \
-  -v /path/to/data:/config \
+  -p "${http_port}:3000" \
+  -p "${https_port}:3001" \
+  -v "${config_dir}:/config" \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  --device /dev/dri:/dev/dri \
+  "${dri_args[@]}" \
   --shm-size="${shm_size}gb" \
   --restart unless-stopped \
-  lscr.io/linuxserver/webtop:latest
+  lscr.io/linuxserver/webtop:latest; then
+  _red "Failed to create webtop_${http_port}"
+  _red "创建 webtop_${http_port} 失败"
+  exit 1
+fi
 _green "URL(http): ${IPV4}:$http_port URL(https): ${IPV4}:$https_port"
 _green "Username: $username Password: $password"
 _green "网址(http)：${IPV4}:$http_port 网址(https)：${IPV4}:$https_port"

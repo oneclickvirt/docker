@@ -46,7 +46,7 @@ mkdir -p /var/run/sshd
 ssh-keygen -A 2>/dev/null || true
 
 # 设置 root 密码
-echo "root:${passwd_input}" | chpasswd 2>/dev/null || true
+printf "%s\n" "root:${passwd_input}" | chpasswd 2>/dev/null || true
 
 # 启动 sshd
 rc-update add sshd default 2>/dev/null || true

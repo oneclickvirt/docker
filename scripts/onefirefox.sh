@@ -8,7 +8,23 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading() { read -rp "$(_green "$1")" "$2"; }
+is_noninteractive() {
+    case "${noninteractive:-}" in
+        [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    esac
+    return 1
+}
+reading() {
+    local prompt="$1"
+    local var_name="$2"
+    local default_value="${3:-}"
+    if is_noninteractive; then
+        printf -v "$var_name" '%s' "$default_value"
+        _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+    else
+        read -rp "$(_green "$prompt")" "$var_name"
+    fi
+}
 export DEBIAN_FRONTEND=noninteractive
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
@@ -44,16 +60,17 @@ fi
 
 check_ipv4() {
     API_NET=("ip.sb" "ipget.net" "ip.ping0.cc" "https://ip4.seeip.org" "https://api.my-ip.io/ip" "https://ipv4.icanhazip.com" "api.ipify.org")
+    IPV4=""
     for p in "${API_NET[@]}"; do
-        response=$(curl -s4m8 "$p")
+        response=$(curl -s4m8 "$p" | tr -d '[:space:]')
         sleep 1
-        if [ $? -eq 0 ] && ! echo "$response" | grep -q "error"; then
+        if [ $? -eq 0 ] && echo "$response" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
             IP_API="$p"
+            IPV4="$response"
             break
         fi
     done
-    ! curl -s4m8 $IP_API | grep -q '\.' && _red " ERROR：The host must have IPv4. " && exit 1
-    IPV4=$(curl -s4m8 "$IP_API")
+    [ -z "$IPV4" ] && _red " ERROR：The host must have IPv4. " && exit 1
 }
 
 check_ipv4
@@ -65,29 +82,37 @@ fi
 _green "Can be opened more than one, as long as you correspond to the use of different web port and vnc port can be, because the container name and the port corresponds to the port, the port does not repeat the container name is not repeated can be opened more than one"
 _green "可多开，只要你对应使用不同的web端口和vnc端口即可，因为容器名字是和端口对应的，端口不重复容器名字就不重复可多开"
 _green "Browser access password: (leave blank to default to oneclick):"
-reading "浏览器访问密码(留空则默认为oneclick):" password
+reading "浏览器访问密码(留空则默认为oneclick):" password "${FIREFOX_PASSWORD:-oneclick}"
 _green "Browser access port (default 3003 if left blank):"
-reading "浏览器访问端口(留空则默认3003):" web_port
+reading "浏览器访问端口(留空则默认3003):" web_port "${FIREFOX_WEB_PORT:-3003}"
 _green "Ports on which to run VNC (leave empty for default not to run):"
-reading "运行VNC的端口(留空默认不运行):" vnc_port
+reading "运行VNC的端口(留空默认不运行):" vnc_port "${FIREFOX_VNC_PORT:-}"
 _green "Set the maximum occupied memory, enter the number only (leave blank the default setting of 2G memory):"
-reading "设置最大占用内存，仅输入数字(留空默认设置为2G内存):" shm_size
+reading "设置最大占用内存，仅输入数字(留空默认设置为2G内存):" shm_size "${FIREFOX_SHM_GB:-2}"
 [[ -z "$web_port" ]] && web_port=3003
 [[ -z "$password" ]] && password="oneclick"
-[[ "$vnc_port" ]] && vnc="-p $vnc_port:5900" && vnc_en="VNC port:$vnc_port, VNC password is the same as the browser access password." && vnc_cn="VNC端口:$vnc_port，VNC密码同浏览器访问密码一致"
+[[ "$web_port" =~ ^[0-9]+$ ]] || web_port=3003
+[[ -z "$vnc_port" || "$vnc_port" =~ ^[0-9]+$ ]] || vnc_port=""
+vnc_args=()
+[[ "$vnc_port" ]] && vnc_args=(-p "$vnc_port:5900") && vnc_en="VNC port:$vnc_port, VNC password is the same as the browser access password." && vnc_cn="VNC端口:$vnc_port，VNC密码同浏览器访问密码一致"
 [[ -z "$shm_size" ]] && shm_size="2"
+[[ "$shm_size" =~ ^[0-9]+$ ]] || shm_size="2"
 # https://github.com/jlesage/docker-firefox
-docker run -d \
+if ! docker run -d \
     --name=firefox_${web_port} \
-    $vnc \
+    "${vnc_args[@]}" \
     -e KEEP_APP_RUNNING=1 \
     -e ENABLE_CJK_FONT=1 \
-    -e VNC_PASSWORD=$password \
+    -e VNC_PASSWORD="$password" \
     -e "FF_PREF_WELCOME_URL=startup.homepage_welcome_url=\"https://www.spiritlhl.net\"" \
-    -p 0.0.0.0:$web_port:5800 \
+    -p 0.0.0.0:"$web_port":5800 \
     -v /usr/local/bin/firefox_${web_port}:/config:rw \
-    --shm-size ${shm_size}g \
-    jlesage/firefox:latest
+    --shm-size "${shm_size}g" \
+    jlesage/firefox:latest; then
+    _red "Failed to create firefox_${web_port}"
+    _red "创建 firefox_${web_port} 失败"
+    exit 1
+fi
 _green "URL(http): ${IPV4}:$web_port, Password: $password"
 _green "网址(http)：${IPV4}:$web_port，密码: $password"
 [[ "$vnc_port" ]] && _green "$vnc_en" && _green "$vnc_cn"

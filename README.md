@@ -4,9 +4,9 @@
 
 ## 更新
 
-2026.05.11
+2026.06.02
 
-- 修复V6切分子网可能出现超过协议要求的问题
+- 统一无交互执行方式为 `export noninteractive=true`
 
 [更新日志](CHANGELOG.md)
 
@@ -32,8 +32,11 @@
 ## 安装 Docker 环境
 
 ```bash
+export noninteractive=true
 bash <(wget -qO- https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/dockerinstall.sh)
 ```
+
+如需交互式安装，不设置 `noninteractive` 即可。
 
 ## 开设单个容器
 
@@ -64,10 +67,11 @@ docker exec -it <name> bash
 一键卸载 Docker 全套环境，包括所有容器、镜像、网络、systemd 服务、二进制文件：
 
 ```bash
+export noninteractive=true
 bash <(wget -qO- https://raw.githubusercontent.com/oneclickvirt/docker/main/dockeruninstall.sh)
 ```
 
-脚本会在执行前要求输入 `yes` 确认，操作不可逆。
+未设置 `noninteractive=true` 时，脚本会在执行前要求输入 `yes` 确认，操作不可逆。
 
 > **复测流程**：先执行卸载，再执行安装，即可从零验证整个安装流程。
 

@@ -8,7 +8,23 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading() { read -rp "$(_green "$1")" "$2"; }
+is_noninteractive() {
+    case "${noninteractive:-}" in
+        [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    esac
+    return 1
+}
+reading() {
+    local prompt="$1"
+    local var_name="$2"
+    local default_value="${3:-}"
+    if is_noninteractive; then
+        printf -v "$var_name" '%s' "$default_value"
+        _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+    else
+        read -rp "$(_green "$prompt")" "$var_name"
+    fi
+}
 export DEBIAN_FRONTEND=noninteractive
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
@@ -48,6 +64,9 @@ if ! command -v docker >/dev/null 2>&1; then
     _yellow "没有Docker环境，请先执行主体安装"
     exit 1
 fi
+if ! command -v jq >/dev/null 2>&1; then
+    ${PACKAGE_INSTALL[int]} jq
+fi
 image_name="redroid/redroid"
 tags=($(curl -s "https://registry.hub.docker.com/v2/repositories/${image_name}/tags/" | jq -r '.results[].name'))
 for index in "${!tags[@]}"; do
@@ -55,12 +74,15 @@ for index in "${!tags[@]}"; do
 done
 while true; do
     _green "Enter the index of the tag you want to print: "
-    reading "输入你想要安装的对应序号(留空则默认使用最低版本的镜像)" selected_index
+    reading "输入你想要安装的对应序号(留空则默认使用最低版本的镜像)" selected_index "${ANDROID_TAG:-}"
     if [ -z "$selected_index" ]; then
         selected_tag="8.1.0-latest"
         break
+    elif is_noninteractive && [[ ! "$selected_index" =~ ^[0-9]+$ ]]; then
+        selected_tag="$selected_index"
+        break
     else
-        if [[ $selected_index -ge 0 && $selected_index -lt ${#tags[@]} ]]; then
+        if [[ "$selected_index" =~ ^[0-9]+$ && "$selected_index" -ge 0 && "$selected_index" -lt ${#tags[@]} ]]; then
             selected_tag="${tags[selected_index]}"
             echo "Selected tag: $selected_tag"
             break
@@ -77,12 +99,12 @@ done
 # fi
 name="android"
 _green "Please enter the name of the web authentication: (leave it blank for the default name to be onea):"
-reading "请输入web验证的名字：(留空则默认名字是onea)：" user_name
+reading "请输入web验证的名字：(留空则默认名字是onea)：" user_name "${ANDROID_WEB_USER:-onea}"
 if [ -z "$user_name" ]; then
     user_name="onea"
 fi
 _green "Please enter the password for web authentication: (leave it blank or the default password is oneclick):"
-reading "请输入web验证的密码：(留空则默认密码是oneclick)：" user_password
+reading "请输入web验证的密码：(留空则默认密码是oneclick)：" user_password "${ANDROID_WEB_PASSWORD:-oneclick}"
 if [ -z "$user_password" ]; then
     user_password="oneclick"
 fi
@@ -155,4 +177,4 @@ fi
 rm -rf /root/android_info
 cd /root >/dev/null 2>&1
 ls
-bash oneandroid.sh ${name} ${selected_tag} ${user_name} ${user_password}
+bash oneandroid.sh "${name}" "${selected_tag}" "${user_name}" "${user_password}"

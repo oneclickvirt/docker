@@ -8,7 +8,23 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading() { read -rp "$(_green "$1")" "$2"; }
+is_noninteractive() {
+    case "${noninteractive:-}" in
+        [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    esac
+    return 1
+}
+reading() {
+    local prompt="$1"
+    local var_name="$2"
+    local default_value="${3:-}"
+    if is_noninteractive; then
+        printf -v "$var_name" '%s' "$default_value"
+        _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+    else
+        read -rp "$(_green "$prompt")" "$var_name"
+    fi
+}
 export DEBIAN_FRONTEND=noninteractive
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
@@ -41,16 +57,17 @@ done
 
 check_ipv4() {
     API_NET=("ip.sb" "ipget.net" "ip.ping0.cc" "https://ip4.seeip.org" "https://api.my-ip.io/ip" "https://ipv4.icanhazip.com" "api.ipify.org")
+    IPV4=""
     for p in "${API_NET[@]}"; do
-        response=$(curl -s4m8 "$p")
+        response=$(curl -s4m8 "$p" | tr -d '[:space:]')
         sleep 1
-        if [ $? -eq 0 ] && ! echo "$response" | grep -q "error"; then
+        if [ $? -eq 0 ] && echo "$response" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
             IP_API="$p"
+            IPV4="$response"
             break
         fi
     done
-    ! curl -s4m8 $IP_API | grep -q '\.' && _red " ERROR：The host must have IPv4. " && exit 1
-    IPV4=$(curl -s4m8 "$IP_API")
+    [ -z "$IPV4" ] && _red " ERROR：The host must have IPv4. " && exit 1
 }
 
 check_nginx() {
@@ -71,16 +88,23 @@ check_dig() {
     fi
 }
 
+check_openssl() {
+    if ! command -v openssl >/dev/null 2>&1; then
+        _green "Installing openssl..."
+        ${PACKAGE_INSTALL[int]} openssl
+    fi
+}
+
 build_reverse_proxy() {
     _green "Build reverse proxy."
     _green "Do you want to bind a URL? (yes/no): "
-    reading "你需要绑定网址吗？(yes/no)" choice
+    reading "你需要绑定网址吗？(yes/no)" choice "${ANDROID_BIND_DOMAIN:-no}"
     choice_lower=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
     if [ "$choice_lower" == "yes" ]; then
         while true; do
             _green "Enter the domain name to bind to (format: www.example.com): "
-            reading "输入你绑定本机IPV4地址的网址(如 www.example.com)：" domain_name
-            resolved_ip=$(dig +short $domain_name | head -1)
+            reading "输入你绑定本机IPV4地址的网址(如 www.example.com)：" domain_name "${ANDROID_DOMAIN:-}"
+            resolved_ip=$(dig +short "$domain_name" | head -1)
             if [ "$resolved_ip" != "$IPV4" ]; then
                 _red "Error: $domain_name is not bound to the local IP address."
                 exit 1
@@ -102,7 +126,7 @@ build_reverse_proxy() {
         exit 1
     fi
     echo "$user_name:$hashed_password" > /etc/nginx/passwd_scrcpy_web
-    sudo tee /etc/nginx/sites-available/reverse-proxy <<EOF
+    tee /etc/nginx/sites-available/reverse-proxy <<EOF
 map \$http_upgrade \$connection_upgrade {
     default upgrade;
     '' close;
@@ -134,14 +158,14 @@ server {
     }
 }
 EOF
-    sudo ln -s /etc/nginx/sites-available/reverse-proxy /etc/nginx/sites-enabled/
-    sudo nginx -t
+    ln -s /etc/nginx/sites-available/reverse-proxy /etc/nginx/sites-enabled/ 2>/dev/null || true
+    nginx -t
     if [ $? -ne 0 ]; then
         _red "Error: There is an error in the reverse proxy configuration file. Please check："
         _yellow "https://zipline.diced.tech/docs/guides/nginx/nginx-no-ssl"
         exit 1
     fi
-    sudo systemctl restart nginx
+    systemctl restart nginx
 }
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -152,6 +176,7 @@ fi
 check_ipv4
 check_nginx
 check_dig
+check_openssl
 rm -rf /root/android/data
 # rm -rf /root/scrcpy_web/data
 if [ ! -d "/root/android/data" ]; then
@@ -165,14 +190,14 @@ selected_tag="${2:-'8.1.0-latest'}"
 user_name="${3:-onea}"
 user_password="${4:-oneclick}"
 # https://hub.docker.com/r/redroid/redroid/tags
-docker run -itd \
-    --name ${name} \
+if ! docker run -d \
+    --name "${name}" \
     --restart=unless-stopped \
     --memory-swappiness=0 \
     --privileged --pull always \
     -p 5555:5555 \
     -v /root/android/data:/data \
-    redroid/redroid:${selected_tag} \
+    "redroid/redroid:${selected_tag}" \
     androidboot.hardware=mt6891 \
     androidboot.redroid_gpu_mode=guest \
     ro.secure=0 \
@@ -185,7 +210,11 @@ docker run -itd \
     ro.build.product=chopin \
     redroid.width=720 \
     redroid.height=1280 \
-    redroid.gpu.mode=guest
+    redroid.gpu.mode=guest; then
+    _yellow "The container $name failed to create and the script will exit."
+    _yellow "容器 $name 创建失败，脚本将退出。"
+    exit 1
+fi
 sleep 5
 # 守护进程似乎无法识别npm项目，待修复
 if [ ! -f /etc/systemd/system/ws-scrcpy.service ]; then
@@ -256,8 +285,11 @@ nohup adb connect localhost:5555 > adb-nohup.out &
 sleep 5
 output=$(cat adb-nohup.out)
 if [ $? -ne 0 ] || [[ $output == *"failed to connect to"* ]]; then
-    docker rm -f android
-    docker rmi $(docker images | grep "redroid" | awk '{print $3}')
+    docker rm -f "$name"
+    redroid_images=$(docker images | awk '/redroid/ {print $3}')
+    if [ -n "$redroid_images" ]; then
+        docker rmi $redroid_images
+    fi
     rm -rf /etc/nginx/sites-enabled/reverse-proxy
     rm -rf /etc/nginx/sites-available/reverse-proxy
     rm -rf /etc/nginx/passwd_scrcpy_web

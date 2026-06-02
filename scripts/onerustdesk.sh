@@ -8,7 +8,23 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading() { read -rp "$(_green "$1")" "$2"; }
+is_noninteractive() {
+    case "${noninteractive:-}" in
+        [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    esac
+    return 1
+}
+reading() {
+    local prompt="$1"
+    local var_name="$2"
+    local default_value="${3:-}"
+    if is_noninteractive; then
+        printf -v "$var_name" '%s' "$default_value"
+        _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+    else
+        read -rp "$(_green "$prompt")" "$var_name"
+    fi
+}
 export DEBIAN_FRONTEND=noninteractive
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
@@ -41,16 +57,23 @@ done
 
 check_ipv4() {
     API_NET=("ip.sb" "ipget.net" "ip.ping0.cc" "https://ip4.seeip.org" "https://api.my-ip.io/ip" "https://ipv4.icanhazip.com" "api.ipify.org")
+    IPV4=""
     for p in "${API_NET[@]}"; do
-        response=$(curl -s4m8 "$p")
+        response=$(curl -s4m8 "$p" | tr -d '[:space:]')
         sleep 1
-        if [ $? -eq 0 ] && ! echo "$response" | grep -q "error"; then
+        if [ $? -eq 0 ] && echo "$response" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
             IP_API="$p"
+            IPV4="$response"
             break
         fi
     done
-    ! curl -s4m8 $IP_API | grep -q '\.' && _red " ERROR：The host must have IPv4. " && exit 1
-    IPV4=$(curl -s4m8 "$IP_API")
+    [ -z "$IPV4" ] && _red " ERROR：The host must have IPv4. " && exit 1
+}
+
+add_iptables_rule() {
+    local chain="$1"
+    shift
+    iptables -C "$chain" "$@" 2>/dev/null || iptables -A "$chain" "$@"
 }
 
 check_ipv4
@@ -76,14 +99,30 @@ fi
 # --net=host
 # -p 21115:21115 -p 21116:21116 -p 21116:21116/udp ${web_hbbs_text}
 # -p 21117:21117 ${web_hbbr_text}
-docker run --restart unless-stopped --name hbbs --net=host -v $(pwd):/root -td rustdesk/rustdesk-server hbbs -r ${IPV4}:21117
-docker run --restart unless-stopped --name hbbr --net=host -v $(pwd):/root -td rustdesk/rustdesk-server hbbr
-iptables -A INPUT -i lo -j ACCEPT
-iptables -A OUTPUT -o lo -j ACCEPT
-iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-iptables -A INPUT -p tcp --match multiport --sports 21115:21119 --dport 21115:21119 -j ACCEPT
-iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
-iptables -A INPUT -p udp --dport 21116 -j ACCEPT
+if docker inspect hbbs >/dev/null 2>&1; then
+    docker start hbbs >/dev/null 2>&1 || true
+else
+    if ! docker run --restart unless-stopped --name hbbs --net=host -v "$(pwd):/root" -td rustdesk/rustdesk-server hbbs -r "${IPV4}:21117"; then
+        _red "Failed to create hbbs"
+        _red "创建 hbbs 失败"
+        exit 1
+    fi
+fi
+if docker inspect hbbr >/dev/null 2>&1; then
+    docker start hbbr >/dev/null 2>&1 || true
+else
+    if ! docker run --restart unless-stopped --name hbbr --net=host -v "$(pwd):/root" -td rustdesk/rustdesk-server hbbr; then
+        _red "Failed to create hbbr"
+        _red "创建 hbbr 失败"
+        exit 1
+    fi
+fi
+add_iptables_rule INPUT -i lo -j ACCEPT
+add_iptables_rule OUTPUT -o lo -j ACCEPT
+add_iptables_rule INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+add_iptables_rule INPUT -p tcp --match multiport --sports 21115:21119 --dport 21115:21119 -j ACCEPT
+add_iptables_rule INPUT -p tcp --dport 8000 -j ACCEPT
+add_iptables_rule INPUT -p udp --dport 21116 -j ACCEPT
 ${PACKAGE_INSTALL[int]} iptables-persistent
 mkdir -p /etc/iptables
 iptables-save >/etc/iptables/rules.v4

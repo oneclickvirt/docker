@@ -10,7 +10,23 @@ _red()    { echo -e "\033[31m\033[01m$*\033[0m"; }
 _green()  { echo -e "\033[32m\033[01m$*\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
 _blue()   { echo -e "\033[36m\033[01m$*\033[0m"; }
-reading() { read -rp "$(_green "$1")" "$2"; }
+is_noninteractive() {
+    case "${noninteractive:-}" in
+        [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    esac
+    return 1
+}
+reading() {
+    local prompt="$1"
+    local var_name="$2"
+    local default_value="${3:-}"
+    if is_noninteractive; then
+        printf -v "$var_name" '%s' "$default_value"
+        _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+    else
+        read -rp "$(_green "$prompt")" "$var_name"
+    fi
+}
 export DEBIAN_FRONTEND=noninteractive
 
 without_cdn="false"
@@ -83,18 +99,16 @@ check_log() {
         last_line=$(tail -n 1 "$log_file" 2>/dev/null || true)
         if [[ -n "$last_line" ]]; then
             # 格式: <name> <sshport> <password> <cpu> <memory> <startport> <endport> <disk>
-            local last_name last_ssh last_endport
-            last_name=$(echo "$last_line" | awk '{print $1}')
-            last_ssh=$(echo "$last_line"  | awk '{print $2}')
-            last_endport=$(echo "$last_line" | awk '{print $7}')
+            local last_name last_ssh last_password last_cpu last_memory last_startport last_endport last_disk
+            read -r last_name last_ssh last_password last_cpu last_memory last_startport last_endport last_disk _ <<< "$last_line"
 
             # 解析容器名前缀和编号（如 dc1 → prefix=dc, num=1）
             if [[ "$last_name" =~ ^([a-zA-Z]+)([0-9]+)$ ]]; then
                 container_prefix="${BASH_REMATCH[1]}"
                 container_num="${BASH_REMATCH[2]}"
             fi
-            [[ -n "$last_ssh" && "$last_ssh" -gt 0 ]]        && ssh_port="$last_ssh"
-            [[ -n "$last_endport" && "$last_endport" -gt 0 ]] && public_port_end="$last_endport"
+            [[ "$last_ssh" =~ ^[0-9]+$ && "$last_ssh" -gt 0 ]] && ssh_port="$last_ssh"
+            [[ "$last_endport" =~ ^[0-9]+$ && "$last_endport" -gt 0 ]] && public_port_end="$last_endport"
 
             _blue "Resuming from: prefix=${container_prefix}, num=${container_num}, last_ssh=${ssh_port}, last_endport=${public_port_end}"
         fi
@@ -110,14 +124,7 @@ show_log() {
         while IFS= read -r line || [[ -n "$line" ]]; do
             [[ -z "$line" ]] && continue
             local n sshp pw cp mem sp ep dk
-            n=$(echo "$line"   | awk '{print $1}')
-            sshp=$(echo "$line" | awk '{print $2}')
-            pw=$(echo "$line"   | awk '{print $3}')
-            cp=$(echo "$line"   | awk '{print $4}')
-            mem=$(echo "$line"  | awk '{print $5}')
-            sp=$(echo "$line"   | awk '{print $6}')
-            ep=$(echo "$line"   | awk '{print $7}')
-            dk=$(echo "$line"   | awk '{print $8}')
+            read -r n sshp pw cp mem sp ep dk _ <<< "$line"
             _blue "  名称:${n}  SSH端口:${sshp}  密码:${pw}  CPU:${cp}  内存:${mem}MB  端口:${sp}-${ep}  磁盘:${dk}GB"
         done < "$log_file"
         echo
@@ -127,15 +134,15 @@ show_log() {
 # ======== 交互式创建 ========
 build_new_containers() {
     # 询问容器数量
-    reading "需要新增几个容器？ (How many containers to create?) [default: 1]: " new_nums
+    reading "需要新增几个容器？ (How many containers to create?) [default: 1]: " new_nums "${DOCKER_CREATE_COUNT:-1}"
     [[ -z "$new_nums" || ! "$new_nums" =~ ^[0-9]+$ ]] && new_nums=1
 
     # 询问内存大小
-    reading "每个容器内存大小(MB) (Memory per container in MB) [default: 512]: " memory_nums
+    reading "每个容器内存大小(MB) (Memory per container in MB) [default: 512]: " memory_nums "${DOCKER_MEMORY_MB:-512}"
     [[ -z "$memory_nums" || ! "$memory_nums" =~ ^[0-9]+$ ]] && memory_nums=512
 
     # 询问 CPU
-    reading "每个容器 CPU 核数 (CPU cores per container, e.g. 1 or 0.5) [default: 1]: " cpu_nums
+    reading "每个容器 CPU 核数 (CPU cores per container, e.g. 1 or 0.5) [default: 1]: " cpu_nums "${DOCKER_CPU:-1}"
     [[ -z "$cpu_nums" ]] && cpu_nums=1
 
     # 询问磁盘限制（仅 btrfs 支持）
@@ -145,7 +152,7 @@ build_new_containers() {
         storage_driver=$(cat /usr/local/bin/docker_storage_driver)
     fi
     if [ "$storage_driver" = "btrfs" ]; then
-        reading "磁盘限制(GB) (Disk limit in GB, 0=unlimited) [default: 0]: " disk_size
+        reading "磁盘限制(GB) (Disk limit in GB, 0=unlimited) [default: 0]: " disk_size "${DOCKER_DISK_GB:-0}"
         [[ -z "$disk_size" || ! "$disk_size" =~ ^[0-9]+$ ]] && disk_size=0
     else
         _yellow "当前存储驱动($storage_driver)不支持硬盘大小限制，磁盘参数设为0"
@@ -154,7 +161,7 @@ build_new_containers() {
 
     # 询问系统
     _blue "可选系统: ubuntu / debian / alpine / almalinux / rockylinux / openeuler"
-    reading "选择系统 (Choose system) [default: debian]: " system_type
+    reading "选择系统 (Choose system) [default: debian]: " system_type "${DOCKER_SYSTEM:-debian}"
     [[ -z "$system_type" ]] && system_type="debian"
     system_type=$(echo "$system_type" | tr '[:upper:]' '[:lower:]')
     if [[ ! "$system_type" =~ ^(ubuntu|debian|alpine|almalinux|rockylinux|openeuler)$ ]]; then
@@ -163,7 +170,7 @@ build_new_containers() {
     fi
 
     # 询问是否分配独立 IPv6
-    reading "是否附加独立的 IPv6 地址？([N]/y) (Attach independent IPv6?) " independent_ipv6
+    reading "是否附加独立的 IPv6 地址？([N]/y) (Attach independent IPv6?) " independent_ipv6 "${DOCKER_INDEPENDENT_IPV6:-n}"
     independent_ipv6=$(echo "$independent_ipv6" | tr '[:upper:]' '[:lower:]')
     [[ "$independent_ipv6" != "y" ]] && independent_ipv6="n"
 

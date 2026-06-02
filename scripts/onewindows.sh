@@ -9,7 +9,23 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading() { read -rp "$(_green "$1")" "$2"; }
+is_noninteractive() {
+    case "${noninteractive:-}" in
+        [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    esac
+    return 1
+}
+reading() {
+    local prompt="$1"
+    local var_name="$2"
+    local default_value="${3:-}"
+    if is_noninteractive; then
+        printf -v "$var_name" '%s' "$default_value"
+        _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+    else
+        read -rp "$(_green "$prompt")" "$var_name"
+    fi
+}
 export DEBIAN_FRONTEND=noninteractive
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
@@ -39,7 +55,8 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
-count=$(sudo egrep -c '(vmx|svm)' /proc/cpuinfo)
+count=$(grep -Ec '(vmx|svm)' /proc/cpuinfo 2>/dev/null)
+count=${count:-0}
 if [[ -z $count ]] || [[ $count -le 0 ]]; then
     _yellow "Virtualization is not supported, exit the program."
     _yellow "虚拟化不支持，退出程序。"
@@ -60,15 +77,20 @@ if [ "$is_external_ip_lower" = "y" ]; then
 else
     rdp_address="127.0.0.1"
 fi
+if docker inspect "windows_${container_name}" >/dev/null 2>&1; then
+    _yellow "Container windows_${container_name} already exists, please remove it before creating a new one."
+    _yellow "容器 windows_${container_name} 已存在，请先删除后再重新创建。"
+    exit 1
+fi
 docker run -d --privileged=true \
-    --name windows_${container_name} \
+    --name "windows_${container_name}" \
     --device=/dev/kvm \
     --device=/dev/net/tun \
     -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
     --cap-add=NET_ADMIN \
     --cap-add=SYS_ADMIN \
-    -p ${rdp_address}:${rdp_port}:3389 \
-    spiritlhl/wds:${windows_version} /sbin/init
+    -p "${rdp_address}:${rdp_port}:3389" \
+    "spiritlhl/wds:${windows_version}" /sbin/init
 sleep 5
 start_time=$(date +%s)
 MAX_WAIT_TIME=10
@@ -86,7 +108,13 @@ while true; do
     _yellow "等待容器启动中，请耐心等待..."
     sleep 2
 done
-docker exec -it windows_${container_name} bash -c "bash startup.sh 2>&1"
+status=$(docker inspect -f '{{.State.Status}}' "windows_${container_name}" 2>/dev/null)
+if [ "$status" != "running" ]; then
+    _yellow "The container windows_${container_name} failed to start and the script will exit."
+    _yellow "容器 windows_${container_name} 启动失败，脚本将退出。"
+    exit 1
+fi
+docker exec "windows_${container_name}" bash -c "bash startup.sh 2>&1"
 if [ "$is_external_ip_lower" = "y" ]; then
     _green "The RDP login address is: extranet IPV4 address:${rdp_port} login information and usage instructions are detailed at virt.spiritlhl.net"
     _green "RDP的登录地址为：外网IPV4地址:${rdp_port} 登录信息和使用说明详见 virt.spiritlhl.net"

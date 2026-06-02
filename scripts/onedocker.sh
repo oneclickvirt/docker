@@ -119,29 +119,31 @@ get_arch() {
 check_image_exists() {
     local system_type=$1
     local arch=$(get_arch)
+    local images
+    images=$(docker images --format '{{.Repository}}:{{.Tag}}')
     # 查找 GHCR 镜像（优先）
-    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "ghcr.io/oneclickvirt/docker:${system_type}-${arch}"; then
+    if echo "$images" | grep -qx "ghcr.io/oneclickvirt/docker:${system_type}-${arch}"; then
         _green "Image ghcr.io/oneclickvirt/docker:${system_type}-${arch} already exists"
         _green "镜像 ghcr.io/oneclickvirt/docker:${system_type}-${arch} 已存在"
         export image_name="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
         return 0
     fi
     # 查找 spiritlhl:system-arch 格式
-    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "spiritlhl:${system_type}-${arch}"; then
+    if echo "$images" | grep -qx "spiritlhl:${system_type}-${arch}"; then
         _green "Image spiritlhl:${system_type}-${arch} already exists"
         _green "镜像 spiritlhl:${system_type}-${arch} 已存在"
         export image_name="spiritlhl:${system_type}-${arch}"
         return 0
     fi
     # 再查找 spiritlhl:system 格式（不含 arch）
-    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "spiritlhl:${system_type}"; then
+    if echo "$images" | grep -qx "spiritlhl:${system_type}"; then
         _green "Image spiritlhl:${system_type} already exists"
         _green "镜像 spiritlhl:${system_type} 已存在"
         export image_name="spiritlhl:${system_type}"
         return 0
     fi
     # 最后查找 system:latest 格式
-    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "${system_type}:latest"; then
+    if echo "$images" | grep -qx "${system_type}:latest"; then
         _green "Image ${system_type}:latest already exists"
         _green "镜像 ${system_type}:latest 已存在"
         export image_name="${system_type}:latest"
@@ -239,7 +241,7 @@ download_ssh_scripts() {
     
     # 下载脚本到宿主机临时位置
     local temp_script="/tmp/${script_name}"
-    curl -L "$script_url" -o "$temp_script" --connect-timeout 10 --max-time 30
+    curl -fsSL "$script_url" -o "$temp_script" --connect-timeout 10 --max-time 30
     
     if [ -f "$temp_script" ] && [ -s "$temp_script" ]; then
         # 复制脚本到容器内
@@ -303,93 +305,111 @@ if [ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_i
     ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
     ipv6_address_without_last_segment="${ipv6_address%:*}:"
 fi
-lxcfs_volumes=""
+lxcfs_volumes=()
 if [ "$lxcfs_available" = "Y" ]; then
-    lxcfs_volumes="--volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
-        --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
-        --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
-        --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw \
-        --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
-        --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw"
+    lxcfs_volumes=(
+        --volume /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw
+        --volume /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw
+        --volume /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw
+        --volume /var/lib/lxcfs/proc/stat:/proc/stat:rw
+        --volume /var/lib/lxcfs/proc/swaps:/proc/swaps:rw
+        --volume /var/lib/lxcfs/proc/uptime:/proc/uptime:rw
+    )
 fi
 
 # 先检查镜像是否存在，不存在才下载
-if ! check_image_exists $system; then
-    download_and_load_image $system
+if ! check_image_exists "$system"; then
+    download_and_load_image "$system"
 fi
-storage_opts=""
+storage_opts=()
 if [ "$btrfs_support" = "Y" ] && [ "$disk" != "0" ]; then
-    storage_opts="--storage-opt size=${disk}G"
+    storage_opts=(--storage-opt "size=${disk}G")
 fi
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
-        docker run -d \
-            --cpus=${cpu} \
-            --memory=${memory}m \
-            --name ${name} \
+        if ! docker run -d \
+            --cpus="${cpu}" \
+            --memory="${memory}m" \
+            --name "${name}" \
             --network=ipv6_net \
-            -p ${sshport}:22 \
-            -p ${startport}-${endport}:${startport}-${endport} \
+            -p "${sshport}:22" \
+            -p "${startport}-${endport}:${startport}-${endport}" \
             --cap-add=MKNOD \
-            -e ROOT_PASSWORD=${passwd} \
+            -e ROOT_PASSWORD="${passwd}" \
             -e IPV6_ENABLED=true \
-            ${storage_opts} \
-            ${lxcfs_volumes} \
-            ${image_name}
+            "${storage_opts[@]}" \
+            "${lxcfs_volumes[@]}" \
+            "${image_name}"; then
+            _red "Failed to create container: ${name}"
+            _red "创建容器失败: ${name}"
+            exit 1
+        fi
         docker_use_ipv6=true
     else
-        docker run -d \
-            --cpus=${cpu} \
-            --memory=${memory}m \
-            --name ${name} \
-            -p ${sshport}:22 \
-            -p ${startport}-${endport}:${startport}-${endport} \
+        if ! docker run -d \
+            --cpus="${cpu}" \
+            --memory="${memory}m" \
+            --name "${name}" \
+            -p "${sshport}:22" \
+            -p "${startport}-${endport}:${startport}-${endport}" \
             --cap-add=MKNOD \
-            -e ROOT_PASSWORD=${passwd} \
-            ${storage_opts} \
-            ${lxcfs_volumes} \
-            ${image_name}
+            -e ROOT_PASSWORD="${passwd}" \
+            "${storage_opts[@]}" \
+            "${lxcfs_volumes[@]}" \
+            "${image_name}"; then
+            _red "Failed to create container: ${name}"
+            _red "创建容器失败: ${name}"
+            exit 1
+        fi
         docker_use_ipv6=false
     fi
     # 下载SSH脚本（如果需要）
-    download_ssh_scripts ${name} ${system}
-    docker exec -it ${name} sh -c "sh /ssh_sh.sh ${passwd}"
-    docker exec -it ${name} sh -c "echo 'root:${passwd}' | chpasswd"
+    download_ssh_scripts "${name}" "${system}"
+    docker exec "${name}" sh -c 'sh /ssh_sh.sh "$1"' sh "$passwd"
+    docker exec "${name}" sh -c 'printf "%s\n" "root:$1" | chpasswd' sh "$passwd"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
-        docker run -d \
-            --cpus=${cpu} \
-            --memory=${memory}m \
-            --name ${name} \
+        if ! docker run -d \
+            --cpus="${cpu}" \
+            --memory="${memory}m" \
+            --name "${name}" \
             --network=ipv6_net \
-            -p ${sshport}:22 \
-            -p ${startport}-${endport}:${startport}-${endport} \
+            -p "${sshport}:22" \
+            -p "${startport}-${endport}:${startport}-${endport}" \
             --cap-add=MKNOD \
-            -e ROOT_PASSWORD=${passwd} \
+            -e ROOT_PASSWORD="${passwd}" \
             -e IPV6_ENABLED=true \
-            ${storage_opts} \
-            ${lxcfs_volumes} \
-            ${image_name}
+            "${storage_opts[@]}" \
+            "${lxcfs_volumes[@]}" \
+            "${image_name}"; then
+            _red "Failed to create container: ${name}"
+            _red "创建容器失败: ${name}"
+            exit 1
+        fi
         docker_use_ipv6=true
     else
-        docker run -d \
-            --cpus=${cpu} \
-            --memory=${memory}m \
-            --name ${name} \
-            -p ${sshport}:22 \
-            -p ${startport}-${endport}:${startport}-${endport} \
+        if ! docker run -d \
+            --cpus="${cpu}" \
+            --memory="${memory}m" \
+            --name "${name}" \
+            -p "${sshport}:22" \
+            -p "${startport}-${endport}:${startport}-${endport}" \
             --cap-add=MKNOD \
-            -e ROOT_PASSWORD=${passwd} \
-            ${storage_opts} \
-            ${lxcfs_volumes} \
-            ${image_name}
+            -e ROOT_PASSWORD="${passwd}" \
+            "${storage_opts[@]}" \
+            "${lxcfs_volumes[@]}" \
+            "${image_name}"; then
+            _red "Failed to create container: ${name}"
+            _red "创建容器失败: ${name}"
+            exit 1
+        fi
         docker_use_ipv6=false
     fi
     # 下载SSH脚本（如果需要）
-    download_ssh_scripts ${name} ${system}
-    docker exec -it ${name} bash -c "bash /ssh_bash.sh ${passwd}"
-    docker exec -it ${name} bash -c "echo 'root:${passwd}' | chpasswd"
+    download_ssh_scripts "${name}" "${system}"
+    docker exec "${name}" bash -c 'bash /ssh_bash.sh "$1"' bash "$passwd"
+    docker exec "${name}" bash -c 'printf "%s\n" "root:$1" | chpasswd' bash "$passwd"
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 fi
 

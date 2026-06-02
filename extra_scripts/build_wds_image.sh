@@ -8,7 +8,23 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading() { read -rp "$(_green "$1")" "$2"; }
+is_noninteractive() {
+    case "${noninteractive:-}" in
+        [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    esac
+    return 1
+}
+reading() {
+    local prompt="$1"
+    local var_name="$2"
+    local default_value="${3:-}"
+    if is_noninteractive; then
+        printf -v "$var_name" '%s' "$default_value"
+        _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+    else
+        read -rp "$(_green "$prompt")" "$var_name"
+    fi
+}
 export DEBIAN_FRONTEND=noninteractive
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
@@ -38,7 +54,8 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
-count=$(sudo egrep -c '(vmx|svm)' /proc/cpuinfo)
+count=$(grep -Ec '(vmx|svm)' /proc/cpuinfo 2>/dev/null)
+count=${count:-0}
 if [[ -z $count ]] || [[ $count -le 0 ]]; then
     _yellow "Virtualization is not supported, exit the program."
     _yellow "虚拟化不支持，退出程序。"
@@ -50,8 +67,7 @@ username="${2:-onew}"
 password="${3:-oneclick}"
 rdp_port="${4:-13389}"
 
-image_status=$(docker images | grep -q "windows:${windows_version}")
-if [ -z "$image_status" ]; then
+if ! docker image inspect "windows:${windows_version}" >/dev/null 2>&1; then
     curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/startup.sh -o startup.sh
     chmod 777 startup.sh
     _green "The following commands will take at least 20 minutes to execute, so please be patient...."
@@ -59,20 +75,25 @@ if [ -z "$image_status" ]; then
     if [ ! -f "/root/Dockerfile_${windows_version}" ]; then
         curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/Dockerfile -o /root/Dockerfile_${windows_version}
         chmod 777 /root/Dockerfile_${windows_version}
-        docker build -t "windows:${windows_version}" -f "/root/Dockerfile_${windows_version}" .
     fi
+    docker build -t "windows:${windows_version}" -f "/root/Dockerfile_${windows_version}" .
     rm -rf startup.sh
 fi
 
+if docker inspect "windows${windows_version}" >/dev/null 2>&1; then
+    _yellow "Container windows${windows_version} already exists, please remove it before creating a new one."
+    _yellow "容器 windows${windows_version} 已存在，请先删除后再重新创建。"
+    exit 1
+fi
 docker run -d --privileged=true \
-    --name windows${windows_version} \
+    --name "windows${windows_version}" \
     --device=/dev/kvm \
     --device=/dev/net/tun \
     -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
     --cap-add=NET_ADMIN \
     --cap-add=SYS_ADMIN \
-    -p 0.0.0.0:${rdp_port}:3389 \
-    windows:${windows_version} /sbin/init
+    -p "0.0.0.0:${rdp_port}:3389" \
+    "windows:${windows_version}" /sbin/init
 
 sleep 5
 start_time=$(date +%s)
@@ -91,5 +112,11 @@ while true; do
     _yellow "等待容器启动中，请耐心等待..."
     sleep 2
 done
+status=$(docker inspect -f '{{.State.Status}}' "windows${windows_version}" 2>/dev/null)
+if [ "$status" != "running" ]; then
+    _yellow "The container windows${windows_version} failed to start and the script will exit."
+    _yellow "容器 windows${windows_version} 启动失败，脚本将退出。"
+    exit 1
+fi
 # docker exec -it windows${windows_version} bash -c "sed -i '17s/.*/VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up --debug/' startup.sh"
-docker exec -it windows${windows_version} bash -c "bash startup.sh 2>&1"
+docker exec "windows${windows_version}" bash -c "bash startup.sh 2>&1"

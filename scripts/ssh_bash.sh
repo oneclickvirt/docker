@@ -4,6 +4,7 @@
 # 2026.03.01
 
 # 容器内 SSH 初始化脚本（适用于 bash 系统：Debian/Ubuntu/AlmaLinux/RockyLinux/OpenEuler）
+export DEBIAN_FRONTEND=noninteractive
 
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch" "alpine")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch" "Alpine")
@@ -52,24 +53,28 @@ done
 # ======== 安装必要模块 ========
 install_required_modules() {
     local modules=("wget" "curl" "sudo" "openssh-server")
+    local missing_modules=()
     case $SYSTEM in
         Debian|Ubuntu)
             apt-get update -y 2>/dev/null || true
             for module in "${modules[@]}"; do
-                dpkg -l "$module" 2>/dev/null | grep -q "^ii" || apt-get -y install "$module" 2>/dev/null || true
+                dpkg -l "$module" 2>/dev/null | grep -q "^ii" || missing_modules+=("$module")
             done
+            [ "${#missing_modules[@]}" -eq 0 ] || apt-get -y install "${missing_modules[@]}" 2>/dev/null || true
             apt-get -y install cron 2>/dev/null || apt-get -y install cronie 2>/dev/null || true
             ;;
         CentOS|Fedora)
             for module in "${modules[@]}"; do
-                command -v "$module" >/dev/null 2>&1 || yum -y install "$module" 2>/dev/null || true
+                command -v "$module" >/dev/null 2>&1 || missing_modules+=("$module")
             done
-            yum -y install cronie 2>/dev/null || true
+            missing_modules+=("cronie")
+            yum -y install "${missing_modules[@]}" 2>/dev/null || true
             ;;
         *)
             for module in "${modules[@]}"; do
-                command -v "$module" >/dev/null 2>&1 || ${PACKAGE_INSTALL[int]} "$module" 2>/dev/null || true
+                command -v "$module" >/dev/null 2>&1 || missing_modules+=("$module")
             done
+            [ "${#missing_modules[@]}" -eq 0 ] || ${PACKAGE_INSTALL[int]} "${missing_modules[@]}" 2>/dev/null || true
             ;;
     esac
 }
@@ -173,8 +178,8 @@ fix_cloud_init
 update_sshd_config "/etc/ssh/sshd_config"
 
 # 设置 root 密码
-echo "root:${passwd_input}" | chpasswd 2>/dev/null || \
-    echo "root:${passwd_input}" | sudo chpasswd 2>/dev/null || true
+printf "%s\n" "root:${passwd_input}" | chpasswd 2>/dev/null || \
+    printf "%s\n" "root:${passwd_input}" | sudo chpasswd 2>/dev/null || true
 
 # 修复 IPv4 优先
 sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf 2>/dev/null || true

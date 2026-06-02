@@ -146,6 +146,6 @@ else
     write_resolv_conf
 fi
 sleep 3
-if grep -q "vmbr0" "/etc/network/interfaces"; then
+if command -v resolvconf >/dev/null 2>&1 && grep -q "vmbr0" "/etc/network/interfaces"; then
     resolvconf -a vmbr0 < /etc/resolv.conf
 fi

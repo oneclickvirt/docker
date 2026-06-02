@@ -7,7 +7,23 @@ _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
-reading() { read -rp "$(_green "$1")" "$2"; }
+is_noninteractive() {
+    case "${noninteractive:-}" in
+        [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    esac
+    return 1
+}
+reading() {
+    local prompt="$1"
+    local var_name="$2"
+    local default_value="${3:-}"
+    if is_noninteractive; then
+        printf -v "$var_name" '%s' "$default_value"
+        _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+    else
+        read -rp "$(_green "$prompt")" "$var_name"
+    fi
+}
 export DEBIAN_FRONTEND=noninteractive
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
@@ -31,6 +47,7 @@ if [[ "${WITHOUTCDN^^}" == "TRUE" ]]; then
     without_cdn="true"
 fi
 # 支持的环境变量（一键非交互安装）：
+#   noninteractive=true     - 使用默认值跳过所有交互提示
 #   WITHOUTCDN=true          - 禁用 CDN 加速
 #   CN=true                  - 强制使用中国镜像源
 #   CN=false                 - 强制不使用中国镜像源（跳过检测）
@@ -465,7 +482,12 @@ check_china() {
     if [[ -z "${CN}" ]]; then
         if [[ $(curl -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
             _yellow "根据ipapi.co提供的信息，当前IP可能在中国"
-            read -e -r -p "是否选用中国镜像完成相关组件安装? ([y]/n) " input
+            if is_noninteractive; then
+                _yellow "noninteractive=true detected, using Chinese mirrors for China IP"
+                input="y"
+            else
+                read -e -r -p "是否选用中国镜像完成相关组件安装? ([y]/n) " input
+            fi
             case $input in
             [yY][eE][sS] | [yY])
                 echo "使用中国镜像"
@@ -526,26 +548,33 @@ rebuild_cloud_init
 statistics_of_run_times
 _green "脚本当天运行次数:${TODAY}，累计运行次数:${TOTAL}"
 check_update
-if ! command -v sudo >/dev/null 2>&1; then
-    _yellow "Installing sudo"
-    ${PACKAGE_INSTALL[int]} sudo
+install_packages_once() {
+    local packages=("$@")
+    if [ "${#packages[@]}" -eq 0 ]; then
+        return 0
+    fi
+    _yellow "Installing packages: ${packages[*]}"
+    ${PACKAGE_INSTALL[int]} "${packages[@]}"
+}
+
+base_packages=()
+command -v sudo >/dev/null 2>&1 || base_packages+=("sudo")
+command -v curl >/dev/null 2>&1 || base_packages+=("curl")
+command -v wget >/dev/null 2>&1 || base_packages+=("wget")
+command -v jq >/dev/null 2>&1 || base_packages+=("jq")
+command -v dos2unix >/dev/null 2>&1 || base_packages+=("dos2unix")
+command -v bc >/dev/null 2>&1 || base_packages+=("bc")
+command -v fallocate >/dev/null 2>&1 || base_packages+=("util-linux")
+command -v openssl >/dev/null 2>&1 || base_packages+=("openssl")
+command -v netstat >/dev/null 2>&1 || base_packages+=("net-tools")
+if ! command -v ip >/dev/null 2>&1; then
+    if [[ "$SYSTEM" == "CentOS" || "$SYSTEM" == "Fedora" ]]; then
+        base_packages+=("iproute")
+    else
+        base_packages+=("iproute2")
+    fi
 fi
-if ! command -v curl >/dev/null 2>&1; then
-    _yellow "Installing curl"
-    ${PACKAGE_INSTALL[int]} curl
-fi
-if ! command -v wget >/dev/null 2>&1; then
-    _yellow "Installing wget"
-    ${PACKAGE_INSTALL[int]} wget
-fi
-if ! command -v jq >/dev/null 2>&1; then
-    _yellow "Installing jq"
-    ${PACKAGE_INSTALL[int]} jq
-fi
-if ! command -v dos2unix >/dev/null 2>&1; then
-    _yellow "Installing dos2unix"
-    ${PACKAGE_INSTALL[int]} dos2unix
-fi
+install_packages_once "${base_packages[@]}"
 if ! command -v lshw >/dev/null 2>&1; then
     _yellow "Installing lshw"
     if [[ "$SYSTEM" == "Alpine" ]]; then
@@ -606,14 +635,6 @@ fi
 if [[ "$SYSTEM" == "Alpine" ]] && ! command -v sipcalc >/dev/null 2>&1; then
     _yellow "Alpine does not have sipcalc in official repos, will use ipcalc for calculations"
 fi
-if ! command -v bc >/dev/null 2>&1; then
-    _yellow "Installing bc"
-    ${PACKAGE_INSTALL[int]} bc
-fi
-if ! command -v ip >/dev/null 2>&1; then
-    _yellow "Installing iproute2"
-    ${PACKAGE_INSTALL[int]} iproute2
-fi
 if ! command -v rdisc6 >/dev/null 2>&1; then
     _blue "Installing ndisc6 package for IPv6 router discovery..."
     _green "正在安装 ndisc6 软件包用于 IPv6 路由器发现..."
@@ -652,11 +673,6 @@ if ! command -v crontab >/dev/null 2>&1; then
         fi
     fi
 fi
-if ! command -v fallocate >/dev/null 2>&1; then
-    _yellow "Installing util-linux"
-    ${PACKAGE_INSTALL[int]} util-linux
-fi
-${PACKAGE_INSTALL[int]} net-tools
 check_china
 cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn1.spiritlhl.net/" "http://cdn2.spiritlhl.net/" "http://cdn3.spiritlhl.net/" "http://cdn4.spiritlhl.net/")
 if [[ "$without_cdn" == "true" ]]; then
@@ -665,7 +681,6 @@ else
     check_cdn_file
 fi
 get_system_arch
-${PACKAGE_INSTALL[int]} openssl
 curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh && chmod +x ssh_bash.sh && dos2unix ssh_bash.sh
 curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh && chmod +x ssh_sh.sh && dos2unix ssh_sh.sh
 
@@ -880,6 +895,9 @@ if [[ -n "$ipv6_address" ]]; then
         elif [[ "${IPV6_MAXIMUM_SUBSET^^}" == "N" || "${IPV6_MAXIMUM_SUBSET^^}" == "FALSE" ]]; then
             _yellow "IPV6_MAXIMUM_SUBSET=${IPV6_MAXIMUM_SUBSET} detected, skipping maximum IPv6 subnet"
             select_maximum_subset="n"
+        elif is_noninteractive; then
+            _yellow "noninteractive=true detected, using default IPv6 maximum subnet choice: n"
+            select_maximum_subset="n"
         else
             reading "是否使用IPV6可行的最大子网范围？([n]/y)" select_maximum_subset
         fi
@@ -890,7 +908,8 @@ if [[ -n "$ipv6_address" ]]; then
         fi
         echo "" >/usr/local/bin/fix_interfaces_ipv6_auto_type
     fi
-    if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ $(cat /usr/local/bin/docker_maximum_subset) = true ]; then
+    maximum_subset_value=$(cat /usr/local/bin/docker_maximum_subset 2>/dev/null || echo "")
+    if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ "$maximum_subset_value" = true ]; then
         ipv6_address_without_last_segment="${ipv6_address%:*}:"
         if [[ $ipv6_address != *:: && $ipv6_address_without_last_segment != *:: ]]; then
             # 检测 sipcalc 是否可用
@@ -928,6 +947,9 @@ _blue "如果选择 'n'，则为标准Docker安装，无磁盘限制"
 if [[ -n "${NEED_DISK_LIMIT}" ]]; then
     _yellow "NEED_DISK_LIMIT=${NEED_DISK_LIMIT} detected, skipping prompt"
     need_disk_limit="${NEED_DISK_LIMIT}"
+elif is_noninteractive; then
+    _yellow "noninteractive=true detected, using default disk limit choice: n"
+    need_disk_limit="n"
 else
     reading "Do you need container disk size limitation? ([n]/y): " need_disk_limit
 fi
@@ -941,11 +963,22 @@ fi
 if [ -z "$docker_install_path" ]; then
     docker_install_path="/var/lib/docker"
 fi
-if [ "$need_disk_limit" = "y" ] || [ "$need_disk_limit" = "Y" ]; then
+case "$(echo "${need_disk_limit:-n}" | tr '[:upper:]' '[:lower:]')" in
+    y|yes|true|1)
+        need_disk_limit="y"
+        ;;
+    *)
+        need_disk_limit="n"
+        ;;
+esac
+if [ "$need_disk_limit" = "y" ]; then
     echo "true" > /usr/local/bin/docker_need_disk_limit
     if [[ -n "${DOCKER_POOL_SIZE}" ]] && [[ "${DOCKER_POOL_SIZE}" =~ ^[1-9][0-9]*$ ]]; then
         _yellow "DOCKER_POOL_SIZE=${DOCKER_POOL_SIZE} detected, skipping prompt"
         docker_pool_size="${DOCKER_POOL_SIZE}"
+    elif is_noninteractive; then
+        docker_pool_size="20"
+        _yellow "noninteractive=true detected, using default Docker pool size: ${docker_pool_size}GB"
     else
         while true; do
             _green "How large a Docker storage pool is needed? (unit: GB, e.g., enter 20 for 20G):"
@@ -1464,7 +1497,8 @@ handle_networking() {
 
 check_and_adapt_ipv6() {
     if [[ -n "$ipv6_address" ]]; then 
-        if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ $(cat /usr/local/bin/docker_maximum_subset) = true ]; then
+        maximum_subset_value=$(cat /usr/local/bin/docker_maximum_subset 2>/dev/null || echo "")
+        if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ "$maximum_subset_value" = true ]; then
             adapt_ipv6
             docker_build_ipv6
         fi

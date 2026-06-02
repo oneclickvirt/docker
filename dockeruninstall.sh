@@ -4,12 +4,20 @@
 # 2026.03.01
 # 完整卸载 Docker 环境及所有容器
 # 支持的环境变量（一键非交互卸载）：
-#   CONFIRM=yes  - 跳过卸载确认提示，直接执行卸载
+#   noninteractive=true - 跳过卸载确认提示，直接执行卸载
+#   CONFIRM=yes         - 兼容旧用法
 
 _red()    { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green()  { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
 _blue()   { echo -e "\033[36m\033[01m$@\033[0m"; }
+
+is_noninteractive() {
+    case "${noninteractive:-}" in
+        [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    esac
+    return 1
+}
 
 if [ "$(id -u)" != "0" ]; then
     _red "This script must be run as root"
@@ -23,7 +31,9 @@ echo "  包含：所有运行中/停止的容器、所有镜像、"
 echo "  Docker 网络配置、systemd 服务、Docker 二进制及数据目录"
 echo "  操作不可逆！"
 echo "======================================================"
-if [[ "${CONFIRM^^}" == "YES" ]]; then
+if is_noninteractive; then
+    _yellow "noninteractive=true detected, skipping confirmation prompt"
+elif [[ "${CONFIRM^^}" == "YES" ]]; then
     _yellow "CONFIRM=YES detected, skipping confirmation prompt"
 else
     read -rp "$(_yellow "确认卸载？输入 yes 继续，其他任意键退出: ")" confirm
