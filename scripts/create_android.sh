@@ -3,11 +3,11 @@
 # https://github.com/oneclickvirt/docker
 # 2026.02.28
 
-cd /root >/dev/null 2>&1
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+cd /root >/dev/null 2>&1 || exit 1
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 is_noninteractive() {
     case "${noninteractive:-}" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
@@ -89,6 +89,11 @@ while true; do
         else
             _yellow "Invalid index. Please enter again."
             _yellow "输入的索引无效，请重新输入。"
+            if is_noninteractive; then
+                _yellow "noninteractive=true detected with invalid ANDROID_TAG, using 8.1.0-latest"
+                selected_tag="8.1.0-latest"
+                break
+            fi
         fi
     fi
 done
@@ -159,22 +164,66 @@ if ! command -v make >/dev/null 2>&1; then
     ${PACKAGE_INSTALL[int]} make
 fi
 if ! command -v adb >/dev/null 2>&1; then
-    ${PACKAGE_INSTALL[int]} adb
+    case "$SYSTEM" in
+        Debian|Ubuntu)
+            ${PACKAGE_INSTALL[int]} adb || ${PACKAGE_INSTALL[int]} android-tools-adb
+            ;;
+        CentOS|Fedora)
+            ${PACKAGE_INSTALL[int]} android-tools
+            ;;
+        Arch|Alpine)
+            ${PACKAGE_INSTALL[int]} android-tools
+            ;;
+        *)
+            ${PACKAGE_INSTALL[int]} adb || ${PACKAGE_INSTALL[int]} android-tools
+            ;;
+    esac
+fi
+if ! command -v adb >/dev/null 2>&1; then
+    _red "adb is required but could not be installed."
+    _red "adb 为必需组件，但安装失败。"
+    exit 1
 fi
 if ! command -v git >/dev/null 2>&1; then
     ${PACKAGE_INSTALL[int]} git
 fi
-${PACKAGE_INSTALL[int]} g++
+case "$SYSTEM" in
+    CentOS|Fedora)
+        ${PACKAGE_INSTALL[int]} gcc-c++
+        ;;
+    Arch)
+        ${PACKAGE_INSTALL[int]} gcc
+        ;;
+    *)
+        ${PACKAGE_INSTALL[int]} g++
+        ;;
+esac
+if ! command -v g++ >/dev/null 2>&1 && ! command -v c++ >/dev/null 2>&1; then
+    _red "A C++ compiler is required but could not be installed."
+    _red "C++ 编译器为必需组件，但安装失败。"
+    exit 1
+fi
 if [ ! -d /root/ws-scrcpy ]; then
-    git clone https://github.com/NetrisTV/ws-scrcpy.git
-    cd /root/ws-scrcpy
-    npm install
+    if ! git clone https://github.com/NetrisTV/ws-scrcpy.git /root/ws-scrcpy; then
+        _red "Failed to clone ws-scrcpy."
+        _red "克隆 ws-scrcpy 失败。"
+        exit 1
+    fi
+    if ! (cd /root/ws-scrcpy && npm install); then
+        _red "Failed to install ws-scrcpy dependencies."
+        _red "安装 ws-scrcpy 依赖失败。"
+        exit 1
+    fi
 fi
 if [ ! -f /root/oneandroid.sh ]; then
-    curl https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/oneandroid.sh -o /root/oneandroid.sh
+    if ! curl -fsSL https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/oneandroid.sh -o /root/oneandroid.sh; then
+        _red "Failed to download oneandroid.sh"
+        _red "下载 oneandroid.sh 失败"
+        exit 1
+    fi
     chmod 777 /root/oneandroid.sh
 fi
 rm -rf /root/android_info
-cd /root >/dev/null 2>&1
+cd /root >/dev/null 2>&1 || exit 1
 ls
 bash oneandroid.sh "${name}" "${selected_tag}" "${user_name}" "${user_password}"

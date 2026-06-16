@@ -7,10 +7,10 @@
 #   noninteractive=true - 跳过卸载确认提示，直接执行卸载
 #   CONFIRM=yes         - 兼容旧用法
 
-_red()    { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green()  { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue()   { echo -e "\033[36m\033[01m$@\033[0m"; }
+_red()    { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green()  { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue()   { echo -e "\033[36m\033[01m$*\033[0m"; }
 
 is_noninteractive() {
     case "${noninteractive:-}" in
@@ -42,6 +42,10 @@ else
         exit 0
     fi
 fi
+
+docker_loop_file=$(cat /usr/local/bin/docker_loop_file 2>/dev/null || true)
+docker_loop_device=$(cat /usr/local/bin/docker_loop_device 2>/dev/null || true)
+docker_mount_point=$(cat /usr/local/bin/docker_mount_point 2>/dev/null || true)
 
 # ======== 1. 停止并删除所有容器 ========
 _blue "[1/9] 停止并删除所有 Docker 容器..."
@@ -110,7 +114,7 @@ _green "  IPv6 配置已清理"
 # ======== 5. 停止并禁用 systemd 服务 ========
 _blue "[5/9] 停止并禁用 Docker systemd 服务..."
 if command -v systemctl >/dev/null 2>&1; then
-    for svc in docker docker.socket containerd check-dns; do
+    for svc in docker docker.socket containerd check-dns radvd; do
         if systemctl is-active --quiet "$svc" 2>/dev/null; then
             systemctl stop "$svc" 2>/dev/null || true
             _yellow "  已停止 ${svc}"
@@ -168,12 +172,39 @@ _green "  包管理器卸载完成"
 
 # ======== 7. 删除 Docker 数据目录 ========
 _blue "[7/9] 删除 Docker 数据目录..."
-for dir in \
-    /var/lib/docker \
-    /var/lib/containerd \
-    /etc/docker \
-    /run/docker \
-    /run/containerd; do
+if [[ -n "$docker_mount_point" ]] && mount | awk '{print $3}' | grep -Fxq "$docker_mount_point"; then
+    umount "$docker_mount_point" 2>/dev/null || true
+    _yellow "  卸载 $docker_mount_point"
+fi
+if [[ -n "$docker_loop_device" ]]; then
+    losetup -d "$docker_loop_device" 2>/dev/null || true
+    _yellow "  释放 loop 设备 $docker_loop_device"
+elif [[ -n "$docker_loop_file" ]] && command -v losetup >/dev/null 2>&1; then
+    for dev in $(losetup -j "$docker_loop_file" 2>/dev/null | cut -d: -f1); do
+        losetup -d "$dev" 2>/dev/null || true
+        _yellow "  释放 loop 设备 $dev"
+    done
+fi
+if [[ -n "$docker_loop_file" ]]; then
+    if [[ -f /etc/fstab ]]; then
+        tmp_fstab=$(mktemp)
+        awk -v loop_file="$docker_loop_file" '$1 != loop_file' /etc/fstab > "$tmp_fstab" && cat "$tmp_fstab" >/etc/fstab
+        rm -f "$tmp_fstab"
+    fi
+    [[ -f "$docker_loop_file" ]] && rm -f "$docker_loop_file" && _yellow "  删除 $docker_loop_file"
+fi
+
+data_dirs=(
+    /var/lib/docker
+    /var/lib/containerd
+    /etc/docker
+    /run/docker
+    /run/containerd
+)
+if [[ -n "$docker_mount_point" && "$docker_mount_point" != "/var/lib/docker" ]]; then
+    data_dirs+=("$docker_mount_point")
+fi
+for dir in "${data_dirs[@]}"; do
     if [[ -d "$dir" ]]; then
         rm -rf "$dir"
         _yellow "  删除 $dir"
@@ -184,6 +215,8 @@ _green "  数据目录已清理"
 # ======== 8. 删除本脚本安装的辅助文件 ========
 _blue "[8/9] 删除辅助状态文件..."
 for f in \
+    /usr/local/bin/docker-compose \
+    /usr/bin/docker-compose \
     /usr/local/bin/docker_main_ipv4 \
     /usr/local/bin/docker_ipv4_address \
     /usr/local/bin/docker_ipv4_gateway \
@@ -193,10 +226,24 @@ for f in \
     /usr/local/bin/docker_ipv6_real_prefixlen \
     /usr/local/bin/docker_ipv6_gateway \
     /usr/local/bin/docker_check_ipv6 \
+    /usr/local/bin/docker_fe80_address \
     /usr/local/bin/docker_mac_address \
     /usr/local/bin/docker_virt_type \
     /usr/local/bin/docker_storage_driver \
+    /usr/local/bin/docker_storage_reboot \
+    /usr/local/bin/docker_need_disk_limit \
+    /usr/local/bin/docker_loop_device \
+    /usr/local/bin/docker_loop_file \
+    /usr/local/bin/docker_mount_point \
     /usr/local/bin/docker_main_interface \
+    /usr/local/bin/docker_network_manager \
+    /usr/local/bin/docker_last_ipv6 \
+    /usr/local/bin/docker_slaac_status \
+    /usr/local/bin/docker_maximum_subset \
+    /usr/local/bin/docker_adapt_ipv6 \
+    /usr/local/bin/docker_build_ipv6 \
+    /usr/local/bin/fix_interfaces_ipv6_auto_type \
+    /usr/local/bin/ifupdown_installed.txt \
     /usr/local/bin/docker_cdn \
     /usr/local/bin/check-dns.sh; do
     [[ -f "$f" ]] && rm -f "$f" && _yellow "  删除 $f"
@@ -215,22 +262,34 @@ _green "  状态文件已清理"
 
 # ======== 9. 清理 sysctl 配置 ========
 _blue "[9/9] 清理 sysctl 配置..."
-if [[ -f /etc/sysctl.d/99-docker.conf ]]; then
-    rm -f /etc/sysctl.d/99-docker.conf
-    sysctl --system >/dev/null 2>&1 || true
-    _yellow "  删除 /etc/sysctl.d/99-docker.conf"
-fi
-# 还原 sysctl 中我们添加的配置
-for key in \
-    "net.ipv4.ip_forward" \
-    "net.ipv6.conf.all.forwarding" \
-    "net.ipv6.conf.all.proxy_ndp" \
-    "net.ipv6.conf.all.accept_ra"; do
-    if grep -q "^${key}" /etc/sysctl.conf 2>/dev/null; then
-        sed -i "/^${key}/d" /etc/sysctl.conf
-        _yellow "  从 /etc/sysctl.conf 移除 ${key}"
+for sysctl_file in /etc/sysctl.conf /etc/sysctl.d/99-custom.conf /etc/sysctl.d/99-docker.conf; do
+    if [[ -f "$sysctl_file" ]]; then
+        sed -i \
+            -e '/^net\.ipv4\.ip_forward=/d' \
+            -e '/^net\.ipv6\.conf\.all\.forwarding=/d' \
+            -e '/^net\.ipv6\.conf\.all\.proxy_ndp=/d' \
+            -e '/^net\.ipv6\.conf\.all\.accept_ra=/d' \
+            -e '/^net\.ipv6\.conf\.default\.forwarding=/d' \
+            -e '/^net\.ipv6\.conf\.default\.proxy_ndp=/d' \
+            -e '/^net\.ipv6\.conf\.default\.accept_ra=/d' \
+            -e '/^net\.ipv6\.conf\.docker0\.forwarding=/d' \
+            -e '/^net\.ipv6\.conf\.docker0\.proxy_ndp=/d' \
+            -e '/^net\.ipv6\.conf\.docker0\.accept_ra=/d' \
+            -e '/^net\.ipv6\.conf\.[^.]*\.proxy_ndp=/d' \
+            "$sysctl_file"
+        _yellow "  清理 $sysctl_file 中的 Docker IPv6/sysctl 配置"
     fi
 done
+[[ -f /etc/sysctl.d/99-docker.conf ]] && rm -f /etc/sysctl.d/99-docker.conf
+[[ -f /etc/radvd.conf ]] && rm -f /etc/radvd.conf && _yellow "  删除 /etc/radvd.conf"
+if command -v crontab >/dev/null 2>&1; then
+    tmp_cron=$(mktemp)
+    if crontab -l >"$tmp_cron" 2>/dev/null; then
+        grep -v 'ipv6.ip.sb' "$tmp_cron" | crontab - 2>/dev/null || true
+    fi
+    rm -f "$tmp_cron"
+fi
+sysctl --system >/dev/null 2>&1 || true
 _green "  sysctl 已清理"
 
 echo ""

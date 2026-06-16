@@ -3,11 +3,11 @@
 # https://github.com/oneclickvirt/docker
 # 2026.02.28
 
-cd /root >/dev/null 2>&1
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+cd /root >/dev/null 2>&1 || exit 1
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 is_noninteractive() {
     case "${noninteractive:-}" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
@@ -54,6 +54,24 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
+is_valid_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+is_port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if command -v netstat >/dev/null 2>&1 && netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"; then
+        return 0
+    fi
+    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
 count=$(grep -Ec '(vmx|svm)' /proc/cpuinfo 2>/dev/null)
 count=${count:-0}
 if [[ -z $count ]] || [[ $count -le 0 ]]; then
@@ -61,22 +79,56 @@ if [[ -z $count ]] || [[ $count -le 0 ]]; then
     _yellow "虚拟化不支持，退出程序。"
     exit 1
 fi
+if ! command -v docker >/dev/null 2>&1; then
+    _yellow "There is no Docker environment on this machine, please execute the main installation first."
+    _yellow "没有Docker环境，请先执行主体安装"
+    exit 1
+fi
 
 windows_version="${1:-10}"
 username="${2:-onew}"
 password="${3:-oneclick}"
 rdp_port="${4:-13389}"
+if [[ ! "$windows_version" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    _red "Invalid Windows image tag: ${windows_version}"
+    _red "Windows 镜像标签非法: ${windows_version}"
+    exit 1
+fi
+if ! is_valid_port "$rdp_port"; then
+    _red "Invalid RDP port: ${rdp_port}"
+    _red "RDP 端口非法: ${rdp_port}"
+    exit 1
+fi
+if is_port_in_use "$rdp_port"; then
+    _red "Port ${rdp_port} is already in use."
+    _red "端口 ${rdp_port} 已被占用。"
+    exit 1
+fi
 
 if ! docker image inspect "windows:${windows_version}" >/dev/null 2>&1; then
-    curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/startup.sh -o startup.sh
+    if ! curl -fsSL https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/startup.sh -o startup.sh; then
+        _red "Failed to download startup.sh"
+        _red "下载 startup.sh 失败"
+        exit 1
+    fi
     chmod 777 startup.sh
     _green "The following commands will take at least 20 minutes to execute, so please be patient...."
     _green "以下命令将执行至少20分钟，请耐心等待..."
     if [ ! -f "/root/Dockerfile_${windows_version}" ]; then
-        curl -L https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/Dockerfile -o /root/Dockerfile_${windows_version}
+        if ! curl -fsSL https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/Dockerfile -o /root/Dockerfile_${windows_version}; then
+            _red "Failed to download Dockerfile_${windows_version}"
+            _red "下载 Dockerfile_${windows_version} 失败"
+            rm -rf startup.sh
+            exit 1
+        fi
         chmod 777 /root/Dockerfile_${windows_version}
     fi
-    docker build -t "windows:${windows_version}" -f "/root/Dockerfile_${windows_version}" .
+    if ! docker build -t "windows:${windows_version}" -f "/root/Dockerfile_${windows_version}" .; then
+        _red "Failed to build windows:${windows_version}"
+        _red "构建 windows:${windows_version} 失败"
+        rm -rf startup.sh
+        exit 1
+    fi
     rm -rf startup.sh
 fi
 
@@ -85,7 +137,7 @@ if docker inspect "windows${windows_version}" >/dev/null 2>&1; then
     _yellow "容器 windows${windows_version} 已存在，请先删除后再重新创建。"
     exit 1
 fi
-docker run -d --privileged=true \
+if ! docker run -d --privileged=true \
     --name "windows${windows_version}" \
     --device=/dev/kvm \
     --device=/dev/net/tun \
@@ -93,7 +145,11 @@ docker run -d --privileged=true \
     --cap-add=NET_ADMIN \
     --cap-add=SYS_ADMIN \
     -p "0.0.0.0:${rdp_port}:3389" \
-    "windows:${windows_version}" /sbin/init
+    "windows:${windows_version}" /sbin/init; then
+    _red "Failed to create windows${windows_version}"
+    _red "创建 windows${windows_version} 失败"
+    exit 1
+fi
 
 sleep 5
 start_time=$(date +%s)
@@ -116,7 +172,12 @@ status=$(docker inspect -f '{{.State.Status}}' "windows${windows_version}" 2>/de
 if [ "$status" != "running" ]; then
     _yellow "The container windows${windows_version} failed to start and the script will exit."
     _yellow "容器 windows${windows_version} 启动失败，脚本将退出。"
+    docker rm -f "windows${windows_version}" >/dev/null 2>&1 || true
     exit 1
 fi
-# docker exec -it windows${windows_version} bash -c "sed -i '17s/.*/VAGRANT_DEFAULT_PROVIDER=libvirt vagrant up --debug/' startup.sh"
-docker exec "windows${windows_version}" bash -c "bash startup.sh 2>&1"
+if ! docker exec "windows${windows_version}" bash -c "bash startup.sh 2>&1"; then
+    _red "Failed to initialize windows${windows_version} startup networking."
+    _red "windows${windows_version} 启动网络初始化失败。"
+    docker rm -f "windows${windows_version}" >/dev/null 2>&1 || true
+    exit 1
+fi

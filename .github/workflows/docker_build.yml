@@ -4,11 +4,16 @@ on:
     - cron: "0 13 * * *"
   workflow_dispatch:
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   IMAGE_NAME: spiritlhl
   GHCR_IMAGE: ghcr.io/oneclickvirt/docker
 jobs:
   build-and-push:
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    concurrency:
+      group: docker-build-${{ github.ref }}-${{ matrix.tag_suffix }}-${{ matrix.arch }}
+      cancel-in-progress: false
     permissions:
       contents: write
       packages: write
@@ -115,6 +120,10 @@ jobs:
   create-manifests:
     needs: build-and-push
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: docker-manifest-${{ github.ref }}-${{ matrix.tag_suffix }}
+      cancel-in-progress: false
     permissions:
       packages: write
     strategy:
@@ -140,6 +149,10 @@ jobs:
   create-releases:
     needs: build-and-push
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: docker-release-${{ github.ref }}-${{ matrix.tag_suffix }}
+      cancel-in-progress: false
     permissions:
       contents: write
     strategy:

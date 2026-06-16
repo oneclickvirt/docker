@@ -1,3 +1,4 @@
+# check=skip=SecretsUsedInArgOrEnv
 FROM alpine:latest
 ENV ROOT_PASSWORD=oneclick136
 

@@ -3,11 +3,11 @@
 # https://github.com/oneclickvirt/docker
 # 2026.02.28
 
-cd /root >/dev/null 2>&1
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+cd /root >/dev/null 2>&1 || exit 1
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 is_noninteractive() {
     case "${noninteractive:-}" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
@@ -76,6 +76,59 @@ check_ipv4() {
     [ -z "$IPV4" ] && _red " ERROR：The host must have IPv4. " && exit 1
 }
 
+is_port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if command -v netstat >/dev/null 2>&1 && netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"; then
+        return 0
+    fi
+    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+cleanup_guacamole() {
+    docker rm -f guacamole-client guacamole-server guacamoledb >/dev/null 2>&1 || true
+    if [ "${network_created:-false}" = "true" ]; then
+        docker network rm "$GUACAMOLE_NETWORK" >/dev/null 2>&1 || true
+    fi
+}
+
+sql_escape() {
+    printf "%s" "$1" | sed "s/'/''/g"
+}
+
+GUACAMOLE_DB_NAME="${GUACAMOLE_DB_NAME:-guacdb}"
+GUACAMOLE_DB_USER="${GUACAMOLE_DB_USER:-guacadmin}"
+GUACAMOLE_MYSQL_ROOT_PASSWORD="${GUACAMOLE_MYSQL_ROOT_PASSWORD:-password}"
+GUACAMOLE_MYSQL_PASSWORD="${GUACAMOLE_MYSQL_PASSWORD:-password}"
+GUACAMOLE_PORT="${GUACAMOLE_PORT:-80}"
+GUACAMOLE_NETWORK="${GUACAMOLE_NETWORK:-guacamole_net}"
+
+if [[ ! "$GUACAMOLE_DB_NAME" =~ ^[A-Za-z0-9_]+$ ]] || [[ ! "$GUACAMOLE_DB_USER" =~ ^[A-Za-z0-9_]+$ ]]; then
+    _red "GUACAMOLE_DB_NAME and GUACAMOLE_DB_USER may only contain letters, numbers, and underscores."
+    _red "GUACAMOLE_DB_NAME 和 GUACAMOLE_DB_USER 只能包含字母、数字和下划线。"
+    exit 1
+fi
+if [[ ! "$GUACAMOLE_NETWORK" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    _red "GUACAMOLE_NETWORK may only contain letters, numbers, dots, underscores, and dashes."
+    _red "GUACAMOLE_NETWORK 只能包含字母、数字、点、下划线和短横线。"
+    exit 1
+fi
+if [[ ! "$GUACAMOLE_PORT" =~ ^[0-9]+$ ]] || [ "$GUACAMOLE_PORT" -lt 1 ] || [ "$GUACAMOLE_PORT" -gt 65535 ]; then
+    _red "Invalid GUACAMOLE_PORT: $GUACAMOLE_PORT"
+    _red "GUACAMOLE_PORT 非法: $GUACAMOLE_PORT"
+    exit 1
+fi
+if is_port_in_use "$GUACAMOLE_PORT"; then
+    _red "Port ${GUACAMOLE_PORT} is already in use."
+    _red "端口 ${GUACAMOLE_PORT} 已被占用。"
+    exit 1
+fi
+
 ${PACKAGE_INSTALL[int]} ca-certificates gnupg lsb-release
 check_ipv4
 for existing_container in guacamoledb guacamole-server guacamole-client; do
@@ -85,11 +138,30 @@ for existing_container in guacamoledb guacamole-server guacamole-client; do
         exit 1
     fi
 done
-docker pull guacamole/guacd
-docker pull guacamole/guacamole
-if ! docker run --name guacamoledb -e MYSQL_ROOT_PASSWORD=password -e MYSQL_DATABASE=guacdb -d mysql/mysql-server; then
+if ! docker network inspect "$GUACAMOLE_NETWORK" >/dev/null 2>&1; then
+    if ! docker network create "$GUACAMOLE_NETWORK" >/dev/null; then
+        _red "Failed to create Docker network: $GUACAMOLE_NETWORK"
+        _red "创建 Docker 网络失败: $GUACAMOLE_NETWORK"
+        exit 1
+    fi
+    network_created=true
+else
+    network_created=false
+fi
+if ! docker pull mysql/mysql-server || ! docker pull guacamole/guacd || ! docker pull guacamole/guacamole; then
+    _red "Failed to pull Guacamole/MySQL images"
+    _red "拉取 Guacamole/MySQL 镜像失败"
+    cleanup_guacamole
+    exit 1
+fi
+if ! docker run --name guacamoledb \
+    --network "$GUACAMOLE_NETWORK" \
+    -e MYSQL_ROOT_PASSWORD="$GUACAMOLE_MYSQL_ROOT_PASSWORD" \
+    -e MYSQL_DATABASE="$GUACAMOLE_DB_NAME" \
+    -d mysql/mysql-server; then
     _red "Failed to create guacamoledb"
     _red "创建 guacamoledb 失败"
+    cleanup_guacamole
     exit 1
 fi
 mysql_start_time=$(date +%s)
@@ -103,6 +175,7 @@ while true; do
     if [ "$((current_time - mysql_start_time))" -ge "$MYSQL_MAX_WAIT_TIME" ]; then
         _yellow "The MySQL container did not become healthy in time and the script will exit."
         _yellow "MySQL 容器未能在限定时间内进入 healthy 状态，脚本将退出。"
+        cleanup_guacamole
         exit 1
     fi
     _yellow "Please be patient while waiting for the MySQL container to start..."
@@ -110,31 +183,44 @@ while true; do
     sleep 2
 done
 mkdir -p /opt/guacamole/mysql
-docker run --rm guacamole/guacamole /opt/guacamole/bin/initdb.sh --mysql >/opt/guacamole/mysql/temp-initdb.sql
-docker cp /opt/guacamole/mysql/temp-initdb.sql guacamoledb:/docker-entrypoint-initdb.d
-docker exec guacamoledb bash -c "cd /docker-entrypoint-initdb.d/ && ls && \
-mysql -h localhost -u root -ppassword -e 'use guacdb;' && \
-mysql -h localhost -u root -ppassword guacdb < temp-initdb.sql && \
-mysql -h localhost -u root -ppassword -e \"create user guacadmin@'%' identified by 'password';\" && \
-mysql -h localhost -u root -ppassword -e \"grant SELECT,UPDATE,INSERT,DELETE on guacdb.* to guacadmin@'%';\" && \
-mysql -h localhost -u root -ppassword -e \"flush privileges;\""
+if ! docker run --rm guacamole/guacamole /opt/guacamole/bin/initdb.sh --mysql >/opt/guacamole/mysql/temp-initdb.sql; then
+    _red "Failed to generate Guacamole database schema"
+    _red "生成 Guacamole 数据库结构失败"
+    cleanup_guacamole
+    exit 1
+fi
+if ! docker exec -i guacamoledb mysql -h localhost -u root -p"$GUACAMOLE_MYSQL_ROOT_PASSWORD" "$GUACAMOLE_DB_NAME" </opt/guacamole/mysql/temp-initdb.sql; then
+    _red "Failed to initialize Guacamole database schema"
+    _red "初始化 Guacamole 数据库结构失败"
+    cleanup_guacamole
+    exit 1
+fi
+escaped_mysql_password=$(sql_escape "$GUACAMOLE_MYSQL_PASSWORD")
+if ! docker exec guacamoledb mysql -h localhost -u root -p"$GUACAMOLE_MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '${GUACAMOLE_DB_USER}'@'%' IDENTIFIED BY '${escaped_mysql_password}'; GRANT SELECT,UPDATE,INSERT,DELETE ON \`${GUACAMOLE_DB_NAME}\`.* TO '${GUACAMOLE_DB_USER}'@'%'; FLUSH PRIVILEGES;"; then
+    _red "Failed to create Guacamole database user"
+    _red "创建 Guacamole 数据库用户失败"
+    cleanup_guacamole
+    exit 1
+fi
 sleep 3
 docker logs guacamoledb
-if ! docker run --name guacamole-server -d guacamole/guacd; then
+if ! docker run --name guacamole-server --network "$GUACAMOLE_NETWORK" -d guacamole/guacd; then
     _red "Failed to create guacamole-server"
     _red "创建 guacamole-server 失败"
+    cleanup_guacamole
     exit 1
 fi
 docker logs --tail 10 guacamole-server
 sleep 3
 start_time=$(date +%s)
 MAX_WAIT_TIME=6
-CONTAINERS=("guacamoledb" "guacamole-server") # 容器名称列表
+CONTAINERS=("guacamoledb" "guacamole-server")
 for container in "${CONTAINERS[@]}"; do
     status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)
     if [ "$status" != "running" ]; then
         _yellow "The container $container failed to start and the script will exit."
         _yellow "容器 $container 启动失败，脚本将退出。"
+        cleanup_guacamole
         exit 1
     fi
     sleep 1
@@ -160,13 +246,21 @@ while true; do
     echo "Please be patient while waiting for the container to start..."
     echo "等待容器启动中，请耐心等待..."
 done
-if ! docker run --name guacamole-client --link guacamole-server:guacd --link guacamoledb:mysql -e MYSQL_DATABASE=guacdb -e MYSQL_USER=guacadmin -e MYSQL_PASSWORD=password -d -p 80:8080 guacamole/guacamole; then
+if ! docker run --name guacamole-client \
+    --network "$GUACAMOLE_NETWORK" \
+    -e GUACD_HOSTNAME=guacamole-server \
+    -e MYSQL_HOSTNAME=guacamoledb \
+    -e MYSQL_DATABASE="$GUACAMOLE_DB_NAME" \
+    -e MYSQL_USER="$GUACAMOLE_DB_USER" \
+    -e MYSQL_PASSWORD="$GUACAMOLE_MYSQL_PASSWORD" \
+    -d -p "${GUACAMOLE_PORT}:8080" guacamole/guacamole; then
     _red "Failed to create guacamole-client"
     _red "创建 guacamole-client 失败"
+    cleanup_guacamole
     exit 1
 fi
 sleep 3
 _yellow "guacamole目前的信息："
 _blue "用户名-username: guacadmin"
 _blue "密码-password: guacadmin"
-_blue "登录地址-website：http://${IPV4}:80/guacamole"
+_blue "登录地址-website：http://${IPV4}:${GUACAMOLE_PORT}/guacamole"

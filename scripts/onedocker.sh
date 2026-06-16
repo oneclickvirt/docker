@@ -5,7 +5,7 @@
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system> <disk>
 
-cd /root >/dev/null 2>&1
+cd /root >/dev/null 2>&1 || exit 1
 name="${1:-test}"
 cpu="${2:-1}"
 memory="${3:-512}"
@@ -18,19 +18,168 @@ independent_ipv6=$(echo "$independent_ipv6" | tr '[:upper:]' '[:lower:]')
 system="${9:-debian}"
 disk="${10:-0}"
 
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
+
+supported_system() {
+    case "$1" in
+        ubuntu|debian|alpine|almalinux|rockylinux|openeuler) return 0 ;;
+    esac
+    return 1
+}
+
+system_choices() {
+    echo "ubuntu / debian / alpine / almalinux / rockylinux / openeuler"
+}
+
+normalize_system_type() {
+    local raw="${1:-}"
+    local value
+    value=$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+    value="${value#images:}"
+    value="${value#docker.io/library/}"
+    value="${value#library/}"
+    value="${value#ghcr.io/oneclickvirt/docker:}"
+    value="${value#spiritlhl:}"
+    value="${value%%@*}"
+
+    case "$value" in
+        ubuntu|ubuntu[0-9]*|ubuntu/*|ubuntu:*|ubuntu-*|ubuntu_*) echo "ubuntu" ;;
+        debian|debian[0-9]*|debian/*|debian:*|debian-*|debian_*) echo "debian" ;;
+        alpine|alpine[0-9]*|alpine/*|alpine:*|alpine-*|alpine_*) echo "alpine" ;;
+        almalinux|almalinux[0-9]*|almalinux/*|almalinux:*|almalinux-*|almalinux_*|alma|alma[0-9]*|alma/*|alma:*|alma-*|alma_*) echo "almalinux" ;;
+        rockylinux|rockylinux[0-9]*|rockylinux/*|rockylinux:*|rockylinux-*|rockylinux_*|rocky|rocky[0-9]*|rocky/*|rocky:*|rocky-*|rocky_*) echo "rockylinux" ;;
+        openeuler|openeuler[0-9]*|openeuler/*|openeuler:*|openeuler-*|openeuler_*|open-euler|open-euler[0-9]*|open-euler/*|open-euler:*|open-euler-*|open_euler|open_euler[0-9]*|open_euler/*|open_euler:*|open_euler-*) echo "openeuler" ;;
+        *) return 1 ;;
+    esac
+}
+
+official_image_for_system() {
+    case "$1" in
+        ubuntu) echo "ubuntu:latest" ;;
+        debian) echo "debian:latest" ;;
+        alpine) echo "alpine:latest" ;;
+        almalinux) echo "almalinux:latest" ;;
+        rockylinux) echo "rockylinux/rockylinux:9" ;;
+        openeuler) echo "openeuler/openeuler:22.03" ;;
+        *) echo "$1:latest" ;;
+    esac
+}
+
+is_valid_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+is_port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if command -v netstat >/dev/null 2>&1 && netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"; then
+        return 0
+    fi
+    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+        return 0
+    fi
+    if command -v docker >/dev/null 2>&1 && docker ps -q 2>/dev/null | while read -r cid; do docker port "$cid" 2>/dev/null; done | awk -v suffix=":${port}" '$0 ~ suffix "$" {found=1} END {exit found ? 0 : 1}'; then
+        return 0
+    fi
+    return 1
+}
+
+ensure_port_available() {
+    local port="$1"
+    if is_port_in_use "$port"; then
+        _red "Port ${port} is already in use."
+        _red "端口 ${port} 已被占用。"
+        exit 1
+    fi
+}
+
+normalize_inputs() {
+    local raw_system="$system"
+    local normalized_system
+    if ! normalized_system=$(normalize_system_type "$raw_system"); then
+        _red "Unsupported system: ${raw_system}"
+        _red "不支持的系统: ${raw_system}"
+        _yellow "Available systems / 可选系统: $(system_choices)"
+        _yellow "Version-like input is accepted, for example: debian11, debian/11, ubuntu20, almalinux9, rockylinux9, openeuler22.03"
+        _yellow "支持带版本号写法，例如：debian11、debian/11、ubuntu20、almalinux9、rockylinux9、openeuler22.03"
+        exit 1
+    fi
+    if [ "$raw_system" != "$normalized_system" ]; then
+        _yellow "Normalized system '${raw_system}' to '${normalized_system}'"
+        _yellow "已将系统 '${raw_system}' 归一化为 '${normalized_system}'"
+    fi
+    system="$normalized_system"
+    if ! supported_system "$system"; then
+        _red "Unsupported system: ${system}"
+        _red "不支持的系统: ${system}"
+        exit 1
+    fi
+    if [[ ! "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+        _red "Invalid container name: ${name}"
+        _red "容器名称非法: ${name}"
+        exit 1
+    fi
+    if [[ ! "$cpu" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        _yellow "Invalid CPU value '${cpu}', using 1"
+        cpu="1"
+    fi
+    if [[ ! "$memory" =~ ^[1-9][0-9]*$ ]]; then
+        _yellow "Invalid memory value '${memory}', using 512MB"
+        memory="512"
+    fi
+    if ! is_valid_port "$sshport" || ! is_valid_port "$startport" || ! is_valid_port "$endport"; then
+        _red "Invalid port range: ssh=${sshport}, ports=${startport}-${endport}"
+        _red "端口参数非法: ssh=${sshport}, ports=${startport}-${endport}"
+        exit 1
+    fi
+    if [ "$startport" -gt "$endport" ]; then
+        _red "Invalid port range: startport must be <= endport"
+        _red "端口范围非法: 起始端口必须小于等于结束端口"
+        exit 1
+    fi
+    if [ "$sshport" -ge "$startport" ] && [ "$sshport" -le "$endport" ]; then
+        _red "Invalid port range: sshport must not overlap with forwarded port range"
+        _red "端口范围非法: SSH 端口不能落在转发端口范围内"
+        exit 1
+    fi
+    ensure_port_available "$sshport"
+    local range_size=$((endport - startport + 1))
+    if [ "$range_size" -le 512 ]; then
+        local port
+        for ((port = startport; port <= endport; port++)); do
+            ensure_port_available "$port"
+        done
+    else
+        _yellow "Large forwarded port range detected, skipping per-port preflight and relying on docker run validation."
+        _yellow "转发端口范围较大，跳过逐端口预检查，由 docker run 执行最终校验。"
+    fi
+    if [[ ! "$disk" =~ ^[0-9]+$ ]]; then
+        _yellow "Invalid disk value '${disk}', using 0"
+        disk="0"
+    fi
+    [[ "$independent_ipv6" = "y" ]] || independent_ipv6="n"
+}
 
 without_cdn="false"
 if [[ "${WITHOUTCDN^^}" == "TRUE" ]]; then
     without_cdn="true"
 fi
 
+normalize_inputs
+
 if ! command -v docker >/dev/null 2>&1; then
     _yellow "There is no Docker environment on this machine, please execute the main installation first."
     _yellow "没有Docker环境，请先执行主体安装"
+    exit 1
+fi
+if docker inspect "$name" >/dev/null 2>&1; then
+    _red "Container ${name} already exists, please remove it before creating a new one."
+    _red "容器 ${name} 已存在，请先删除后再重新创建。"
     exit 1
 fi
 
@@ -59,7 +208,13 @@ check_storage_driver() {
 
 check_cdn() {
     local o_url=$1
-    local shuffled_cdn_urls=($(shuf -e "${cdn_urls[@]}")) # 打乱数组顺序
+    local shuffled_cdn_urls=("${cdn_urls[@]}")
+    if command -v shuf >/dev/null 2>&1; then
+        shuffled_cdn_urls=()
+        while IFS= read -r cdn_url; do
+            shuffled_cdn_urls+=("$cdn_url")
+        done < <(shuf -e "${cdn_urls[@]}")
+    fi
     for cdn_url in "${shuffled_cdn_urls[@]}"; do
         if curl -4 -sL -k "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
             export cdn_success_url="$cdn_url"
@@ -86,7 +241,7 @@ check_cdn_file() {
 
 check_lxcfs() {
     lxcfs_available="N"
-    if systemctl is-active --quiet lxcfs && [ -d "/var/lib/lxcfs/proc" ]; then
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet lxcfs && [ -d "/var/lib/lxcfs/proc" ]; then
         if [ -f "/var/lib/lxcfs/proc/cpuinfo" ] && [ -f "/var/lib/lxcfs/proc/meminfo" ] && [ -f "/var/lib/lxcfs/proc/stat" ]; then
             _green "lxcfs is available and running"
             _green "lxcfs 可用且正在运行"
@@ -102,7 +257,8 @@ check_lxcfs() {
 }
 
 get_arch() {
-    local arch=$(uname -m)
+    local arch
+    arch=$(uname -m)
     case $arch in
         x86_64)
             echo "amd64"
@@ -118,47 +274,58 @@ get_arch() {
 
 check_image_exists() {
     local system_type=$1
-    local arch=$(get_arch)
+    local arch
     local images
+    local ghcr_manifest="ghcr.io/oneclickvirt/docker:${system_type}"
+    arch=$(get_arch)
+    local ghcr_arch="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
+    local canonical_image="spiritlhl:${system_type}-${arch}"
+    local official_image
+    official_image=$(official_image_for_system "$system_type")
     images=$(docker images --format '{{.Repository}}:{{.Tag}}')
-    # 查找 GHCR 镜像（优先）
-    if echo "$images" | grep -qx "ghcr.io/oneclickvirt/docker:${system_type}-${arch}"; then
-        _green "Image ghcr.io/oneclickvirt/docker:${system_type}-${arch} already exists"
-        _green "镜像 ghcr.io/oneclickvirt/docker:${system_type}-${arch} 已存在"
-        export image_name="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
-        return 0
-    fi
-    # 查找 spiritlhl:system-arch 格式
-    if echo "$images" | grep -qx "spiritlhl:${system_type}-${arch}"; then
-        _green "Image spiritlhl:${system_type}-${arch} already exists"
-        _green "镜像 spiritlhl:${system_type}-${arch} 已存在"
-        export image_name="spiritlhl:${system_type}-${arch}"
-        return 0
-    fi
-    # 再查找 spiritlhl:system 格式（不含 arch）
-    if echo "$images" | grep -qx "spiritlhl:${system_type}"; then
-        _green "Image spiritlhl:${system_type} already exists"
-        _green "镜像 spiritlhl:${system_type} 已存在"
-        export image_name="spiritlhl:${system_type}"
-        return 0
-    fi
-    # 最后查找 system:latest 格式
-    if echo "$images" | grep -qx "${system_type}:latest"; then
-        _green "Image ${system_type}:latest already exists"
-        _green "镜像 ${system_type}:latest 已存在"
-        export image_name="${system_type}:latest"
-        return 0
-    fi
+    for candidate in \
+        "$ghcr_manifest" \
+        "$ghcr_arch" \
+        "$canonical_image" \
+        "spiritlhl:${system_type}" \
+        "$official_image" \
+        "${system_type}:latest"; do
+        [ -n "$candidate" ] || continue
+        if echo "$images" | grep -Fxq "$candidate"; then
+            _green "Image ${candidate} already exists"
+            _green "镜像 ${candidate} 已存在"
+            export image_name="$candidate"
+            return 0
+        fi
+    done
     return 1
 }
 
 download_and_load_image() {
     local system_type=$1
-    local arch=$(get_arch)
+    local arch
+    arch=$(get_arch)
     local tar_filename="spiritlhl_${system_type}_${arch}.tar.gz"
     local canonical_image="spiritlhl:${system_type}-${arch}"
+    local ghcr_manifest="ghcr.io/oneclickvirt/docker:${system_type}"
+    local ghcr_arch="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
+    local official_image
+    official_image=$(official_image_for_system "$system_type")
 
-    # 优先：通过 CDN/GitHub Releases 下载离线 tar 包
+    # 优先：从 GHCR 拉取多架构镜像；失败后再尝试架构专用 tag
+    for ghcr_image in "$ghcr_manifest" "$ghcr_arch"; do
+        _yellow "Trying to pull from GHCR: $ghcr_image"
+        _yellow "尝试从 GHCR 拉取镜像: $ghcr_image"
+        if docker pull "${ghcr_image}" 2>/dev/null; then
+            docker tag "${ghcr_image}" "${canonical_image}" 2>/dev/null || true
+            export image_name="${canonical_image}"
+            _green "Image pulled from GHCR: ${ghcr_image}"
+            _green "从 GHCR 拉取镜像成功: ${ghcr_image}"
+            return 0
+        fi
+    done
+
+    # 回退：通过 CDN/GitHub Releases 下载离线 tar 包
     local github_url="https://github.com/oneclickvirt/docker/releases/download/${system_type}/${tar_filename}"
     local download_url="${cdn_success_url}${github_url}"
     _yellow "Downloading image tar: $download_url"
@@ -185,23 +352,11 @@ download_and_load_image() {
         rm -f "/tmp/${tar_filename}" 2>/dev/null
     fi
 
-    # 回退：从 GHCR 拉取镜像
-    local ghcr_image="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
-    _yellow "Trying to pull from GHCR: $ghcr_image"
-    _yellow "尝试从 GHCR 拉取镜像: $ghcr_image"
-    if docker pull "${ghcr_image}" 2>/dev/null; then
-        docker tag "${ghcr_image}" "${canonical_image}" 2>/dev/null || true
-        export image_name="${canonical_image}"
-        _green "Image pulled from GHCR: ${ghcr_image}"
-        _green "从 GHCR 拉取镜像成功: ${ghcr_image}"
-        return 0
-    fi
-
     # 最后回退：从 Docker Hub 拉取官方基础镜像
-    _yellow "Trying to pull from Docker Hub: ${system_type}:latest"
-    _yellow "尝试从 Docker Hub 拉取镜像: ${system_type}:latest"
-    if docker pull "${system_type}:latest"; then
-        export image_name="${system_type}:latest"
+    _yellow "Trying to pull from Docker Hub: ${official_image}"
+    _yellow "尝试从 Docker Hub 拉取镜像: ${official_image}"
+    if docker pull "${official_image}"; then
+        export image_name="${official_image}"
         _green "Image pulled from Docker Hub: ${image_name}"
         _green "从 Docker Hub 拉取镜像成功: ${image_name}"
         return 0
@@ -215,6 +370,7 @@ download_and_load_image() {
 download_ssh_scripts() {
     local container_name=$1
     local system_type=$2
+    local script_name
     
     # 检查容器内是否已存在SSH脚本
     if [ "$system_type" = "alpine" ]; then
@@ -233,40 +389,45 @@ download_ssh_scripts() {
         script_name="ssh_bash.sh"
     fi
     
-    _yellow "SSH script not found in container, downloading..."
-    _yellow "容器内未找到SSH脚本，正在下载..."
-    
-    # 构建下载URL
-    local script_url="${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/${script_name}"
-    
-    # 下载脚本到宿主机临时位置
-    local temp_script="/tmp/${script_name}"
-    curl -fsSL "$script_url" -o "$temp_script" --connect-timeout 10 --max-time 30
-    
-    if [ -f "$temp_script" ] && [ -s "$temp_script" ]; then
-        # 复制脚本到容器内
-        docker cp "$temp_script" "${container_name}:/${script_name}"
-        if [ $? -eq 0 ]; then
-            # 给脚本添加执行权限
+    _yellow "SSH script not found in container, preparing ${script_name}..."
+    _yellow "容器内未找到SSH脚本，正在准备 ${script_name}..."
+
+    local source_script=""
+    local cleanup_source="false"
+    for candidate in "/root/${script_name}" "$(dirname "$0")/${script_name}"; do
+        if [ -f "$candidate" ] && [ -s "$candidate" ]; then
+            source_script="$candidate"
+            break
+        fi
+    done
+    if [ -z "$source_script" ]; then
+        local script_url="${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/${script_name}"
+        source_script="/tmp/${script_name}"
+        cleanup_source="true"
+        curl -fsSL "$script_url" -o "$source_script" --connect-timeout 10 --max-time 30
+    fi
+
+    if [ -f "$source_script" ] && [ -s "$source_script" ]; then
+        if docker cp "$source_script" "${container_name}:/${script_name}"; then
             if [ "$system_type" = "alpine" ]; then
                 docker exec "$container_name" sh -c "chmod +x /${script_name}"
             else
                 docker exec "$container_name" bash -c "chmod +x /${script_name}"
             fi
-            _green "SSH script downloaded and copied to container successfully"
-            _green "SSH脚本下载并复制到容器成功"
-            rm -f "$temp_script"
+            _green "SSH script copied to container successfully"
+            _green "SSH脚本复制到容器成功"
+            [ "$cleanup_source" = "true" ] && rm -f "$source_script"
             return 0
         else
             _red "Failed to copy SSH script to container"
             _red "复制SSH脚本到容器失败"
-            rm -f "$temp_script"
+            [ "$cleanup_source" = "true" ] && rm -f "$source_script"
             return 1
         fi
     else
-        _red "Failed to download SSH script"
-        _red "下载SSH脚本失败"
-        rm -f "$temp_script" 2>/dev/null
+        _red "Failed to prepare SSH script"
+        _red "准备SSH脚本失败"
+        [ "$cleanup_source" = "true" ] && rm -f "$source_script" 2>/dev/null
         return 1
     fi
 }
@@ -274,8 +435,7 @@ download_ssh_scripts() {
 check_cdn_file
 check_lxcfs
 check_storage_driver
-docker network inspect ipv6_net &>/dev/null
-if [ $? -eq 0 ]; then
+if docker network inspect ipv6_net &>/dev/null; then
     _green "ipv6_net exists in the Docker network"
     _green "ipv6_net 存在于 Docker 网络中"
     ipv6_net_status="Y"
@@ -284,8 +444,7 @@ else
     _yellow "ipv6_net 不存在于 Docker 网络中"
     ipv6_net_status="N"
 fi
-docker inspect ndpresponder &>/dev/null
-if [ $? -eq 0 ]; then
+if docker inspect ndpresponder &>/dev/null; then
     container_status=$(docker inspect -f '{{.State.Status}}' ndpresponder)
     if [ "$container_status" == "running" ]; then
         _green "ndpresponder container exists and is running"
@@ -344,7 +503,6 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             _red "创建容器失败: ${name}"
             exit 1
         fi
-        docker_use_ipv6=true
     else
         if ! docker run -d \
             --cpus="${cpu}" \
@@ -361,12 +519,15 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             _red "创建容器失败: ${name}"
             exit 1
         fi
-        docker_use_ipv6=false
     fi
-    # 下载SSH脚本（如果需要）
-    download_ssh_scripts "${name}" "${system}"
-    docker exec "${name}" sh -c 'sh /ssh_sh.sh "$1"' sh "$passwd"
-    docker exec "${name}" sh -c 'printf "%s\n" "root:$1" | chpasswd' sh "$passwd"
+    if ! download_ssh_scripts "${name}" "${system}" || \
+       ! docker exec "${name}" sh -c 'sh /ssh_sh.sh "$1"' sh "$passwd" || \
+       ! docker exec "${name}" sh -c 'printf "%s\n" "root:$1" | chpasswd' sh "$passwd"; then
+        _red "SSH initialization failed for ${name}, removing partial container."
+        _red "${name} SSH 初始化失败，删除未完成容器。"
+        docker rm -f "${name}" >/dev/null 2>&1 || true
+        exit 1
+    fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
     if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
@@ -387,7 +548,6 @@ else
             _red "创建容器失败: ${name}"
             exit 1
         fi
-        docker_use_ipv6=true
     else
         if ! docker run -d \
             --cpus="${cpu}" \
@@ -404,12 +564,15 @@ else
             _red "创建容器失败: ${name}"
             exit 1
         fi
-        docker_use_ipv6=false
     fi
-    # 下载SSH脚本（如果需要）
-    download_ssh_scripts "${name}" "${system}"
-    docker exec "${name}" bash -c 'bash /ssh_bash.sh "$1"' bash "$passwd"
-    docker exec "${name}" bash -c 'printf "%s\n" "root:$1" | chpasswd' bash "$passwd"
+    if ! download_ssh_scripts "${name}" "${system}" || \
+       ! docker exec "${name}" bash -c 'bash /ssh_bash.sh "$1"' bash "$passwd" || \
+       ! docker exec "${name}" bash -c 'printf "%s\n" "root:$1" | chpasswd' bash "$passwd"; then
+        _red "SSH initialization failed for ${name}, removing partial container."
+        _red "${name} SSH 初始化失败，删除未完成容器。"
+        docker rm -f "${name}" >/dev/null 2>&1 || true
+        exit 1
+    fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 fi
 

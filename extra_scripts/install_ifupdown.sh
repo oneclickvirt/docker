@@ -27,13 +27,19 @@ echo "1" >"/usr/local/bin/ifupdown_installed.txt"
 # systemctl stop systemd-networkd
 # systemctl disable systemd-networkd
 # rm -rf /lib/systemd/system/systemd-networkd.service
-systemctl enable networking
-sleep 1
-systemctl restart networking
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable networking
+    sleep 1
+    systemctl restart networking
+elif command -v service >/dev/null 2>&1; then
+    service networking restart || true
+fi
 
 # 删除一次性服务
-systemctl disable ifupdown-install.service
-rm /etc/systemd/system/ifupdown-install.service
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable ifupdown-install.service || true
+fi
+rm -f /etc/systemd/system/ifupdown-install.service
 
 # 删除自身
-rm $0
+rm -f "$0"

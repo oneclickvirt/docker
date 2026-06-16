@@ -168,7 +168,7 @@ setup_cron_sshd() {
 # ======== 主流程 ========
 passwd_input="${1:-123456}"
 
-if [ "$interactionless" != "true" ]; then
+if [ "${interactionless:-}" != "true" ]; then
     install_required_modules
 fi
 

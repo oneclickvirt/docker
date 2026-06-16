@@ -3,10 +3,10 @@
 # https://github.com/oneclickvirt/docker
 # 2026.02.28
 
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 is_noninteractive() {
     case "${noninteractive:-}" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
@@ -159,7 +159,7 @@ setup_docker_btrfs_loop() {
         echo "$mount_point" > /usr/local/bin/docker_mount_point
         return
     fi
-    if [ -d "$mount_point" ] && [ "$(ls -A $mount_point 2>/dev/null)" ]; then
+    if [ -d "$mount_point" ] && [ "$(ls -A "$mount_point" 2>/dev/null)" ]; then
         _yellow "Backing up existing Docker data..."
         mv "$mount_point" "${mount_point}.backup.$(date +%Y%m%d-%H%M%S)"
     fi
@@ -426,7 +426,10 @@ check_ipv6() {
 
 check_cdn() {
     local o_url=$1
-    local shuffled_cdn_urls=($(shuf -e "${cdn_urls[@]}"))
+    local shuffled_cdn_urls=("${cdn_urls[@]}")
+    if command -v shuf >/dev/null 2>&1; then
+        shuffled_cdn_urls=($(shuf -e "${cdn_urls[@]}"))
+    fi
     for cdn_url in "${shuffled_cdn_urls[@]}"; do
         if curl -4 -sL -k "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
             export cdn_success_url="$cdn_url"
@@ -681,8 +684,18 @@ else
     check_cdn_file
 fi
 get_system_arch
-curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh -o ssh_bash.sh && chmod +x ssh_bash.sh && dos2unix ssh_bash.sh
-curl -Lk ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh -o ssh_sh.sh && chmod +x ssh_sh.sh && dos2unix ssh_sh.sh
+if ! curl -fsSLk "${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_bash.sh" -o ssh_bash.sh; then
+    _red "Failed to download ssh_bash.sh"
+    _red "下载 ssh_bash.sh 失败"
+    exit 1
+fi
+if ! curl -fsSLk "${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/ssh_sh.sh" -o ssh_sh.sh; then
+    _red "Failed to download ssh_sh.sh"
+    _red "下载 ssh_sh.sh 失败"
+    exit 1
+fi
+chmod +x ssh_bash.sh ssh_sh.sh
+dos2unix ssh_bash.sh ssh_sh.sh >/dev/null 2>&1 || true
 
 if [[ "$SYSTEM" == "Alpine" ]]; then
     interface_1=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {print $2; exit}')
@@ -858,6 +871,11 @@ ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
 ipv6_prefixlen=$(cat /usr/local/bin/docker_ipv6_prefixlen)
 ipv6_gateway=$(cat /usr/local/bin/docker_ipv6_gateway)
 fe80_address=$(cat /usr/local/bin/docker_fe80_address)
+if [[ $ipv6_gateway == fe80* ]]; then
+    ipv6_gateway_fe80="Y"
+else
+    ipv6_gateway_fe80="N"
+fi
 if [[ -n "$ipv6_address" ]]; then 
     ipv6_address_without_last_segment="${ipv6_address%:*}:"
     mac_end_suffix=$(echo $mac_address | awk -F: '{print $4$5}')
@@ -871,7 +889,7 @@ if [[ -n "$ipv6_address" ]]; then
         _blue "Since IPV6 gateways begin with fe80, it is generally assumed that IPV6 addresses assigned through the SLAAC"
         _green "由于IPV6的网关是fe80开头，一般认为通过SLAAC分配出的IPV6地址"
         slaac_status=true
-    elif [[ $ipv6_end_suffix == $mac_end_suffix ]]; then
+    elif [[ $ipv6_end_suffix == "$mac_end_suffix" ]]; then
         _blue "Since IPV6 addresses have the same suffix as mac addresses, the probability is that the IPV6 address assigned through the SLAAC"
         _green "由于IPV6的地址和mac地址后缀相同，大概率通过SLAAC分配出的IPV6地址"
         slaac_status=true
@@ -1011,6 +1029,27 @@ fi
 detect_virtualization
 try_storage_drivers
 
+run_linuxmirrors_docker_installer() {
+    local installer_url="$1"
+    shift
+    local installer_tmp installer_status
+    installer_tmp=$(mktemp)
+    if ! curl -fsSL "$installer_url" -o "$installer_tmp"; then
+        rm -f "$installer_tmp"
+        _red "Failed to download Docker installation script: $installer_url"
+        _red "下载 Docker 安装脚本失败: $installer_url"
+        return 1
+    fi
+    bash "$installer_tmp" "$@" | awk '/脚本运行完毕，更多使用教程详见官网/ {exit} {print}'
+    installer_status=${PIPESTATUS[0]}
+    rm -f "$installer_tmp"
+    if [ "$installer_status" -ne 0 ] && [ "$installer_status" -ne 141 ]; then
+        _red "Docker installation script failed with status ${installer_status}"
+        _red "Docker 安装脚本执行失败，状态码 ${installer_status}"
+        return "$installer_status"
+    fi
+}
+
 install_docker_and_compose() {
     _green "This may stay for 2~3 minutes, please be patient..."
     _green "此处可能会停留2~3分钟，请耐心等待。。。"
@@ -1033,21 +1072,25 @@ install_docker_and_compose() {
                 rc-service docker start
             fi
         elif [[ -z "${CN}" || "${CN}" != true ]]; then
-            bash <(curl -sSL https://raw.githubusercontent.com/SuperManito/LinuxMirrors/main/DockerInstallation.sh) \
+            if ! run_linuxmirrors_docker_installer "https://raw.githubusercontent.com/SuperManito/LinuxMirrors/main/DockerInstallation.sh" \
                 --source download.docker.com \
                 --source-registry registry.hub.docker.com \
                 --protocol http \
                 --install-latest true \
                 --close-firewall true \
-                --ignore-backup-tips | awk '/脚本运行完毕，更多使用教程详见官网/ {exit} {print}'
+                --ignore-backup-tips; then
+                exit 1
+            fi
         else
-            bash <(curl -sSL https://gitee.com/SuperManito/LinuxMirrors/raw/main/DockerInstallation.sh) \
+            if ! run_linuxmirrors_docker_installer "https://gitee.com/SuperManito/LinuxMirrors/raw/main/DockerInstallation.sh" \
                 --source mirrors.tencent.com/docker-ce \
                 --source-registry registry.hub.docker.com \
                 --protocol http \
                 --install-latest true \
                 --close-firewall true \
-                --ignore-backup-tips | awk '/脚本运行完毕，更多使用教程详见官网/ {exit} {print}'
+                --ignore-backup-tips; then
+                exit 1
+            fi
         fi
     fi
     if ! command -v docker-compose >/dev/null 2>&1; then
@@ -1058,9 +1101,17 @@ install_docker_and_compose() {
             ${PACKAGE_INSTALL[int]} docker-compose
         elif [[ -z "${CN}" || "${CN}" != true ]]; then
             _yellow "Installing docker-compose"
-            curl -L "${cdn_success_url}https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
+            if ! curl -fL "${cdn_success_url}https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose; then
+                _red "Failed to download docker-compose"
+                _red "下载 docker-compose 失败"
+                exit 1
+            fi
             chmod +x /usr/local/bin/docker-compose
-            docker-compose --version
+            if ! docker-compose --version; then
+                _red "docker-compose installation verification failed"
+                _red "docker-compose 安装校验失败"
+                exit 1
+            fi
         fi
     fi
     local daemon_json="/etc/docker/daemon.json"
@@ -1089,40 +1140,44 @@ install_docker_and_compose() {
 }
 
 adapt_ipv6() {
-    if [ ! -f /usr/local/bin/docker_adapt_ipv6 ]; then
-        echo "1" > /usr/local/bin/docker_adapt_ipv6
-        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ ! -z "$interface" ] && [ ! -z "$ipv4_address" ] && [ ! -z "$ipv4_prefixlen" ] && [ ! -z "$ipv4_gateway" ] && [ ! -z "$ipv4_subnet" ] && [ ! -z "$fe80_address" ]; then
-            network_manager=$(cat /usr/local/bin/docker_network_manager)
-            case "$network_manager" in
-                "systemd-networkd")
-                    configure_systemd_networkd
-                    ;;
-                "NetworkManager")
-                    configure_network_manager
-                    ;;
-                "networking")
-                    configure_networking
-                    ;;
-                *)
-                    configure_networking
-                    ;;
-            esac
-            update_sysctl "net.ipv6.conf.all.forwarding=1"
-            update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
-            update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
-            update_sysctl "net.ipv6.conf.docker0.proxy_ndp=1"
-            update_sysctl "net.ipv6.conf.${interface}.proxy_ndp=1"
-            if [ "$status_he" = true ]; then
-                update_sysctl "net.ipv6.conf.he-ipv6.proxy_ndp=1"
-            fi
-            reboot_message="请重启服务器以启用新的网络配置"
-            if [ -f /usr/local/bin/docker_storage_reboot ]; then
-                reboot_message="${reboot_message}和存储驱动内核模块"
-            fi
-            _green "${reboot_message}，重启后等待20秒后请再次执行本脚本"
-            exit 1
-        fi
+    if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
+        return 0
     fi
+    if [ -z "$ipv6_address" ] || [ -z "$ipv6_prefixlen" ] || [ -z "$ipv6_gateway" ] || [ -z "$ipv6_address_without_last_segment" ] || [ -z "$interface" ] || [ -z "$ipv4_address" ] || [ -z "$ipv4_prefixlen" ] || [ -z "$ipv4_gateway" ] || [ -z "$ipv4_subnet" ] || [ -z "$fe80_address" ]; then
+        _yellow "IPv6 data is incomplete, skipping host network adaptation until the next run."
+        _yellow "IPv6 信息不完整，本次跳过宿主机网络适配，避免写入错误状态。"
+        return 1
+    fi
+    echo "1" > /usr/local/bin/docker_adapt_ipv6
+    network_manager=$(cat /usr/local/bin/docker_network_manager)
+    case "$network_manager" in
+        "systemd-networkd")
+            configure_systemd_networkd
+            ;;
+        "NetworkManager")
+            configure_network_manager
+            ;;
+        "networking")
+            configure_networking
+            ;;
+        *)
+            configure_networking
+            ;;
+    esac
+    update_sysctl "net.ipv6.conf.all.forwarding=1"
+    update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
+    update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
+    update_sysctl "net.ipv6.conf.docker0.proxy_ndp=1"
+    update_sysctl "net.ipv6.conf.${interface}.proxy_ndp=1"
+    if [ "$status_he" = true ]; then
+        update_sysctl "net.ipv6.conf.he-ipv6.proxy_ndp=1"
+    fi
+    reboot_message="请重启服务器以启用新的网络配置"
+    if [ -f /usr/local/bin/docker_storage_reboot ]; then
+        reboot_message="${reboot_message}和存储驱动内核模块"
+    fi
+    _green "${reboot_message}，重启后等待20秒后请再次执行本脚本"
+    exit 1
 }
 
 configure_systemd_networkd() {
@@ -1309,7 +1364,6 @@ docker_build_ipv6() {
         _green "A new network has been detected that has rebooted the server to configure IPV6 and is testing IPV6 connectivity, please be patient!"
         _green "检测到已重启服务器配置IPV6的新网络，正在测试IPV6的连通性，请耐心等待"
         if [ ! -f /usr/local/bin/docker_build_ipv6 ]; then
-            echo "1" >/usr/local/bin/docker_build_ipv6
             # 检测 sipcalc 是否可用
             if ! command -v sipcalc >/dev/null 2>&1; then
                 _yellow "sipcalc command not found, IPv6 advanced configuration is not available"
@@ -1359,6 +1413,7 @@ docker_build_ipv6() {
                 _yellow "Cannot split subnet: target_mask (/${target_mask}) must be larger than ipv6_prefixlen (/${ipv6_prefixlen}), skipping split"
                 _yellow "无法切分子网：target_mask (/${target_mask}) 必须大于 ipv6_prefixlen (/${ipv6_prefixlen})，跳过切分"
                 install_docker_and_compose
+                echo "1" >/usr/local/bin/docker_build_ipv6
                 return 0
             fi
             echo "After: target_mask = $target_mask"
@@ -1376,40 +1431,39 @@ docker_build_ipv6() {
                 return 1
             fi
             install_docker_and_compose
+            echo "1" >/usr/local/bin/docker_build_ipv6
             if [ "$ipv6_prefixlen" -le 112 ]; then
                 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
-                    docker network create --ipv6 --subnet=172.26.0.0/16 --subnet=$new_subnet ipv6_net
-                    if [ "$system_arch" = "x86" ]; then
-                        if [ "$status_he" = true ]; then
-                            docker run -d \
-                                --restart always --cpus 0.02 --memory 64M \
-                                -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                                --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                                --network host --name ndpresponder \
-                                spiritlhl/ndpresponder_x86 -i he-ipv6 -N ipv6_net
-                        else
-                            docker run -d \
-                                --restart always --cpus 0.02 --memory 64M \
-                                -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                                --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                                --network host --name ndpresponder \
-                                spiritlhl/ndpresponder_x86 -i ${interface} -N ipv6_net
+                    if ! docker network inspect ipv6_net >/dev/null 2>&1; then
+                        if ! docker network create --ipv6 --subnet=172.26.0.0/16 --subnet="$new_subnet" ipv6_net; then
+                            _red "Failed to create Docker IPv6 network ipv6_net"
+                            _red "创建 Docker IPv6 网络 ipv6_net 失败"
+                            rm -f /usr/local/bin/docker_build_ipv6
+                            return 1
                         fi
-                    elif [ "$system_arch" = "arch" ]; then
-                        if [ "$status_he" = true ]; then
-                            docker run -d \
-                                --restart always --cpus 0.02 --memory 64M \
-                                -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                                --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                                --network host --name ndpresponder \
-                                spiritlhl/ndpresponder_aarch64 -i he-ipv6 -N ipv6_net
-                        else
-                            docker run -d \
-                                --restart always --cpus 0.02 --memory 64M \
-                                -v /var/run/docker.sock:/var/run/docker.sock:ro \
-                                --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                                --network host --name ndpresponder \
-                                spiritlhl/ndpresponder_aarch64 -i ${interface} -N ipv6_net
+                    fi
+                    local ndp_image=""
+                    local ndp_interface="$interface"
+                    if [ "$status_he" = true ]; then
+                        ndp_interface="he-ipv6"
+                    fi
+                    case "$system_arch" in
+                        x86) ndp_image="spiritlhl/ndpresponder_x86" ;;
+                        arch) ndp_image="spiritlhl/ndpresponder_aarch64" ;;
+                    esac
+                    if [ -n "$ndp_image" ]; then
+                        if docker inspect ndpresponder >/dev/null 2>&1; then
+                            docker start ndpresponder >/dev/null 2>&1 || true
+                        elif ! docker run -d \
+                            --restart always --cpus 0.02 --memory 64M \
+                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                            --network host --name ndpresponder \
+                            "$ndp_image" -i "$ndp_interface" -N ipv6_net; then
+                            _red "Failed to create ndpresponder container"
+                            _red "创建 ndpresponder 容器失败"
+                            rm -f /usr/local/bin/docker_build_ipv6
+                            return 1
                         fi
                     fi
                 fi
@@ -1458,7 +1512,7 @@ docker_build_ipv6() {
             update_sysctl "net.ipv6.conf.all.forwarding=1"
             update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
             update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
-            echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb && curl -m 6 -s ipv6.ip.sb' | crontab -
+            (crontab -l 2>/dev/null; echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb >/dev/null 2>&1 && curl -m 6 -s ipv6.ip.sb >/dev/null 2>&1') | sort -u | crontab -
         fi
     fi
 }
@@ -1507,10 +1561,20 @@ check_and_adapt_ipv6() {
 
 setup_dns_check() {
     if [ ! -f "/usr/local/bin/check-dns.sh" ]; then
-        wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.sh -O /usr/local/bin/check-dns.sh
+        if ! wget "${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.sh" -O /usr/local/bin/check-dns.sh; then
+            _yellow "Failed to download check-dns.sh, skipping DNS keepalive service setup."
+            _yellow "下载 check-dns.sh 失败，跳过 DNS 保活服务配置。"
+            rm -f /usr/local/bin/check-dns.sh
+            return
+        fi
         chmod +x /usr/local/bin/check-dns.sh
         if command -v systemctl >/dev/null 2>&1; then
-            wget ${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.service -O /etc/systemd/system/check-dns.service
+            if ! wget "${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/extra_scripts/check-dns.service" -O /etc/systemd/system/check-dns.service; then
+                _yellow "Failed to download check-dns.service, skipping systemd DNS keepalive service setup."
+                _yellow "下载 check-dns.service 失败，跳过 systemd DNS 保活服务配置。"
+                rm -f /etc/systemd/system/check-dns.service
+                return
+            fi
             chmod +x /etc/systemd/system/check-dns.service
             systemctl daemon-reload
             systemctl enable check-dns.service
@@ -1541,8 +1605,10 @@ detect_network_manager() {
 }
 
 restart_services() {
-    sysctl_path=$(which sysctl)
-    ${sysctl_path} -p
+    sysctl_path=$(command -v sysctl || true)
+    if [ -n "$sysctl_path" ]; then
+        ${sysctl_path} -p >/dev/null 2>&1 || ${sysctl_path} --system >/dev/null 2>&1 || true
+    fi
     if command -v systemctl >/dev/null 2>&1; then
         systemctl restart docker
         sleep 4

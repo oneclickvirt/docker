@@ -3,10 +3,10 @@
 # 基于 https://github.com/oneclickvirt/docker
 # 2025.08.24
 
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 
 without_cdn="false"
 if [[ "${WITHOUTCDN^^}" == "TRUE" ]]; then
@@ -41,7 +41,13 @@ check_china() {
 
 check_cdn() {
     local o_url=$1
-    local shuffled_cdn_urls=($(shuf -e "${cdn_urls[@]}"))
+    local shuffled_cdn_urls=("${cdn_urls[@]}")
+    if command -v shuf >/dev/null 2>&1; then
+        shuffled_cdn_urls=()
+        while IFS= read -r cdn_url; do
+            shuffled_cdn_urls+=("$cdn_url")
+        done < <(shuf -e "${cdn_urls[@]}")
+    fi
     for cdn_url in "${shuffled_cdn_urls[@]}"; do
         if curl -4 -sL -k "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
             export cdn_success_url="$cdn_url"
@@ -69,7 +75,8 @@ check_cdn_file() {
 }
 
 get_arch() {
-    local arch=$(uname -m)
+    local arch
+    arch=$(uname -m)
     case $arch in
         x86_64)
             echo "amd64"
@@ -104,18 +111,29 @@ check_storage_driver() {
 
 check_image_exists() {
     local system_type="debian"
-    local arch=$(get_arch)
-    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "spiritlhl:${system_type}-${arch}"; then
+    local arch
+    arch=$(get_arch)
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -Fxq "ghcr.io/oneclickvirt/docker:${system_type}"; then
+        _green "Image ghcr.io/oneclickvirt/docker:${system_type} exists / 镜像 ghcr.io/oneclickvirt/docker:${system_type} 已存在"
+        export image_name="ghcr.io/oneclickvirt/docker:${system_type}"
+        return 0
+    fi
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -Fxq "ghcr.io/oneclickvirt/docker:${system_type}-${arch}"; then
+        _green "Image ghcr.io/oneclickvirt/docker:${system_type}-${arch} exists / 镜像 ghcr.io/oneclickvirt/docker:${system_type}-${arch} 已存在"
+        export image_name="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
+        return 0
+    fi
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -Fxq "spiritlhl:${system_type}-${arch}"; then
         _green "Image spiritlhl:${system_type}-${arch} exists / 镜像 spiritlhl:${system_type}-${arch} 已存在"
         export image_name="spiritlhl:${system_type}-${arch}"
         return 0
     fi
-    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "spiritlhl:${system_type}"; then
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -Fxq "spiritlhl:${system_type}"; then
         _green "Image spiritlhl:${system_type} exists / 镜像 spiritlhl:${system_type} 已存在"
         export image_name="spiritlhl:${system_type}"
         return 0
     fi
-    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -qx "${system_type}:latest"; then
+    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -Fxq "${system_type}:latest"; then
         _green "Image ${system_type}:latest exists / 镜像 ${system_type}:latest 已存在"
         export image_name="${system_type}:latest"
         return 0
@@ -125,16 +143,31 @@ check_image_exists() {
 
 download_and_load_image() {
     local system_type="debian"
-    local arch=$(get_arch)
+    local arch
+    arch=$(get_arch)
     local tar_filename="spiritlhl_${system_type}_${arch}.tar.gz"
+    local ghcr_image="ghcr.io/oneclickvirt/docker:${system_type}"
+    local ghcr_arch_image="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
+    _yellow "Attempting to pull image from GHCR: ${ghcr_image}"
+    _yellow "尝试从 GHCR 拉取镜像: ${ghcr_image}"
+    if docker pull "$ghcr_image"; then
+        export image_name="$ghcr_image"
+        _green "Image pulled from GHCR / 已从 GHCR 拉取镜像"
+        return 0
+    fi
+    _yellow "Attempting to pull arch-specific image from GHCR: ${ghcr_arch_image}"
+    _yellow "尝试从 GHCR 拉取架构专用镜像: ${ghcr_arch_image}"
+    if docker pull "$ghcr_arch_image"; then
+        export image_name="$ghcr_arch_image"
+        _green "Image pulled from GHCR / 已从 GHCR 拉取镜像"
+        return 0
+    fi
     _yellow "Downloading ${system_type} image for ${arch} architecture..."
     _yellow "正在下载 ${system_type} 的 ${arch} 架构镜像..."
     local download_url="${cdn_success_url}https://github.com/oneclickvirt/docker/releases/download/debian/spiritlhl_debian_${arch}.tar.gz"
-    curl -L "$download_url" -o "$tar_filename" --connect-timeout 10 --max-time 300
-    if [ -f "$tar_filename" ] && [ -s "$tar_filename" ]; then
+    if curl -fL "$download_url" -o "$tar_filename" --connect-timeout 10 --max-time 300 && [ -f "$tar_filename" ] && [ -s "$tar_filename" ]; then
         _yellow "Loading image from tar file... / 正在从tar文件加载镜像..."
-        docker load < "$tar_filename"
-        if [ $? -eq 0 ]; then
+        if docker load < "$tar_filename"; then
             rm -f "$tar_filename"
             export image_name="spiritlhl:${system_type}-${arch}"
             _green "Image loaded successfully / 镜像加载成功"
@@ -149,8 +182,7 @@ download_and_load_image() {
     fi
     _yellow "Attempting to pull image from Docker Hub: ${system_type}:latest"
     _yellow "尝试从Docker Hub拉取镜像: ${system_type}:latest"
-    docker pull "${system_type}:latest"
-    if [ $? -eq 0 ]; then
+    if docker pull "${system_type}:latest"; then
         export image_name="${system_type}:latest"
         _green "Image pulled successfully / 镜像拉取成功"
         return 0
@@ -162,7 +194,7 @@ download_and_load_image() {
 
 run_storage_test() {
     local storage_limit="${1:-500}"
-    local storage_opts=""
+    local storage_opts=()
     
     local size1=$((storage_limit / 5))
     local size2=$((storage_limit / 5))
@@ -170,7 +202,7 @@ run_storage_test() {
     local size4=$((storage_limit * 4 / 5))
     
     if [ "$btrfs_support" = "Y" ]; then
-        storage_opts="--storage-opt size=${storage_limit}M"
+        storage_opts=(--storage-opt "size=${storage_limit}M")
         _green "Storage limit enabled: ${storage_limit}MB / 启用存储限制: ${storage_limit}MB"
     else
         _yellow "Storage driver does not support limits, running unlimited test"
@@ -179,7 +211,7 @@ run_storage_test() {
     _blue "=== Starting Docker Storage Limit Test / 开始Docker存储限制测试 ==="
     _yellow "Using image: $image_name / 使用镜像: $image_name"
     _yellow "Storage limit: ${storage_limit}MB (if supported) / 存储限制: ${storage_limit}MB (如果支持)"
-    docker run --rm $storage_opts $image_name bash -c "
+    docker run --rm "${storage_opts[@]}" "$image_name" bash -c "
 echo '=== Container Disk Space Check / 容器内磁盘空间检查 ==='
 df -h /
 echo ''

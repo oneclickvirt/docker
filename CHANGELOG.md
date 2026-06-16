@@ -1,5 +1,22 @@
 # 更新日志
 
+2026.06.04
+
+- 修复 `create_docker.sh` 在单个容器创建失败后仍写入 `dclog` 的问题
+- 修复 `create_docker.sh`/`onedocker.sh` 对 `debian11`、`debian/11`、`ubuntu20` 等带版本号系统输入的误判，并使用固定字符串匹配本地镜像名
+- 统一 Linux 容器镜像获取顺序为 GHCR、GitHub Releases、Docker Hub，并补充 RockyLinux/OpenEuler 官方回退镜像
+- 完善卸载脚本对 btrfs loop、Docker 状态文件、radvd、crontab 和 sysctl 配置的清理
+- 优化 Guacamole MySQL 初始化，改用可配置环境变量和专用 Docker 网络，失败时自动清理半成品容器
+- 修复 Android、Chromium、Firefox、Webtop、RustDesk 辅助脚本的容器复用、端口冲突和兼容性边界
+- 补充端口占用预检查、Android 数据保留开关、CDN 检测兼容回退和 IPv6 初始化状态回滚
+- 修复 Windows 辅助容器启动配置失败仍输出成功、Release 分片上传硬编码凭据、关键远程脚本下载和分片校验不足的问题
+
+2026.06.03
+
+- 为 GitHub Actions 构建流程补充 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`、job 级 `timeout-minutes` 和 `concurrency`
+- 新增 `.gitignore`，排除环境变量、数据库、密码/密钥、日志、截图和镜像归档产物
+- 补充 README 快速开始、Mermaid 架构、环境变量表和安全提示
+
 2026.06.02
 
 - 统一无交互执行方式为 `export noninteractive=true`

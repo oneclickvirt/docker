@@ -4,11 +4,11 @@
 # 2026.02.28
 
 # 起步10分钟
-cd /root >/dev/null 2>&1
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+cd /root >/dev/null 2>&1 || exit 1
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 is_noninteractive() {
     case "${noninteractive:-}" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
@@ -55,6 +55,24 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
+is_valid_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+is_port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if command -v netstat >/dev/null 2>&1 && netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"; then
+        return 0
+    fi
+    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
 count=$(grep -Ec '(vmx|svm)' /proc/cpuinfo 2>/dev/null)
 count=${count:-0}
 if [[ -z $count ]] || [[ $count -le 0 ]]; then
@@ -64,10 +82,35 @@ if [[ -z $count ]] || [[ $count -le 0 ]]; then
 fi
 ${PACKAGE_INSTALL[int]} openssh-server
 ${PACKAGE_INSTALL[int]} openssh-client
+if ! command -v docker >/dev/null 2>&1; then
+    _yellow "There is no Docker environment on this machine, please execute the main installation first."
+    _yellow "没有Docker环境，请先执行主体安装"
+    exit 1
+fi
 container_name="${1:-test}"
 windows_version="${2:-2019}"
 rdp_port="${3:-33896}"
 is_external_ip="${4:-N}"
+if [[ ! "$container_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    _red "Invalid container name: ${container_name}"
+    _red "容器名称非法: ${container_name}"
+    exit 1
+fi
+if [[ ! "$windows_version" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    _red "Invalid Windows image tag: ${windows_version}"
+    _red "Windows 镜像标签非法: ${windows_version}"
+    exit 1
+fi
+if ! is_valid_port "$rdp_port"; then
+    _red "Invalid RDP port: ${rdp_port}"
+    _red "RDP 端口非法: ${rdp_port}"
+    exit 1
+fi
+if is_port_in_use "$rdp_port"; then
+    _red "Port ${rdp_port} is already in use."
+    _red "端口 ${rdp_port} 已被占用。"
+    exit 1
+fi
 
 _green "The following program will take at least 10 minutes to execute, so please be patient...."
 _green "以下程序将执行至少10分钟，请耐心等待..."
@@ -82,7 +125,7 @@ if docker inspect "windows_${container_name}" >/dev/null 2>&1; then
     _yellow "容器 windows_${container_name} 已存在，请先删除后再重新创建。"
     exit 1
 fi
-docker run -d --privileged=true \
+if ! docker run -d --privileged=true \
     --name "windows_${container_name}" \
     --device=/dev/kvm \
     --device=/dev/net/tun \
@@ -90,7 +133,11 @@ docker run -d --privileged=true \
     --cap-add=NET_ADMIN \
     --cap-add=SYS_ADMIN \
     -p "${rdp_address}:${rdp_port}:3389" \
-    "spiritlhl/wds:${windows_version}" /sbin/init
+    "spiritlhl/wds:${windows_version}" /sbin/init; then
+    _red "Failed to create windows_${container_name}"
+    _red "创建 windows_${container_name} 失败"
+    exit 1
+fi
 sleep 5
 start_time=$(date +%s)
 MAX_WAIT_TIME=10
@@ -112,9 +159,15 @@ status=$(docker inspect -f '{{.State.Status}}' "windows_${container_name}" 2>/de
 if [ "$status" != "running" ]; then
     _yellow "The container windows_${container_name} failed to start and the script will exit."
     _yellow "容器 windows_${container_name} 启动失败，脚本将退出。"
+    docker rm -f "windows_${container_name}" >/dev/null 2>&1 || true
     exit 1
 fi
-docker exec "windows_${container_name}" bash -c "bash startup.sh 2>&1"
+if ! docker exec "windows_${container_name}" bash -c "bash startup.sh 2>&1"; then
+    _red "Failed to initialize windows_${container_name} startup networking."
+    _red "windows_${container_name} 启动网络初始化失败。"
+    docker rm -f "windows_${container_name}" >/dev/null 2>&1 || true
+    exit 1
+fi
 if [ "$is_external_ip_lower" = "y" ]; then
     _green "The RDP login address is: extranet IPV4 address:${rdp_port} login information and usage instructions are detailed at virt.spiritlhl.net"
     _green "RDP的登录地址为：外网IPV4地址:${rdp_port} 登录信息和使用说明详见 virt.spiritlhl.net"

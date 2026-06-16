@@ -3,11 +3,11 @@
 # https://github.com/oneclickvirt/docker
 # 2026.02.28
 
-cd /root >/dev/null 2>&1
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+cd /root >/dev/null 2>&1 || exit 1
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 is_noninteractive() {
     case "${noninteractive:-}" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
@@ -102,7 +102,7 @@ fi
 if docker inspect hbbs >/dev/null 2>&1; then
     docker start hbbs >/dev/null 2>&1 || true
 else
-    if ! docker run --restart unless-stopped --name hbbs --net=host -v "$(pwd):/root" -td rustdesk/rustdesk-server hbbs -r "${IPV4}:21117"; then
+    if ! docker run --restart unless-stopped --name hbbs --net=host -v "$(pwd):/root" -d rustdesk/rustdesk-server hbbs -r "${IPV4}:21117"; then
         _red "Failed to create hbbs"
         _red "创建 hbbs 失败"
         exit 1
@@ -111,7 +111,7 @@ fi
 if docker inspect hbbr >/dev/null 2>&1; then
     docker start hbbr >/dev/null 2>&1 || true
 else
-    if ! docker run --restart unless-stopped --name hbbr --net=host -v "$(pwd):/root" -td rustdesk/rustdesk-server hbbr; then
+    if ! docker run --restart unless-stopped --name hbbr --net=host -v "$(pwd):/root" -d rustdesk/rustdesk-server hbbr; then
         _red "Failed to create hbbr"
         _red "创建 hbbr 失败"
         exit 1
@@ -120,10 +120,10 @@ fi
 add_iptables_rule INPUT -i lo -j ACCEPT
 add_iptables_rule OUTPUT -o lo -j ACCEPT
 add_iptables_rule INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-add_iptables_rule INPUT -p tcp --match multiport --sports 21115:21119 --dport 21115:21119 -j ACCEPT
+add_iptables_rule INPUT -p tcp --match multiport --dports 21115:21119 -j ACCEPT
 add_iptables_rule INPUT -p tcp --dport 8000 -j ACCEPT
 add_iptables_rule INPUT -p udp --dport 21116 -j ACCEPT
 ${PACKAGE_INSTALL[int]} iptables-persistent
 mkdir -p /etc/iptables
 iptables-save >/etc/iptables/rules.v4
-service netfilter-persistent restart
+service netfilter-persistent restart 2>/dev/null || true

@@ -3,11 +3,11 @@
 # https://github.com/oneclickvirt/docker
 # 2026.02.28
 
-cd /root >/dev/null 2>&1
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+cd /root >/dev/null 2>&1 || exit 1
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 is_noninteractive() {
     case "${noninteractive:-}" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
@@ -73,6 +73,33 @@ check_ipv4() {
     [ -z "$IPV4" ] && _red " ERROR：The host must have IPv4. " && exit 1
 }
 
+is_valid_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+is_port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if command -v netstat >/dev/null 2>&1 && netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"; then
+        return 0
+    fi
+    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+ensure_port_available() {
+    local port="$1"
+    if is_port_in_use "$port"; then
+        _red "Port ${port} is already in use."
+        _red "端口 ${port} 已被占用。"
+        exit 1
+    fi
+}
+
 check_ipv4
 if ! command -v docker >/dev/null 2>&1; then
     _yellow "There is no Docker environment on this machine, please execute the main installation first."
@@ -93,8 +120,20 @@ _green "Set the maximum occupied memory, enter the number only (leave blank the 
 reading "设置最大占用内存，仅输入数字(留空默认设置为2G内存):" shm_size "${CHROMIUM_SHM_GB:-2}"
 [[ -z "$http_port" ]] && http_port=3004
 [[ -z "$https_port" ]] && https_port=3005
-[[ "$http_port" =~ ^[0-9]+$ ]] || http_port=3004
-[[ "$https_port" =~ ^[0-9]+$ ]] || https_port=3005
+is_valid_port "$http_port" || http_port=3004
+is_valid_port "$https_port" || https_port=3005
+if [ "$http_port" = "$https_port" ]; then
+    _red "HTTP and HTTPS ports must be different."
+    _red "HTTP 和 HTTPS 端口不能相同。"
+    exit 1
+fi
+ensure_port_available "$http_port"
+ensure_port_available "$https_port"
+if docker inspect "chromium_${http_port}" >/dev/null 2>&1; then
+    _red "Container chromium_${http_port} already exists, please remove it before creating a new one."
+    _red "容器 chromium_${http_port} 已存在，请先删除后再重新创建。"
+    exit 1
+fi
 [[ -z "$username" ]] && username="oneclick"
 echo "$username" >/usr/local/bin/username_${http_port}
 [[ -z "$password" ]] && password="oneclick"
