@@ -164,7 +164,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Download all artifacts for this OS
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         pattern: ${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_*
         merge-multiple: true
