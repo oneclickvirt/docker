@@ -111,7 +111,7 @@ jobs:
         ls -lh *.tar.gz
 
     - name: Upload artifact for release
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_${{ matrix.arch }}
         path: ${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_${{ matrix.arch }}.tar.gz
