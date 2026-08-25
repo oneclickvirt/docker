@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2026.03.01
+# 2026.08.26
 # 完整卸载 Docker 环境及所有容器
 # 支持的环境变量（一键非交互卸载）：
 #   noninteractive=true - 跳过卸载确认提示，直接执行卸载
@@ -17,6 +17,38 @@ is_noninteractive() {
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
     esac
     return 1
+}
+
+is_project_docker_ipv6_nat_unit() {
+    local unit_file="/etc/systemd/system/docker-ipv6-nat.service"
+    [[ -f "$unit_file" ]] && grep -q "Restore OneClickVirt Docker IPv6 NAT66 rules" "$unit_file" 2>/dev/null
+}
+
+is_project_docker_ipv6_nat_openrc_service() {
+    local service_file="/etc/init.d/docker-ipv6-nat"
+    [[ -f "$service_file" ]] && grep -q "OneClickVirt Docker IPv6 NAT66 restore service" "$service_file" 2>/dev/null
+}
+
+is_project_docker_ipv6_nat_helper() {
+    local helper="/usr/local/bin/docker-ipv6-nat.sh"
+    [[ -f "$helper" ]] && grep -q "OneClickVirt Docker IPv6 NAT66 restore helper" "$helper" 2>/dev/null
+}
+
+docker_ipv6_nat_state_is_safe() {
+    local mode subnet
+    mode=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_network_mode 2>/dev/null || true)
+    subnet=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_subnet 2>/dev/null || true)
+    [[ "$mode" == "nat" && -n "$subnet" ]] || return 1
+    command -v python3 >/dev/null 2>&1 || return 1
+    python3 - "$subnet" <<'PY'
+import ipaddress
+import sys
+try:
+    network = ipaddress.IPv6Network(sys.argv[1], strict=False)
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(0 if network.prefixlen == 64 and network.subnet_of(ipaddress.IPv6Network("fc00::/7")) else 1)
+PY
 }
 
 if [ "$(id -u)" != "0" ]; then
@@ -103,11 +135,15 @@ _blue "[4/9] 清理 ndpresponder 及 IPv6 网络配置..."
 if command -v docker >/dev/null 2>&1; then
     docker rm -f ndpresponder 2>/dev/null || true
 fi
-# 删除 IPv6 相关 iptables 规则（仅删除我们添加的）
-if command -v ip6tables >/dev/null 2>&1; then
-    ip6tables -t nat -D POSTROUTING -s fd00::/80 ! -o docker0 -j MASQUERADE 2>/dev/null || true
-    ip6tables -D FORWARD -s fd00::/80 -j ACCEPT 2>/dev/null || true
-    ip6tables -D FORWARD -d fd00::/80 -j ACCEPT 2>/dev/null || true
+# 删除 IPv6 相关 iptables 规则（仅删除由受控 ULA NAT66 状态添加的规则）
+docker_ipv6_subnet=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_subnet 2>/dev/null || true)
+if docker_ipv6_nat_state_is_safe && command -v ip6tables >/dev/null 2>&1; then
+    while ip6tables -t nat -D POSTROUTING -s "$docker_ipv6_subnet" ! -d "$docker_ipv6_subnet" -j MASQUERADE 2>/dev/null; do :; done
+    while ip6tables -D FORWARD -s "$docker_ipv6_subnet" -j ACCEPT 2>/dev/null; do :; done
+    while ip6tables -D FORWARD -d "$docker_ipv6_subnet" -j ACCEPT 2>/dev/null; do :; done
+fi
+if docker_ipv6_nat_state_is_safe && command -v nft >/dev/null 2>&1; then
+    nft delete table ip6 oneclickvirt_docker_ipv6 2>/dev/null || true
 fi
 _green "  IPv6 配置已清理"
 
@@ -123,14 +159,35 @@ if command -v systemctl >/dev/null 2>&1; then
             systemctl disable "$svc" 2>/dev/null || true
         fi
     done
+    if is_project_docker_ipv6_nat_unit; then
+        if systemctl is-active --quiet docker-ipv6-nat 2>/dev/null; then
+            systemctl stop docker-ipv6-nat 2>/dev/null || true
+            _yellow "  已停止 docker-ipv6-nat"
+        fi
+        if systemctl is-enabled --quiet docker-ipv6-nat 2>/dev/null; then
+            systemctl disable docker-ipv6-nat 2>/dev/null || true
+        fi
+    fi
     # 删除我们安装的自定义服务文件
     for f in \
         /etc/systemd/system/check-dns.service \
         /usr/lib/systemd/system/check-dns.service; do
         [[ -f "$f" ]] && rm -f "$f" && _yellow "  删除 $f"
     done
+    if is_project_docker_ipv6_nat_unit; then
+        rm -f /etc/systemd/system/docker-ipv6-nat.service && _yellow "  删除 /etc/systemd/system/docker-ipv6-nat.service"
+    fi
     systemctl daemon-reload 2>/dev/null || true
     _green "  systemd 服务已清理"
+fi
+if is_project_docker_ipv6_nat_openrc_service; then
+    if command -v rc-service >/dev/null 2>&1; then
+        rc-service docker-ipv6-nat stop 2>/dev/null || true
+    fi
+    if command -v rc-update >/dev/null 2>&1; then
+        rc-update del docker-ipv6-nat default 2>/dev/null || true
+    fi
+    rm -f /etc/init.d/docker-ipv6-nat && _yellow "  删除 /etc/init.d/docker-ipv6-nat"
 fi
 
 # ======== 6. 通过包管理器卸载 Docker ========
@@ -226,6 +283,9 @@ for f in \
     /usr/local/bin/docker_ipv6_prefixlen \
     /usr/local/bin/docker_ipv6_real_prefixlen \
     /usr/local/bin/docker_ipv6_gateway \
+    /usr/local/bin/docker_ipv6_subnet \
+    /usr/local/bin/docker_ipv6_network_mode \
+    /usr/local/bin/docker_ipv6_public_parent \
     /usr/local/bin/docker_check_ipv6 \
     /usr/local/bin/docker_fe80_address \
     /usr/local/bin/docker_mac_address \
@@ -249,6 +309,9 @@ for f in \
     /usr/local/bin/check-dns.sh; do
     [[ -f "$f" ]] && rm -f "$f" && _yellow "  删除 $f"
 done
+if is_project_docker_ipv6_nat_helper; then
+    rm -f /usr/local/bin/docker-ipv6-nat.sh && _yellow "  删除 /usr/local/bin/docker-ipv6-nat.sh"
+fi
 # 清理 /root 下的脚本文件
 for f in \
     /root/ssh_bash.sh \

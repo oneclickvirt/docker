@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2026.02.28
+# 2026.08.26
 
 _red() { echo -e "\033[31m\033[01m$*\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$*\033[0m"; }
@@ -411,6 +411,320 @@ for raw in sys.stdin:
         raise SystemExit(0)
 raise SystemExit(1)
 ' "$subnet"
+}
+
+# A child of the uplink's on-link prefix is not a safe Docker bridge subnet.
+# Docker may reject it even when the exact child contains no host address, so
+# include connected IPv6 routes as well as addresses in the overlap check.
+docker_ipv6_subnet_overlaps_host() {
+    local subnet="$1"
+    command -v python3 >/dev/null 2>&1 || return 2
+    {
+        ip -6 -o addr show 2>/dev/null | awk '$0 !~ / tentative/ {print $4}'
+        ip -6 route show table all 2>/dev/null | awk '$1 ~ /^[0-9A-Fa-f:]+\/[0-9]+$/ {print $1}'
+    } | python3 -c '
+import ipaddress
+import sys
+
+try:
+    candidate = ipaddress.IPv6Network(sys.argv[1], strict=False)
+except ValueError:
+    raise SystemExit(2)
+for raw in sys.stdin:
+    try:
+        network = ipaddress.IPv6Network(raw.strip(), strict=False)
+    except ValueError:
+        continue
+    if candidate.overlaps(network):
+        raise SystemExit(0)
+raise SystemExit(1)
+' "$subnet"
+}
+
+docker_ipv6_ula_candidate() {
+    local index="$1"
+    python3 - "$index" <<'PY'
+import ipaddress
+import sys
+
+base = ipaddress.IPv6Network("fd42:5339:296f:1d00::/56")
+index = int(sys.argv[1])
+print(ipaddress.IPv6Network((int(base.network_address) + (index << 64), 64)))
+PY
+}
+
+docker_ipv6_ula_gateway() {
+    python3 - "$1" <<'PY'
+import ipaddress
+import sys
+
+network = ipaddress.IPv6Network(sys.argv[1], strict=False)
+print(ipaddress.IPv6Address(int(network.network_address) + 1))
+PY
+}
+
+docker_ipv6_ula_is_safe() {
+    local subnet="$1"
+    command -v python3 >/dev/null 2>&1 || return 1
+    python3 - "$subnet" <<'PY'
+import ipaddress
+import sys
+
+try:
+    network = ipaddress.IPv6Network(sys.argv[1], strict=False)
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(0 if network.prefixlen == 64 and network.subnet_of(ipaddress.IPv6Network("fc00::/7")) else 1)
+PY
+}
+
+docker_ipv6_network_ipv6_subnet() {
+    command -v python3 >/dev/null 2>&1 || return 1
+    docker network inspect ipv6_net 2>/dev/null | python3 -c '
+import ipaddress
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except (json.JSONDecodeError, OSError):
+    raise SystemExit(1)
+for network in payload if isinstance(payload, list) else [payload]:
+    for config in (network.get("IPAM", {}).get("Config", []) if isinstance(network, dict) else []):
+        try:
+            subnet = ipaddress.ip_network(config.get("Subnet"), strict=False)
+        except (TypeError, ValueError):
+            continue
+        if subnet.version == 6:
+            print(subnet)
+            raise SystemExit(0)
+raise SystemExit(1)
+'
+}
+
+# Reuse an existing ipv6_net only when it is demonstrably the ULA NAT66
+# bridge created by this installer. Its own connected route must not be fed
+# back into the host-overlap check, because that route is expected to overlap.
+docker_ipv6_ula_state_matches_network() {
+    local recorded_mode="$1" recorded_subnet="$2" network_subnet="$3"
+    [[ "$recorded_mode" == "nat" && "$recorded_subnet" == "$network_subnet" ]] || return 1
+    docker_ipv6_ula_is_safe "$network_subnet"
+}
+
+configure_docker_ipv6_nat66() {
+    local subnet="$1" postrouting forward nft_table="oneclickvirt_docker_ipv6"
+    docker_ipv6_ula_is_safe "$subnet" || return 1
+    # Docker still manages its bridge policy through iptables on most hosts,
+    # including iptables-nft. Prefer that path so the NAT66 allowance joins
+    # the same forwarding policy instead of depending on base-chain ordering.
+    if command -v ip6tables >/dev/null 2>&1; then
+        ip6tables -C FORWARD -s "$subnet" -j ACCEPT 2>/dev/null || ip6tables -A FORWARD -s "$subnet" -j ACCEPT 2>/dev/null || return 1
+        ip6tables -C FORWARD -d "$subnet" -j ACCEPT 2>/dev/null || ip6tables -A FORWARD -d "$subnet" -j ACCEPT 2>/dev/null || return 1
+        ip6tables -t nat -C POSTROUTING -s "$subnet" ! -d "$subnet" -j MASQUERADE 2>/dev/null || \
+            ip6tables -t nat -A POSTROUTING -s "$subnet" ! -d "$subnet" -j MASQUERADE 2>/dev/null || return 1
+        ip6tables -t nat -C POSTROUTING -s "$subnet" ! -d "$subnet" -j MASQUERADE 2>/dev/null && \
+            ip6tables -C FORWARD -s "$subnet" -j ACCEPT 2>/dev/null && \
+            ip6tables -C FORWARD -d "$subnet" -j ACCEPT 2>/dev/null
+        return
+    fi
+    if command -v nft >/dev/null 2>&1 && nft list ruleset >/dev/null 2>&1; then
+        nft add table ip6 "$nft_table" 2>/dev/null || true
+        nft "add chain ip6 ${nft_table} forward { type filter hook forward priority filter; policy accept; }" 2>/dev/null || true
+        nft "add chain ip6 ${nft_table} postrouting { type nat hook postrouting priority srcnat; policy accept; }" 2>/dev/null || true
+        postrouting=$(nft list chain ip6 "$nft_table" postrouting 2>/dev/null || true)
+        forward=$(nft list chain ip6 "$nft_table" forward 2>/dev/null || true)
+        if ! grep -Fq "ip6 saddr ${subnet}" <<<"$postrouting" || ! grep -Fq 'masquerade' <<<"$postrouting"; then
+            nft add rule ip6 "$nft_table" postrouting ip6 saddr "$subnet" ip6 daddr != "$subnet" masquerade 2>/dev/null || return 1
+        fi
+        if ! grep -Fq "ip6 daddr ${subnet} accept" <<<"$forward"; then
+            nft add rule ip6 "$nft_table" forward ip6 daddr "$subnet" accept 2>/dev/null || return 1
+        fi
+        if ! grep -Fq "ip6 saddr ${subnet} accept" <<<"$forward"; then
+            nft add rule ip6 "$nft_table" forward ip6 saddr "$subnet" accept 2>/dev/null || return 1
+        fi
+        postrouting=$(nft list chain ip6 "$nft_table" postrouting 2>/dev/null || true)
+        forward=$(nft list chain ip6 "$nft_table" forward 2>/dev/null || true)
+        grep -Fq "ip6 saddr ${subnet}" <<<"$postrouting" && \
+            grep -Fq 'masquerade' <<<"$postrouting" && \
+            grep -Fq "ip6 daddr ${subnet} accept" <<<"$forward" && \
+            grep -Fq "ip6 saddr ${subnet} accept" <<<"$forward"
+        return
+    fi
+    return 1
+}
+
+install_docker_ipv6_nat66_service() {
+    local helper=/usr/local/bin/docker-ipv6-nat.sh
+    cat > "$helper" <<'EOF'
+#!/bin/bash
+# OneClickVirt Docker IPv6 NAT66 restore helper.
+set -u
+
+state_dir=/usr/local/bin
+mode=$(tr -d '[:space:]' <"${state_dir}/docker_ipv6_network_mode" 2>/dev/null || true)
+subnet=$(tr -d '[:space:]' <"${state_dir}/docker_ipv6_subnet" 2>/dev/null || true)
+[[ "$mode" == nat && -n "$subnet" ]] || exit 0
+
+python3 - "$subnet" <<'PY'
+import ipaddress
+import sys
+try:
+    network = ipaddress.IPv6Network(sys.argv[1], strict=False)
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(0 if network.prefixlen == 64 and network.subnet_of(ipaddress.IPv6Network("fc00::/7")) else 1)
+PY
+
+if command -v ip6tables >/dev/null 2>&1; then
+    ip6tables -C FORWARD -s "$subnet" -j ACCEPT 2>/dev/null || ip6tables -A FORWARD -s "$subnet" -j ACCEPT || exit 1
+    ip6tables -C FORWARD -d "$subnet" -j ACCEPT 2>/dev/null || ip6tables -A FORWARD -d "$subnet" -j ACCEPT || exit 1
+    ip6tables -t nat -C POSTROUTING -s "$subnet" ! -d "$subnet" -j MASQUERADE 2>/dev/null || \
+        ip6tables -t nat -A POSTROUTING -s "$subnet" ! -d "$subnet" -j MASQUERADE || exit 1
+    exit 0
+fi
+
+command -v nft >/dev/null 2>&1 && nft list ruleset >/dev/null 2>&1 || exit 1
+nft_table=oneclickvirt_docker_ipv6
+nft add table ip6 "$nft_table" 2>/dev/null || true
+nft "add chain ip6 ${nft_table} forward { type filter hook forward priority filter; policy accept; }" 2>/dev/null || true
+nft "add chain ip6 ${nft_table} postrouting { type nat hook postrouting priority srcnat; policy accept; }" 2>/dev/null || true
+postrouting=$(nft list chain ip6 "$nft_table" postrouting 2>/dev/null || true)
+forward=$(nft list chain ip6 "$nft_table" forward 2>/dev/null || true)
+grep -Fq "ip6 saddr ${subnet}" <<<"$postrouting" || \
+    nft add rule ip6 "$nft_table" postrouting ip6 saddr "$subnet" ip6 daddr != "$subnet" masquerade || exit 1
+grep -Fq "ip6 daddr ${subnet} accept" <<<"$forward" || \
+    nft add rule ip6 "$nft_table" forward ip6 daddr "$subnet" accept || exit 1
+grep -Fq "ip6 saddr ${subnet} accept" <<<"$forward" || \
+    nft add rule ip6 "$nft_table" forward ip6 saddr "$subnet" accept || exit 1
+exit 0
+EOF
+    chmod 700 "$helper"
+    if command -v systemctl >/dev/null 2>&1; then
+        cat > /etc/systemd/system/docker-ipv6-nat.service <<'EOF'
+[Unit]
+Description=Restore OneClickVirt Docker IPv6 NAT66 rules
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/docker-ipv6-nat.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl enable --now docker-ipv6-nat.service 2>/dev/null || \
+            _yellow "Could not enable docker-ipv6-nat.service; verify NAT66 after reboot"
+        return 0
+    fi
+    if command -v rc-update >/dev/null 2>&1 && command -v rc-service >/dev/null 2>&1; then
+        cat > /etc/init.d/docker-ipv6-nat <<'EOF'
+#!/sbin/openrc-run
+# OneClickVirt Docker IPv6 NAT66 restore service.
+
+description="Restore OneClickVirt Docker IPv6 NAT66 rules"
+
+depend() {
+    need net
+    after docker
+}
+
+start() {
+    ebegin "$description"
+    /usr/local/bin/docker-ipv6-nat.sh
+    eend $?
+}
+EOF
+        chmod 700 /etc/init.d/docker-ipv6-nat
+        rc-update add docker-ipv6-nat default 2>/dev/null || true
+        rc-service docker-ipv6-nat restart 2>/dev/null || \
+            _yellow "Could not start docker-ipv6-nat OpenRC service; verify NAT66 after reboot"
+        return 0
+    fi
+    _yellow "No service manager found; verify Docker IPv6 NAT66 rules after reboot"
+}
+
+docker_ipv6_ula_overlaps_docker_network() {
+    local subnet="$1"
+    python3 - "$subnet" <<'PY'
+import ipaddress
+import json
+import subprocess
+import sys
+
+candidate = ipaddress.IPv6Network(sys.argv[1], strict=False)
+try:
+    ids = subprocess.check_output(["docker", "network", "ls", "-q"], text=True, stderr=subprocess.DEVNULL).splitlines()
+except (OSError, subprocess.CalledProcessError):
+    ids = []
+for network_id in ids:
+    try:
+        payload = subprocess.check_output(["docker", "network", "inspect", network_id], text=True, stderr=subprocess.DEVNULL)
+        data = json.loads(payload)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+        continue
+    for network in data if isinstance(data, list) else [data]:
+        for config in (network.get("IPAM", {}).get("Config", []) if isinstance(network, dict) else []):
+            try:
+                existing = ipaddress.ip_network(config.get("Subnet"), strict=False)
+            except (TypeError, ValueError):
+                continue
+            if existing.version == 6 and candidate.overlaps(existing):
+                raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+# When the provider only advertises an on-link /64 (common with SLAAC), keep
+# Docker's bridge on a private ULA and use NAT66 for outbound IPv6. Public
+# /128 assignment remains available through a delegated routed prefix, but we
+# never pretend an on-link child is an independent Docker subnet.
+create_docker_ula_ipv6_network() {
+    local public_parent="$1" ula gateway index existing_ula recorded_mode recorded_subnet
+    if docker network inspect ipv6_net >/dev/null 2>&1; then
+        existing_ula=$(docker_ipv6_network_ipv6_subnet 2>/dev/null || true)
+        recorded_mode=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_network_mode 2>/dev/null || true)
+        recorded_subnet=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_subnet 2>/dev/null || true)
+        if ! docker_ipv6_ula_state_matches_network "$recorded_mode" "$recorded_subnet" "$existing_ula"; then
+            _yellow "Existing ipv6_net is not the installer-managed ULA NAT66 network; preserving its current mode"
+            _yellow "现有 ipv6_net 不是安装器托管的 ULA NAT66 网络，保留其当前模式"
+            return 1
+        fi
+        if ! configure_docker_ipv6_nat66 "$existing_ula"; then
+            _yellow "Could not verify NAT66 for existing ipv6_net; preserving its current mode"
+            return 1
+        fi
+        printf '%s\n' "$existing_ula" > /usr/local/bin/docker_ipv6_subnet
+        printf '%s\n' nat > /usr/local/bin/docker_ipv6_network_mode
+        printf '%s\n' "$public_parent" > /usr/local/bin/docker_ipv6_public_parent
+        install_docker_ipv6_nat66_service
+        return 0
+    fi
+    for index in $(seq 0 255); do
+        ula=$(docker_ipv6_ula_candidate "$index" 2>/dev/null || true)
+        gateway=$(docker_ipv6_ula_gateway "$ula" 2>/dev/null || true)
+        [[ -n "$ula" && -n "$gateway" ]] || continue
+        docker_ipv6_subnet_overlaps_host "$ula" && continue
+        docker_ipv6_ula_overlaps_docker_network "$ula" && continue
+        if docker network create --ipv6 \
+            --subnet=172.26.0.0/16 \
+            --subnet="$ula" --gateway="$gateway" ipv6_net >/dev/null 2>&1; then
+            if ! configure_docker_ipv6_nat66 "$ula"; then
+                docker network rm ipv6_net >/dev/null 2>&1 || true
+                _yellow "Docker ULA bridge was created but NAT66 could not be installed"
+                return 1
+            fi
+            printf '%s\n' "$ula" > /usr/local/bin/docker_ipv6_subnet
+            printf '%s\n' nat > /usr/local/bin/docker_ipv6_network_mode
+            printf '%s\n' "$public_parent" > /usr/local/bin/docker_ipv6_public_parent
+            install_docker_ipv6_nat66_service
+            _green "Docker IPv6 network uses isolated ULA ${ula}; outbound NAT66 is enabled"
+            _green "Docker IPv6 网络使用隔离 ULA ${ula}，已启用出站 NAT66"
+            return 0
+        fi
+    done
+    return 1
 }
 
 check_ipv6() {
@@ -1518,6 +1832,18 @@ docker_build_ipv6() {
                 return 1
             fi
             install_docker_and_compose
+            if docker_ipv6_subnet_overlaps_host "$new_subnet"; then
+                _yellow "Docker IPv6 subnet ${new_subnet} overlaps a host IPv6 address/route; switching to isolated ULA NAT66"
+                _yellow "Docker IPv6 子网 ${new_subnet} 与宿主机 IPv6 地址或路由重叠，切换到隔离 ULA NAT66"
+                if create_docker_ula_ipv6_network "$(cat /usr/local/bin/docker_check_ipv6_cidr 2>/dev/null || true)"; then
+                    echo "1" >/usr/local/bin/docker_build_ipv6
+                    return 0
+                fi
+                _red "Could not find a host-disjoint ULA subnet for Docker IPv6"
+                _red "无法找到与宿主机网络不冲突的 Docker ULA IPv6 子网"
+                rm -f /usr/local/bin/docker_build_ipv6
+                return 1
+            fi
             if [ "$ipv6_prefixlen" -le 112 ]; then
                 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
                     local subnet_check=0

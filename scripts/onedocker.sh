@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2026.03.01
+# 2026.08.26
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system> <disk>
 
@@ -444,6 +444,14 @@ else
     _yellow "ipv6_net 不存在于 Docker 网络中"
     ipv6_net_status="N"
 fi
+ipv6_network_mode="managed"
+if [ -s /usr/local/bin/docker_ipv6_network_mode ]; then
+    ipv6_network_mode=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_network_mode 2>/dev/null || true)
+fi
+if [ "$ipv6_network_mode" = "nat" ]; then
+    _yellow "Docker IPv6 is using an isolated ULA with NAT66; public /128 assignment is not available in this mode"
+    _yellow "Docker IPv6 当前使用隔离 ULA NAT66，此模式不提供公网 /128 独立地址"
+fi
 if docker inspect ndpresponder &>/dev/null; then
     container_status=$(docker inspect -f '{{.State.Status}}' ndpresponder)
     if [ "$container_status" == "running" ]; then
@@ -485,7 +493,7 @@ if [ "$btrfs_support" = "Y" ] && [ "$disk" != "0" ]; then
     storage_opts=(--storage-opt "size=${disk}G")
 fi
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
-    if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
+    if [ "$ipv6_net_status" = "Y" ] && { [ "$ipv6_network_mode" = "nat" ] || [ "$ndpresponder_status" = "Y" ]; } && { [ "$ipv6_network_mode" = "nat" ] || { [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ]; }; } && [ "$independent_ipv6" = "y" ]; then
         if ! docker run -d \
             --cpus="${cpu}" \
             --memory="${memory}m" \
@@ -496,6 +504,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             --cap-add=MKNOD \
             -e ROOT_PASSWORD="${passwd}" \
             -e IPV6_ENABLED=true \
+            -e IPV6_NAT_MODE="$ipv6_network_mode" \
             "${storage_opts[@]}" \
             "${lxcfs_volumes[@]}" \
             "${image_name}"; then
@@ -530,7 +539,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
-    if [ "$ndpresponder_status" = "Y" ] && [ "$ipv6_net_status" = "Y" ] && [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ] && [ "$independent_ipv6" = "y" ]; then
+    if [ "$ipv6_net_status" = "Y" ] && { [ "$ipv6_network_mode" = "nat" ] || [ "$ndpresponder_status" = "Y" ]; } && { [ "$ipv6_network_mode" = "nat" ] || { [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ]; }; } && [ "$independent_ipv6" = "y" ]; then
         if ! docker run -d \
             --cpus="${cpu}" \
             --memory="${memory}m" \
@@ -541,6 +550,7 @@ else
             --cap-add=MKNOD \
             -e ROOT_PASSWORD="${passwd}" \
             -e IPV6_ENABLED=true \
+            -e IPV6_NAT_MODE="$ipv6_network_mode" \
             "${storage_opts[@]}" \
             "${lxcfs_volumes[@]}" \
             "${image_name}"; then

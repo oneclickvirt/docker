@@ -19,6 +19,14 @@ extract_function() {
 
 # shellcheck disable=SC1090 # The test intentionally loads one installer function.
 source <(extract_function docker_ipv6_subnet_has_live_address)
+# shellcheck disable=SC1090 # The test intentionally loads the host route overlap helper.
+source <(extract_function docker_ipv6_subnet_overlaps_host)
+# shellcheck disable=SC1090 # The test intentionally loads the ULA candidate helper.
+source <(extract_function docker_ipv6_ula_candidate)
+# shellcheck disable=SC1090 # The test intentionally loads ULA validation helpers.
+source <(extract_function docker_ipv6_ula_is_safe)
+# shellcheck disable=SC1090 # The test intentionally loads the idempotency guard.
+source <(extract_function docker_ipv6_ula_state_matches_network)
 # shellcheck disable=SC1090 # The test intentionally loads one installer function.
 source <(extract_function is_public_ipv6)
 # shellcheck disable=SC1090 # The test intentionally loads one installer helper.
@@ -30,6 +38,10 @@ tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/docker-ipv6-test.XXXXXX")
 trap 'rm -rf -- "$tmpdir"' EXIT
 cat > "$tmpdir/ip" <<'EOF'
 #!/bin/sh
+if [ "${1:-}" = "-6" ] && [ "${2:-}" = "route" ]; then
+    printf '%s\n' '2a14:6781:a::/64 dev eth0 proto kernel metric 256'
+    exit 0
+fi
 printf '%s\n' '2: eth0    inet6 2a14:6781:000a:0000::9/64 scope global'
 EOF
 chmod 700 "$tmpdir/ip"
@@ -39,6 +51,29 @@ export PATH="$tmpdir:$PATH"
 docker_ipv6_subnet_has_live_address "2a14:6781:000a:0000::/64"
 if docker_ipv6_subnet_has_live_address "2a14:6781:000a:0000:1::/80"; then
     printf 'sibling subnet was incorrectly reported as containing a host address\n' >&2
+    exit 1
+fi
+if ! docker_ipv6_subnet_overlaps_host "2a14:6781:a::1:0:0/96"; then
+    printf 'connected host IPv6 route was not detected as a Docker overlap\n' >&2
+    exit 1
+fi
+if docker_ipv6_subnet_overlaps_host "$(docker_ipv6_ula_candidate 0)"; then
+    printf 'isolated Docker ULA unexpectedly overlaps the host route\n' >&2
+    exit 1
+fi
+managed_ula=$(docker_ipv6_ula_candidate 0)
+if ! docker_ipv6_ula_state_matches_network nat "$managed_ula" "$managed_ula"; then
+    printf 'installer-managed Docker ULA was not accepted for reuse\n' >&2
+    exit 1
+fi
+if docker_ipv6_ula_state_matches_network managed "$managed_ula" "$managed_ula" ||
+   docker_ipv6_ula_state_matches_network nat "fd42:5339:296f:1d01::/64" "$managed_ula" ||
+   docker_ipv6_ula_state_matches_network nat "2a14:6781:a::/64" "2a14:6781:a::/64"; then
+    printf 'unmanaged or mismatched Docker IPv6 network was accepted for reuse\n' >&2
+    exit 1
+fi
+if extract_function create_docker_ula_ipv6_network | grep -Fq 'docker_ipv6_subnet_overlaps_host "$existing_ula"'; then
+    printf 'Docker ULA reuse incorrectly checks its own connected bridge route\n' >&2
     exit 1
 fi
 export PATH="$old_path"
