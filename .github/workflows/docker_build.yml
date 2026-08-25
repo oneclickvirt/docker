@@ -8,6 +8,26 @@ env:
   IMAGE_NAME: spiritlhl
   GHCR_IMAGE: ghcr.io/oneclickvirt/docker
 jobs:
+  script-regression:
+    name: IPv6 network script regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Verify IPv6 subnet allocation safeguards
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update -y
+        sudo apt-get install -y --no-install-recommends shellcheck
+        bash -n scripts/dockerinstall.sh
+        shellcheck tests/test_ipv6_network.sh
+        bash tests/test_ipv6_network.sh
+
   build-and-push:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120

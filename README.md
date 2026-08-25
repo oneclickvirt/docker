@@ -4,12 +4,9 @@
 
 ## 更新
 
-2026.06.04
+2026.08.25
 
-- 统一无交互执行方式为 `export noninteractive=true`
-- 补充 CI 约束、环境变量、架构说明和安全忽略规则
-- 修复容器创建、卸载重装、镜像回退和 Guacamole 数据库初始化边界问题
-- 修复 Windows 辅助启动失败误报成功、Release 分片上传凭据硬编码和关键远程脚本下载校验等边界
+- 独立 IPv6 只从宿主机本地绑定的公网 CIDR 分配，并排除宿主机正在使用的地址；NDP responder 不可用时不会误报 IPv6 已启用
 
 [更新日志](CHANGELOG.md)
 
@@ -84,6 +81,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/oneclickvirt/docker/main/scri
 | `DOCKER_DISK_GB` | `0` | 批量创建时每个容器磁盘限制，`0` 表示不限 |
 | `DOCKER_SYSTEM` | `debian` | 批量创建默认系统，支持 `debian11`、`debian/11`、`ubuntu20` 等带版本号写法并归一到当前维护的镜像族 |
 | `DOCKER_INDEPENDENT_IPV6` | `n` | 批量创建时是否附加独立 IPv6 |
+| `NDPRESPONDER_SOURCE_URL` | `https://github.com/oneclickvirt/ndpresponder.git` | responder 官方镜像不可用或架构不符时使用的源码构建地址 |
 | `ANDROID_RESET_DATA` | 空 | 设为 `true` 时重建 Android 容器前清空 `/root/android/data`，默认保留并复用旧数据 |
 | `ANDROID_WEB_USER` / `ANDROID_WEB_PASSWORD` | `onea` / `oneclick` | Android Web 认证默认用户名和密码 |
 | `CHROMIUM_USER` / `CHROMIUM_PASSWORD` | `oneclick` / `oneclick` | Chromium Web 登录信息 |
@@ -165,7 +163,9 @@ docker pull ghcr.io/oneclickvirt/docker:debian
 ## 网络说明
 
 - 默认使用主机 NAT 网络，通过端口映射暴露 SSH 及自定义端口
-- 若宿主机配置了公网 IPv6 并检测到 ndpresponder 容器，可为容器分配独立 IPv6 地址
+- 独立 IPv6 只从宿主机本地绑定的公网 IPv6 CIDR 分配；历史版本写入的外部出口检测结果会在安装时刷新，不能被当作可路由子网使用
+- 创建 `ipv6_net` 前会拒绝包含宿主机正在使用 IPv6 地址的子网，避免 Docker/Netavark 类似的 host-subnet 冲突
+- NDP responder 会使用实际存在的 Docker API socket，并在启动后确认容器仍在运行；官方镜像拉取失败或架构不符时会从 `NDPRESPONDER_SOURCE_URL` 构建本地镜像并再次校验架构，失败时不会替换已有 responder。socket 或 responder 不可用时，独立 IPv6 保持禁用，IPv4 NAT 和端口映射不受影响
 
 ## 致谢
 

@@ -357,45 +357,75 @@ check_interface() {
 }
 
 is_private_ipv6() {
-    local address=$1
-    local temp="0"
-    if [[ ! -n $address ]]; then
-        temp="1"
-    fi
-    if [[ -n $address && $address != *":"* ]]; then
-        temp="2"
-    fi
-    if [[ $address == fe80:* ]]; then
-        temp="3"
-    fi
-    if [[ $address == fc00:* || $address == fd00:* ]]; then
-        temp="4"
-    fi
-    if [[ $address == 2001:db8* ]]; then
-        temp="5"
-    fi
-    if [[ $address == ::1 ]]; then
-        temp="6"
-    fi
-    if [[ $address == ::ffff:* ]]; then
-        temp="7"
-    fi
-    if [[ $address == 2002:* ]]; then
-        temp="8"
-    fi
-    # 仅匹配 Teredo 隧道地址 2001:0000::/32，不影响其他合法公网 2001: 地址
-    if [[ $address == 2001:0000:* || $address == 2001:0:* ]]; then
-        temp="9"
-    fi
-    if [ "$temp" -gt 0 ]; then
-        return 0
-    else
-        return 1
-    fi
+    ! is_public_ipv6 "${1:-}"
+}
+
+is_public_ipv6() {
+    local address="${1:-}"
+    command -v python3 >/dev/null 2>&1 || return 1
+    python3 - "$address" <<'PY'
+import ipaddress
+import sys
+
+try:
+    address = ipaddress.IPv6Address(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+
+global_unicast = ipaddress.IPv6Network("2000::/3")
+non_public = (
+    ipaddress.IPv6Network("2001::/32"),       # Teredo
+    ipaddress.IPv6Network("2001:2::/48"),     # benchmarking
+    ipaddress.IPv6Network("2001:10::/28"),    # ORCHID
+    ipaddress.IPv6Network("2001:20::/28"),    # ORCHIDv2
+    ipaddress.IPv6Network("2001:db8::/32"),   # documentation
+    ipaddress.IPv6Network("2002::/16"),       # 6to4
+    ipaddress.IPv6Network("3fff::/20"),       # documentation
+)
+usable = (
+    address in global_unicast
+    and address.is_global
+    and not address.is_private
+    and not address.is_multicast
+    and not any(address in prefix for prefix in non_public)
+)
+raise SystemExit(0 if usable else 1)
+PY
+}
+
+docker_ipv6_subnet_has_live_address() {
+    local subnet="$1"
+    command -v python3 >/dev/null 2>&1 || return 2
+    ip -6 -o addr show 2>/dev/null | awk '$0 !~ / tentative/ {print $4}' | \
+        python3 -c '
+import ipaddress
+import sys
+
+network = ipaddress.IPv6Network(sys.argv[1], strict=False)
+for raw in sys.stdin:
+    try:
+        address = ipaddress.IPv6Interface(raw.strip()).ip
+    except ValueError:
+        continue
+    if address.version == 6 and address in network:
+        raise SystemExit(0)
+raise SystemExit(1)
+' "$subnet"
 }
 
 check_ipv6() {
-    IPV6=$(ip -6 addr show | grep global | awk '{print length, $2}' | sort -nr | head -n 1 | awk '{print $2}' | cut -d '/' -f1)
+    IPV6=""
+    IPV6_CIDR=""
+    local candidate address
+    while IFS= read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        address="${candidate%/*}"
+        if is_public_ipv6 "$address"; then
+            IPV6="$address"
+            IPV6_CIDR="$candidate"
+            break
+        fi
+    done < <(ip -6 -o addr show scope global 2>/dev/null | awk '$0 !~ / tentative/ {print $4}')
     if [ ! -f /usr/local/bin/docker_last_ipv6 ] || [ ! -s /usr/local/bin/docker_last_ipv6 ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_last_ipv6)" = "" ]; then
         ipv6_list=$(ip -6 addr show | grep global | awk '{print length, $2}' | sort -nr | awk '{print $2}')
         line_count=$(echo "$ipv6_list" | wc -l)
@@ -409,19 +439,13 @@ check_ipv6() {
             _green "本机绑定了不止一个IPV6地址"
         fi
     fi
-    if is_private_ipv6 "$IPV6"; then
-        IPV6=""
-        API_NET=("ipv6.ip.sb" "https://ipget.net" "ipv6.ping0.cc" "https://api.my-ip.io/ip" "https://ipv6.icanhazip.com")
-        for p in "${API_NET[@]}"; do
-            response=$(curl -sLk6m8 "$p" | tr -d '[:space:]')
-            if [ $? -eq 0 ] && ! (echo "$response" | grep -q "error"); then
-                IPV6="$response"
-                break
-            fi
-            sleep 1
-        done
+    if [[ -n "$IPV6_CIDR" ]]; then
+        _green "Locally bound public IPv6 detected: ${IPV6} (${IPV6_CIDR})"
+    else
+        _yellow "No locally bound public IPv6 prefix found; skipping independent IPv6 setup"
     fi
-    echo $IPV6 >/usr/local/bin/docker_check_ipv6
+    printf '%s\n' "$IPV6" >/usr/local/bin/docker_check_ipv6
+    printf '%s\n' "$IPV6_CIDR" >/usr/local/bin/docker_check_ipv6_cidr
 }
 
 check_cdn() {
@@ -463,13 +487,67 @@ get_system_arch() {
     "i386" | "i686" | "x86_64")
         system_arch="x86"
         ;;
-    "armv7l" | "armv8" | "armv8l" | "aarch64")
+    "armv8" | "armv8l" | "aarch64")
         system_arch="arch"
+        ;;
+    "armv7l" | "armhf")
+        system_arch="arm"
         ;;
     *)
         system_arch=""
         ;;
     esac
+}
+
+ndpresponder_image_matches_architecture() {
+    local expected="$1"
+    local actual="$2"
+    case "$expected:$actual" in
+        amd64:amd64|amd64:x86_64|arm64:arm64|arm64:aarch64|arm:arm|arm:armhf|arm:armv7) return 0 ;;
+    esac
+    return 1
+}
+
+# Resolve a responder image without trusting a registry tag's architecture.
+# ARMv7 has no published tag, so it intentionally follows the source-build
+# path. Keep this function free of container mutation: callers may only remove
+# an existing responder after this returns a verified image.
+resolve_ndpresponder_image() {
+    local expected_arch="$1"
+    local registry_image="$2"
+    local source_image source_url image_arch
+    NDPRESPONDER_IMAGE=""
+
+    if [[ -n "$registry_image" ]]; then
+        _yellow "Pulling ndpresponder image: ${registry_image}"
+        if docker pull "$registry_image" >/dev/null 2>&1; then
+            image_arch=$(docker image inspect -f '{{.Architecture}}' "$registry_image" 2>/dev/null || true)
+            if ndpresponder_image_matches_architecture "$expected_arch" "$image_arch"; then
+                NDPRESPONDER_IMAGE="$registry_image"
+                return 0
+            fi
+            _yellow "Responder image ${registry_image} is ${image_arch:-unknown}, expected ${expected_arch}; building a local responder image instead"
+        else
+            _yellow "Could not pull a responder image for ${expected_arch}; building a local responder image instead"
+        fi
+    else
+        _yellow "No published responder image is configured for ${expected_arch}; building a local responder image instead"
+    fi
+
+    source_image="localhost/oneclickvirt-ndpresponder:${expected_arch}"
+    source_url="${NDPRESPONDER_SOURCE_URL:-https://github.com/oneclickvirt/ndpresponder.git}"
+    _yellow "Building ndpresponder from source: ${source_url}"
+    if ! docker build --tag "$source_image" "$source_url"; then
+        _yellow "Could not build a responder image from source; preserving any existing responder"
+        return 1
+    fi
+    image_arch=$(docker image inspect -f '{{.Architecture}}' "$source_image" 2>/dev/null || true)
+    if ! ndpresponder_image_matches_architecture "$expected_arch" "$image_arch"; then
+        _yellow "Locally built responder image ${source_image} is ${image_arch:-unknown}, expected ${expected_arch}; preserving any existing responder"
+        return 1
+    fi
+    NDPRESPONDER_IMAGE="$source_image"
+    return 0
 }
 
 check_china() {
@@ -565,6 +643,13 @@ command -v sudo >/dev/null 2>&1 || base_packages+=("sudo")
 command -v curl >/dev/null 2>&1 || base_packages+=("curl")
 command -v wget >/dev/null 2>&1 || base_packages+=("wget")
 command -v jq >/dev/null 2>&1 || base_packages+=("jq")
+if ! command -v python3 >/dev/null 2>&1; then
+    if [[ "$SYSTEM" == "Arch" ]]; then
+        base_packages+=("python")
+    else
+        base_packages+=("python3")
+    fi
+fi
 command -v dos2unix >/dev/null 2>&1 || base_packages+=("dos2unix")
 command -v bc >/dev/null 2>&1 || base_packages+=("bc")
 command -v fallocate >/dev/null 2>&1 || base_packages+=("util-linux")
@@ -860,9 +945,10 @@ if [ ! -f /usr/local/bin/docker_ipv6_gateway ] || [ ! -s /usr/local/bin/docker_i
         ipv6_gateway_fe80="N"
     fi
 fi
-if [ ! -f /usr/local/bin/docker_check_ipv6 ] || [ ! -s /usr/local/bin/docker_check_ipv6 ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_check_ipv6)" = "" ]; then
-    check_ipv6
-fi
+# Always refresh from local interfaces.  A saved value from older releases may
+# have come from an external egress API and is not valid evidence of a routed
+# prefix that Docker may allocate from.
+check_ipv6
 if [ ! -f /usr/local/bin/docker_fe80_address ] || [ ! -s /usr/local/bin/docker_fe80_address ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_fe80_address)" = "" ]; then
     fe80_address=$(ip -6 addr show dev $interface | awk '/inet6 fe80/ {print $2}')
     echo "$fe80_address" >/usr/local/bin/docker_fe80_address
@@ -952,7 +1038,6 @@ if [[ -n "$ipv6_address" ]]; then
             if [ "$ipv6_address" == "$ipv6_gateway" ]; then
                 ipv6_address="${ipv6_address%:*}:2"
             fi
-            echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
         fi
     fi
 fi
@@ -1168,6 +1253,9 @@ adapt_ipv6() {
     update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
     update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
     update_sysctl "net.ipv6.conf.docker0.proxy_ndp=1"
+    # Forwarding otherwise disables ordinary RA processing on Linux. Keep the
+    # physical uplink's SLAAC default route alive after this setup.
+    update_sysctl "net.ipv6.conf.${interface}.accept_ra=2"
     update_sysctl "net.ipv6.conf.${interface}.proxy_ndp=1"
     if [ "$status_he" = true ]; then
         update_sysctl "net.ipv6.conf.he-ipv6.proxy_ndp=1"
@@ -1384,7 +1472,6 @@ docker_build_ipv6() {
             ipv6_address_without_last_segment="${ipv6_address%:*}:"
             if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
                 check_ipv6
-                echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
             fi
             target_mask=${ipv6_prefixlen}
             # 确保 target_mask 有值且在合法范围内 [1, 128]
@@ -1431,9 +1518,22 @@ docker_build_ipv6() {
                 return 1
             fi
             install_docker_and_compose
-            echo "1" >/usr/local/bin/docker_build_ipv6
             if [ "$ipv6_prefixlen" -le 112 ]; then
                 if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
+                    local subnet_check=0
+                    docker_ipv6_subnet_has_live_address "$new_subnet"
+                    subnet_check=$?
+                    if [[ "$subnet_check" -eq 0 ]]; then
+                        _red "Refusing Docker IPv6 subnet ${new_subnet}: it contains a live host IPv6 address"
+                        _red "拒绝使用 Docker IPv6 子网 ${new_subnet}：其中包含宿主机正在使用的 IPv6 地址"
+                        rm -f /usr/local/bin/docker_build_ipv6
+                        return 1
+                    elif [[ "$subnet_check" -ne 1 ]]; then
+                        _red "Cannot safely validate Docker IPv6 subnet ${new_subnet}; Python 3 is required"
+                        _red "无法安全校验 Docker IPv6 子网 ${new_subnet}；需要 Python 3"
+                        rm -f /usr/local/bin/docker_build_ipv6
+                        return 1
+                    fi
                     if ! docker network inspect ipv6_net >/dev/null 2>&1; then
                         if ! docker network create --ipv6 --subnet=172.26.0.0/16 --subnet="$new_subnet" ipv6_net; then
                             _red "Failed to create Docker IPv6 network ipv6_net"
@@ -1442,21 +1542,61 @@ docker_build_ipv6() {
                             return 1
                         fi
                     fi
-                    local ndp_image=""
+                    local ndp_image="" registry_ndp_image="" expected_ndp_arch=""
                     local ndp_interface="$interface"
                     if [ "$status_he" = true ]; then
                         ndp_interface="he-ipv6"
                     fi
                     case "$system_arch" in
-                        x86) ndp_image="spiritlhl/ndpresponder_x86" ;;
-                        arch) ndp_image="spiritlhl/ndpresponder_aarch64" ;;
+                        x86)
+                            registry_ndp_image="spiritlhl/ndpresponder_x86"
+                            expected_ndp_arch="amd64"
+                            ;;
+                        arch)
+                            registry_ndp_image="spiritlhl/ndpresponder_aarch64"
+                            expected_ndp_arch="arm64"
+                            ;;
+                        arm)
+                            expected_ndp_arch="arm"
+                            ;;
+                        *)
+                            _red "Unsupported responder architecture: ${system_arch:-unknown}"
+                            _red "不支持当前架构的 responder，独立 IPv6 不会启用"
+                            rm -f /usr/local/bin/docker_build_ipv6
+                            return 1
+                            ;;
                     esac
-                    if [ -n "$ndp_image" ]; then
-                        if docker inspect ndpresponder >/dev/null 2>&1; then
+                    local docker_socket=""
+                    for docker_socket in /var/run/docker.sock /run/docker.sock; do
+                        [[ -S "$docker_socket" ]] && break
+                        docker_socket=""
+                    done
+                    if [[ -z "$docker_socket" ]]; then
+                        _red "Docker API socket not found; ndpresponder cannot track container IPv6 addresses"
+                        rm -f /usr/local/bin/docker_build_ipv6
+                        return 1
+                    fi
+                    if ! resolve_ndpresponder_image "$expected_ndp_arch" "$registry_ndp_image"; then
+                        _red "No verified ndpresponder image is available for ${expected_ndp_arch}; preserving any existing responder"
+                        _red "没有可验证的 ${expected_ndp_arch} responder 镜像，保留已有 responder"
+                        rm -f /usr/local/bin/docker_build_ipv6
+                        return 1
+                    fi
+                    ndp_image="$NDPRESPONDER_IMAGE"
+                    if docker inspect ndpresponder >/dev/null 2>&1; then
+                        local existing_image="" existing_arch=""
+                        existing_image=$(docker inspect -f '{{.Image}}' ndpresponder 2>/dev/null || true)
+                        existing_arch=$(docker image inspect -f '{{.Architecture}}' "$existing_image" 2>/dev/null || true)
+                        if ndpresponder_image_matches_architecture "$expected_ndp_arch" "$existing_arch"; then
                             docker start ndpresponder >/dev/null 2>&1 || true
+                        elif ! docker rm -f ndpresponder >/dev/null 2>&1; then
+                            _red "Could not remove an incompatible ndpresponder after verifying a replacement image"
+                            rm -f /usr/local/bin/docker_build_ipv6
+                            return 1
                         elif ! docker run -d \
                             --restart always --cpus 0.02 --memory 64M \
-                            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                            -v "${docker_socket}:/var/run/docker.sock:ro" \
+                            -e DOCKER_HOST=unix:///var/run/docker.sock \
                             --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
                             --network host --name ndpresponder \
                             "$ndp_image" -i "$ndp_interface" -N ipv6_net; then
@@ -1465,9 +1605,32 @@ docker_build_ipv6() {
                             rm -f /usr/local/bin/docker_build_ipv6
                             return 1
                         fi
+                    elif ! docker run -d \
+                        --restart always --cpus 0.02 --memory 64M \
+                        -v "${docker_socket}:/var/run/docker.sock:ro" \
+                        -e DOCKER_HOST=unix:///var/run/docker.sock \
+                        --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
+                        --network host --name ndpresponder \
+                        "$ndp_image" -i "$ndp_interface" -N ipv6_net; then
+                        _red "Failed to create ndpresponder container"
+                        _red "创建 ndpresponder 容器失败"
+                        rm -f /usr/local/bin/docker_build_ipv6
+                        return 1
+                    fi
+                    local ndp_status=""
+                    for _ndp_attempt in 1 2 3; do
+                        sleep 1
+                        ndp_status=$(docker inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null || true)
+                        [[ "$ndp_status" == "running" ]] && break
+                    done
+                    if [[ "$ndp_status" != "running" ]]; then
+                        _red "ndpresponder is not running: $(docker logs --tail 20 ndpresponder 2>&1 || true)"
+                        rm -f /usr/local/bin/docker_build_ipv6
+                        return 1
                     fi
                 fi
             fi
+            echo "1" >/usr/local/bin/docker_build_ipv6
             if ! command -v radvd >/dev/null 2>&1; then
                 _yellow "Installing radvd"
                 if [[ "$SYSTEM" == "Alpine" ]]; then

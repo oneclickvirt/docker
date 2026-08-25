@@ -222,6 +222,7 @@ for f in \
     /usr/local/bin/docker_ipv4_gateway \
     /usr/local/bin/docker_ipv4_subnet \
     /usr/local/bin/docker_ipv6_address \
+    /usr/local/bin/docker_check_ipv6_cidr \
     /usr/local/bin/docker_ipv6_prefixlen \
     /usr/local/bin/docker_ipv6_real_prefixlen \
     /usr/local/bin/docker_ipv6_gateway \
