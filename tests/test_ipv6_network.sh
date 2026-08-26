@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 installer="$repo_root/scripts/dockerinstall.sh"
+onedocker="$repo_root/scripts/onedocker.sh"
+uninstaller="$repo_root/dockeruninstall.sh"
 
 extract_function() {
     local name="$1"
@@ -17,31 +19,59 @@ extract_function() {
     ' "$installer"
 }
 
-# shellcheck disable=SC1090 # The test intentionally loads one installer function.
-source <(extract_function docker_ipv6_subnet_has_live_address)
-# shellcheck disable=SC1090 # The test intentionally loads the host route overlap helper.
-source <(extract_function docker_ipv6_subnet_overlaps_host)
-# shellcheck disable=SC1090 # The test intentionally loads the ULA candidate helper.
-source <(extract_function docker_ipv6_ula_candidate)
-# shellcheck disable=SC1090 # The test intentionally loads ULA validation helpers.
-source <(extract_function docker_ipv6_ula_is_safe)
-# shellcheck disable=SC1090 # The test intentionally loads the idempotency guard.
-source <(extract_function docker_ipv6_ula_state_matches_network)
-# shellcheck disable=SC1090 # The test intentionally loads one installer function.
+fail() {
+    printf '%s\n' "$*" >&2
+    exit 1
+}
+
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 source <(extract_function is_public_ipv6)
-# shellcheck disable=SC1090 # The test intentionally loads the CIDR selector.
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 source <(extract_function select_public_ipv6_cidr)
-# shellcheck disable=SC1090 # The test intentionally loads the CIDR prefix parser.
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 source <(extract_function ipv6_cidr_prefix_length)
-# shellcheck disable=SC1090 # The test intentionally loads one installer helper.
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function docker_ipv6_subnet_has_live_address)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function docker_ipv6_subnet_overlaps_host)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function docker_ipv6_ula_candidate)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function docker_ipv6_ula_is_safe)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function docker_ipv6_ula_state_matches_network)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function docker_ipv6_normalize_public_parent)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function docker_ipv6_manual_state_matches_network)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function docker_ipv6_uplink_interface)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function docker_ipv6_uplink_supports_ndp)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 source <(extract_function ndpresponder_image_matches_architecture)
-# shellcheck disable=SC1090 # The test intentionally loads one installer helper.
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function ndpresponder_supports_target_file)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+source <(extract_function ndpresponder_image_supports_required_features)
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 source <(extract_function resolve_ndpresponder_image)
 
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/docker-ipv6-test.XXXXXX")
 trap 'rm -rf -- "$tmpdir"' EXIT
 cat > "$tmpdir/ip" <<'EOF'
 #!/bin/sh
+if [ "${1:-}" = "-d" ] && [ "${2:-}" = "link" ]; then
+    case "${5:-}" in
+        he-ipv6) printf '%s\n' '5: he-ipv6: <POINTOPOINT,UP> mtu 1480 link/sit' ;;
+        *) printf '%s\n' '2: vmbr0: <BROADCAST,UP> mtu 1500 link/ether 02:00:00:00:00:01' ;;
+    esac
+    exit 0
+fi
+if [ "${1:-}" = "link" ]; then
+    printf '%s\n' '2: vmbr0: <BROADCAST,UP> mtu 1500 link/ether 02:00:00:00:00:01'
+    exit 0
+fi
 if [ "${1:-}" = "-6" ] && [ "${2:-}" = "route" ]; then
     printf '%s\n' '2a14:6781:a::/64 dev eth0 proto kernel metric 256'
     exit 0
@@ -54,6 +84,15 @@ case "${IPV6_TEST_SCENARIO:-default}" in
     tunnel)
         printf '%s\n' '5: he-ipv6    inet6 2001:470:1f14:9::2/64 scope global'
         ;;
+    narrow120)
+        printf '%s\n' '2: eth0    inet6 2a14:6781:a::9/120 scope global'
+        ;;
+    narrow127)
+        printf '%s\n' '2: eth0    inet6 2a14:6781:a::8/127 scope global'
+        ;;
+    hostonly)
+        printf '%s\n' '2: eth0    inet6 2a14:6781:a::9/128 scope global'
+        ;;
     *)
         printf '%s\n' '2: eth0    inet6 2a14:6781:000a:0000::9/64 scope global'
         ;;
@@ -63,111 +102,136 @@ chmod 700 "$tmpdir/ip"
 
 old_path="$PATH"
 export PATH="$tmpdir:$PATH"
+
 selected=$(select_public_ipv6_cidr)
-if [[ "$selected" != '2a14:6781:000a:0000::9/64' ]]; then
-    printf 'normal /64 selection returned %q\n' "$selected" >&2
-    exit 1
-fi
+[[ "$selected" == '2a14:6781:000a:0000::9/64' ]] || fail "normal /64 selection returned $selected"
+
 export IPV6_TEST_SCENARIO=delegated
 selected=$(select_public_ipv6_cidr)
-if [[ "$selected" != '2a14:7c0:1002:10f8::1/38' ]]; then
-    printf 'delegated /38 was hidden by an uplink /128: %q\n' "$selected" >&2
-    exit 1
-fi
-if [[ "$(ipv6_cidr_prefix_length "$selected")" != 38 ]]; then
-    printf 'delegated IPv6 CIDR did not retain its /38 prefix length\n' >&2
-    exit 1
-fi
+[[ "$selected" == '2a14:7c0:1002:10f8::1/38' ]] || fail "delegated /38 was hidden by an uplink /128: $selected"
+[[ "$(ipv6_cidr_prefix_length "$selected")" == 38 ]] || fail "delegated IPv6 CIDR did not retain its /38 prefix length"
+[[ "$(docker_ipv6_normalize_public_parent "$selected")" == '2a14:7c0:1000::/38' ]] || fail "delegated /38 was not normalized"
+
 export IPV6_TEST_SCENARIO=tunnel
 selected=$(select_public_ipv6_cidr)
-if [[ "$selected" != '2001:470:1f14:9::2/64' ]]; then
-    printf 'tunnel /64 selection returned %q\n' "$selected" >&2
-    exit 1
+[[ "$selected" == '2001:470:1f14:9::2/64' ]] || fail "tunnel /64 selection returned $selected"
+uplink=$(docker_ipv6_uplink_interface)
+[[ "$uplink" == he-ipv6 ]] || fail "tunnel IPv6 uplink detection returned $uplink"
+if docker_ipv6_uplink_supports_ndp "$uplink"; then
+    fail "non-Ethernet tunnel was incorrectly marked as requiring NDP"
 fi
+
+export IPV6_TEST_SCENARIO=delegated
+uplink=$(docker_ipv6_uplink_interface)
+[[ "$uplink" == vmbr2 ]] || fail "PVE delegated IPv6 uplink detection returned $uplink"
+docker_ipv6_uplink_supports_ndp "$uplink" || fail "PVE Ethernet bridge was incorrectly marked as a tunnel"
+
+export IPV6_TEST_SCENARIO=narrow120
+selected=$(select_public_ipv6_cidr)
+[[ "$selected" == '2a14:6781:a::9/120' ]] || fail "routed /120 selection returned $selected"
+
+export IPV6_TEST_SCENARIO=narrow127
+selected=$(select_public_ipv6_cidr)
+[[ "$selected" == '2a14:6781:a::8/127' ]] || fail "routed /127 selection returned $selected"
+
+export IPV6_TEST_SCENARIO=hostonly
+selected=$(select_public_ipv6_cidr)
+[[ "$selected" == '2a14:6781:a::9/128' ]] || fail "host-only /128 selection returned $selected"
+if docker_ipv6_normalize_public_parent "$selected" >/dev/null; then
+    fail "a lone /128 was accepted as a routed public parent"
+fi
+
 unset IPV6_TEST_SCENARIO
-docker_ipv6_subnet_has_live_address "2a14:6781:000a:0000::/64"
-if docker_ipv6_subnet_has_live_address "2a14:6781:000a:0000:1::/80"; then
-    printf 'sibling subnet was incorrectly reported as containing a host address\n' >&2
-    exit 1
+docker_ipv6_subnet_has_live_address '2a14:6781:000a:0000::/64' || fail "host IPv6 was not found in its CIDR"
+if docker_ipv6_subnet_has_live_address '2a14:6781:000a:0000:1::/80'; then
+    fail "sibling subnet was incorrectly reported as containing a host address"
 fi
-if ! docker_ipv6_subnet_overlaps_host "2a14:6781:a::1:0:0/96"; then
-    printf 'connected host IPv6 route was not detected as a Docker overlap\n' >&2
-    exit 1
+if ! docker_ipv6_subnet_overlaps_host '2a14:6781:a::1:0:0/96'; then
+    fail "connected host IPv6 route was not detected as a Docker overlap"
 fi
 if docker_ipv6_subnet_overlaps_host "$(docker_ipv6_ula_candidate 0)"; then
-    printf 'isolated Docker ULA unexpectedly overlaps the host route\n' >&2
-    exit 1
+    fail "isolated Docker ULA unexpectedly overlaps the host route"
 fi
+
 managed_ula=$(docker_ipv6_ula_candidate 0)
-if ! docker_ipv6_ula_state_matches_network nat "$managed_ula" "$managed_ula"; then
-    printf 'installer-managed Docker ULA was not accepted for reuse\n' >&2
-    exit 1
+docker_ipv6_ula_state_matches_network nat "$managed_ula" "$managed_ula" || fail "installer-managed Docker ULA was not accepted for NAT66 reuse"
+docker_ipv6_manual_state_matches_network manual "$managed_ula" "$managed_ula" '2a14:6781:a::9/64' || fail "installer-managed routed Docker ULA was not accepted"
+if docker_ipv6_manual_state_matches_network manual "$managed_ula" "$managed_ula" '2a14:6781:a::9/128'; then
+    fail "a /128 was accepted as a routed Docker parent"
 fi
-if docker_ipv6_ula_state_matches_network managed "$managed_ula" "$managed_ula" ||
-   docker_ipv6_ula_state_matches_network nat "fd42:5339:296f:1d01::/64" "$managed_ula" ||
-   docker_ipv6_ula_state_matches_network nat "2a14:6781:a::/64" "2a14:6781:a::/64"; then
-    printf 'unmanaged or mismatched Docker IPv6 network was accepted for reuse\n' >&2
-    exit 1
+if docker_ipv6_ula_state_matches_network managed "$managed_ula" "$managed_ula" || \
+   docker_ipv6_ula_state_matches_network nat 'fd42:5339:296f:1d01::/64' "$managed_ula" || \
+   docker_ipv6_ula_state_matches_network nat '2a14:6781:a::/64' '2a14:6781:a::/64'; then
+    fail "unmanaged or mismatched Docker ULA was accepted for reuse"
 fi
-if extract_function create_docker_ula_ipv6_network | grep -Fq "docker_ipv6_subnet_overlaps_host \"\$existing_ula\""; then
-    printf 'Docker ULA reuse incorrectly checks its own connected bridge route\n' >&2
-    exit 1
+if extract_function create_docker_ula_ipv6_network | grep -Fq 'docker_ipv6_subnet_overlaps_host "$existing_ula"'; then
+    fail "Docker ULA reuse incorrectly checks its own connected bridge route"
 fi
 export PATH="$old_path"
 
-if ! is_public_ipv6 "2a14:6781:a::9"; then
-    printf 'expected a global unicast IPv6 to be accepted\n' >&2
-    exit 1
-fi
-for non_public in "fec0::1" "ff02::1" "64:ff9b::1" "2001:0000::1" "2001:0002::1" "2001:0010::1" "2001:0020::1" "2001:0db8::1" "2002::1" "3fff:000f::1"; do
+is_public_ipv6 '2a14:6781:a::9' || fail "expected a global unicast IPv6 to be accepted"
+for non_public in 'fec0::1' 'ff02::1' '64:ff9b::1' '2001:0000::1' '2001:0002::1' '2001:0010::1' '2001:0020::1' '2001:0db8::1' '2002::1' '3fff:000f::1'; do
     if is_public_ipv6 "$non_public"; then
-        printf 'non-public IPv6 was accepted as a Docker source: %s\n' "$non_public" >&2
-        exit 1
+        fail "non-public IPv6 was accepted as a Docker source: $non_public"
     fi
 done
 
-if extract_function check_ipv6 | grep -Eq 'API_NET|curl[[:space:]]'; then
-    printf 'check_ipv6 must not use an external address as a Docker subnet source\n' >&2
-    exit 1
+if extract_function check_ipv6 | grep -Eq 'API_NET|curl[[:space:]]|docker_last_ipv6'; then
+    fail "check_ipv6 must only use locally bound IPv6 state"
 fi
-if ! extract_function adapt_ipv6 | grep -Fq "net.ipv6.conf.\${interface}.accept_ra=2"; then
-    printf 'Docker IPv6 forwarding must preserve router advertisements on the uplink\n' >&2
-    exit 1
+adapt_source=$(extract_function adapt_ipv6)
+if ! grep -Fq 'net.ipv6.conf.${uplink}.accept_ra=2' <<<"$adapt_source"; then
+    fail "Docker IPv6 forwarding must preserve router advertisements on the uplink"
 fi
+if grep -Fq 'proxy_ndp' <<<"$adapt_source"; then
+    fail "routed Docker IPv6 must not change global proxy_ndp state"
+fi
+for forbidden in 'touch /etc/cloud/cloud-init.disabled' 'rebuild_cloud_init' 'ip addr del fe80' 'handle_networking'; do
+    if grep -Fq "$forbidden" "$installer"; then
+        fail "installer retained forbidden host-network mutation: $forbidden"
+    fi
+done
+
+main_source=$(extract_function main)
+install_line=$(grep -nF 'install_docker_and_compose' <<<"$main_source" | head -n 1 | cut -d: -f1)
+ipv6_line=$(grep -nF 'check_and_adapt_ipv6' <<<"$main_source" | head -n 1 | cut -d: -f1)
+[[ "$install_line" -lt "$ipv6_line" ]] || fail "Docker must be ready before IPv6 network creation"
+grep -Fq 'ensure_docker_ready' <<<"$main_source" || fail "main must wait for Docker before configuring IPv6"
+
 docker_build_ipv6_source=$(extract_function docker_build_ipv6)
-if ! grep -Fq 'public_parent_prefix > 112' <<<"$docker_build_ipv6_source" || \
-   ! grep -Fq "create_docker_ula_ipv6_network \"\$public_parent\"" <<<"$docker_build_ipv6_source"; then
-    printf 'Docker must use ULA NAT66 instead of pretending a /113-/128 parent can create a public bridge subnet\n' >&2
-    exit 1
+if ! grep -Fq 'public_parent_prefix == 128' <<<"$docker_build_ipv6_source" || \
+   ! grep -Fq 'create_docker_manual_ipv6_network "$public_parent"' <<<"$docker_build_ipv6_source" || \
+   ! grep -Fq 'create_docker_ula_ipv6_network "$public_parent"' <<<"$docker_build_ipv6_source"; then
+    fail "Docker must route non-/128 parents and use NAT66 only for a lone /128"
 fi
-if ! ndpresponder_image_matches_architecture arm64 arm64 ||
-   ! ndpresponder_image_matches_architecture arm arm ||
-   ndpresponder_image_matches_architecture arm64 amd64 ||
-   ndpresponder_image_matches_architecture arm amd64; then
-    printf 'Docker responder image architecture validation is incorrect\n' >&2
-    exit 1
+if grep -Fq 'public_parent_prefix > 112' <<<"$docker_build_ipv6_source"; then
+    fail "Docker must not discard usable /120 or /127 routed IPv6 parents"
 fi
-if ! grep -Fq 'registry_ndp_image="spiritlhl/ndpresponder_aarch64"' "$installer"; then
-    printf 'Docker must select the published aarch64 responder tag on ARM64\n' >&2
-    exit 1
+grep -Fq '["ip", "-6", "route", "show", "default"]' "$installer" || fail "routed IPv6 allocation must reserve the upstream default gateway"
+
+ndp_source=$(extract_function start_docker_manual_ndpresponder)
+if grep -Fq -- '--restart always' <<<"$ndp_source"; then
+    fail "Docker ndpresponder must not retain an unconditional restart policy"
 fi
-if extract_function docker_build_ipv6 | grep -Fq -- '--restart always'; then
-    printf 'Docker ndpresponder must not retain an unconditional restart policy\n' >&2
-    exit 1
+for required in '--restart on-failure:3' 'docker update --restart=no ndpresponder' '--target-file /etc/ndpresponder-targets'; do
+    grep -Fq -- "$required" <<<"$ndp_source" || fail "Docker responder is missing required safeguard: $required"
+done
+grep -Fq 'quarantine_incompatible_docker_ndpresponder' <<<"$ndp_source" || fail "Docker must quarantine a legacy responder before target-file use"
+grep -Fq 'docker-ipv6-attach.sh' "$onedocker" || fail "container creation does not invoke the routed IPv6 helper"
+grep -Fq 'attach_manual_ipv6_or_rollback' "$onedocker" || fail "container creation does not roll back failed IPv6 attachment"
+grep -Fq '"$manual_ipv6_helper" --remove "$name"' "$onedocker" || fail "failed attachment does not remove its address mapping"
+grep -Fq '[ "$ndp_required" = "false" ]' "$onedocker" || fail "tunnel/non-Ethernet IPv6 still requires an NDP responder"
+if grep -Fq 'radvd' "$uninstaller" || grep -Fq '/etc/sysctl.d/99-custom.conf' "$uninstaller"; then
+    fail "Docker uninstall must not remove host-owned IPv6 services or generic sysctl state"
 fi
-if ! extract_function docker_build_ipv6 | grep -Fq -- '--restart on-failure:3'; then
-    printf 'Docker ndpresponder must use a bounded failure restart policy\n' >&2
-    exit 1
-fi
-if ! extract_function docker_build_ipv6 | grep -Fq 'docker update --restart=no ndpresponder'; then
-    printf 'Docker must stop a failed ndpresponder restart loop during health verification\n' >&2
-    exit 1
-fi
+grep -Fq 'docker-ipv6-attach.service' "$uninstaller" || fail "Docker uninstall does not clean the installer-owned routed IPv6 service"
+grep -Fq '99-oneclickvirt-docker-ipv6.conf' "$uninstaller" || fail "Docker uninstall does not clean the installer-owned sysctl file"
 
 # A registry tag can be published for the wrong CPU. The resolver must build a
 # local image, validate that image too, and leave container mutation to its
 # caller so a failed fallback cannot remove a working responder.
 _yellow() { :; }
+NDPRESPONDER_TARGET_FILE_REQUIRED=false
 mock_build_succeeds=true
 mock_build_called=false
 mock_remove_called=false
@@ -201,28 +265,37 @@ docker() {
 # shellcheck disable=SC2034 # Consumed by the dynamically sourced resolver.
 NDPRESPONDER_SOURCE_URL=https://example.invalid/ndpresponder.git
 if ! resolve_ndpresponder_image arm64 spiritlhl/ndpresponder_aarch64; then
-    printf 'Docker did not build a validated local responder after a bad registry architecture\n' >&2
-    exit 1
+    fail "Docker did not build a validated local responder after a bad registry architecture"
 fi
-[[ "$NDPRESPONDER_IMAGE" == 'localhost/oneclickvirt-ndpresponder:arm64' ]] || {
-    printf 'Docker resolver selected %q instead of the validated local responder\n' "$NDPRESPONDER_IMAGE" >&2
-    exit 1
-}
-[[ "$mock_build_called" == true && "$mock_remove_called" == false ]] || {
-    printf 'Docker resolver mutated a responder container before the caller could validate the fallback\n' >&2
-    exit 1
-}
+[[ "$NDPRESPONDER_IMAGE" == 'localhost/oneclickvirt-ndpresponder:arm64' ]] || fail "Docker resolver selected $NDPRESPONDER_IMAGE instead of the validated local responder"
+[[ "$mock_build_called" == true && "$mock_remove_called" == false ]] || fail "Docker resolver mutated a responder container before caller validation"
 
 mock_build_succeeds=false
 mock_build_called=false
 mock_remove_called=false
 if resolve_ndpresponder_image arm64 spiritlhl/ndpresponder_aarch64; then
-    printf 'Docker accepted a responder after both registry and source architectures failed\n' >&2
-    exit 1
+    fail "Docker accepted a responder after both registry and source architectures failed"
 fi
-[[ "$mock_build_called" == true && "$mock_remove_called" == false ]] || {
-    printf 'Docker resolver changed a responder container after a failed source build\n' >&2
-    exit 1
-}
+[[ "$mock_build_called" == true && "$mock_remove_called" == false ]] || fail "Docker resolver changed a responder container after a failed source build"
 
-printf 'docker IPv6 network candidate tests passed\n'
+docker() {
+    if [[ "$1" == run && "$2" == --rm && "$4" == --help ]]; then
+        case "$3" in
+            supports-target-file) printf '%s\n' '  --target-file value  reload static IPv6 targets' ;;
+            *) printf '%s\n' 'Usage: ndpresponder -i IFACE' ;;
+        esac
+        return 0
+    fi
+    return 1
+}
+NDPRESPONDER_TARGET_FILE_REQUIRED=true
+ndpresponder_supports_target_file supports-target-file || fail "new responder target-file capability was not detected"
+if ndpresponder_supports_target_file legacy-image; then
+    fail "legacy responder was incorrectly accepted for target-file mode"
+fi
+ndpresponder_image_supports_required_features supports-target-file || fail "target-file-capable responder was rejected"
+if ndpresponder_image_supports_required_features legacy-image; then
+    fail "target-file-incompatible responder was accepted"
+fi
+
+printf 'docker IPv6 network regression tests passed\n'

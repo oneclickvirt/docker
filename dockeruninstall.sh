@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2026.08.26
+# 2026.08.27
 # 完整卸载 Docker 环境及所有容器
 # 支持的环境变量（一键非交互卸载）：
 #   noninteractive=true - 跳过卸载确认提示，直接执行卸载
@@ -32,6 +32,26 @@ is_project_docker_ipv6_nat_openrc_service() {
 is_project_docker_ipv6_nat_helper() {
     local helper="/usr/local/bin/docker-ipv6-nat.sh"
     [[ -f "$helper" ]] && grep -q "OneClickVirt Docker IPv6 NAT66 restore helper" "$helper" 2>/dev/null
+}
+
+is_project_docker_ipv6_attach_unit() {
+    local unit_file="/etc/systemd/system/docker-ipv6-attach.service"
+    [[ -f "$unit_file" ]] && grep -q "Restore OneClickVirt Docker routed IPv6 addresses" "$unit_file" 2>/dev/null
+}
+
+is_project_docker_ipv6_attach_openrc_service() {
+    local service_file="/etc/init.d/docker-ipv6-attach"
+    [[ -f "$service_file" ]] && grep -q "OneClickVirt Docker routed IPv6 restore service" "$service_file" 2>/dev/null
+}
+
+is_project_docker_ipv6_attach_helper() {
+    local helper="/usr/local/bin/docker-ipv6-attach.sh"
+    [[ -f "$helper" ]] && grep -q "Installer-owned routed IPv6 attachment for Docker" "$helper" 2>/dev/null
+}
+
+is_project_docker_ipv6_sysctl() {
+    local config_file="/etc/sysctl.d/99-oneclickvirt-docker-ipv6.conf"
+    [[ -f "$config_file" ]] && grep -q "Managed by OneClickVirt Docker IPv6" "$config_file" 2>/dev/null
 }
 
 docker_ipv6_nat_state_is_safe() {
@@ -130,11 +150,8 @@ if command -v docker >/dev/null 2>&1; then
     done
 fi
 
-# ======== 4. 删除 ndpresponder 和 IPv6 相关容器 ========
-_blue "[4/9] 清理 ndpresponder 及 IPv6 网络配置..."
-if command -v docker >/dev/null 2>&1; then
-    docker rm -f ndpresponder 2>/dev/null || true
-fi
+# ======== 4. 清理安装器托管的 IPv6 配置 ========
+_blue "[4/9] 清理安装器托管的 IPv6 网络配置..."
 # 删除 IPv6 相关 iptables 规则（仅删除由受控 ULA NAT66 状态添加的规则）
 docker_ipv6_subnet=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_subnet 2>/dev/null || true)
 if docker_ipv6_nat_state_is_safe && command -v ip6tables >/dev/null 2>&1; then
@@ -150,7 +167,7 @@ _green "  IPv6 配置已清理"
 # ======== 5. 停止并禁用 systemd 服务 ========
 _blue "[5/9] 停止并禁用 Docker systemd 服务..."
 if command -v systemctl >/dev/null 2>&1; then
-    for svc in docker docker.socket containerd check-dns radvd; do
+    for svc in docker docker.socket containerd check-dns; do
         if systemctl is-active --quiet "$svc" 2>/dev/null; then
             systemctl stop "$svc" 2>/dev/null || true
             _yellow "  已停止 ${svc}"
@@ -168,6 +185,15 @@ if command -v systemctl >/dev/null 2>&1; then
             systemctl disable docker-ipv6-nat 2>/dev/null || true
         fi
     fi
+    if is_project_docker_ipv6_attach_unit; then
+        if systemctl is-active --quiet docker-ipv6-attach 2>/dev/null; then
+            systemctl stop docker-ipv6-attach 2>/dev/null || true
+            _yellow "  已停止 docker-ipv6-attach"
+        fi
+        if systemctl is-enabled --quiet docker-ipv6-attach 2>/dev/null; then
+            systemctl disable docker-ipv6-attach 2>/dev/null || true
+        fi
+    fi
     # 删除我们安装的自定义服务文件
     for f in \
         /etc/systemd/system/check-dns.service \
@@ -176,6 +202,9 @@ if command -v systemctl >/dev/null 2>&1; then
     done
     if is_project_docker_ipv6_nat_unit; then
         rm -f /etc/systemd/system/docker-ipv6-nat.service && _yellow "  删除 /etc/systemd/system/docker-ipv6-nat.service"
+    fi
+    if is_project_docker_ipv6_attach_unit; then
+        rm -f /etc/systemd/system/docker-ipv6-attach.service && _yellow "  删除 /etc/systemd/system/docker-ipv6-attach.service"
     fi
     systemctl daemon-reload 2>/dev/null || true
     _green "  systemd 服务已清理"
@@ -188,6 +217,15 @@ if is_project_docker_ipv6_nat_openrc_service; then
         rc-update del docker-ipv6-nat default 2>/dev/null || true
     fi
     rm -f /etc/init.d/docker-ipv6-nat && _yellow "  删除 /etc/init.d/docker-ipv6-nat"
+fi
+if is_project_docker_ipv6_attach_openrc_service; then
+    if command -v rc-service >/dev/null 2>&1; then
+        rc-service docker-ipv6-attach stop 2>/dev/null || true
+    fi
+    if command -v rc-update >/dev/null 2>&1; then
+        rc-update del docker-ipv6-attach default 2>/dev/null || true
+    fi
+    rm -f /etc/init.d/docker-ipv6-attach && _yellow "  删除 /etc/init.d/docker-ipv6-attach"
 fi
 
 # ======== 6. 通过包管理器卸载 Docker ========
@@ -286,6 +324,14 @@ for f in \
     /usr/local/bin/docker_ipv6_subnet \
     /usr/local/bin/docker_ipv6_network_mode \
     /usr/local/bin/docker_ipv6_public_parent \
+    /usr/local/bin/docker_ipv6_manual_subnet \
+    /usr/local/bin/docker_ipv6_manual_gateway \
+    /usr/local/bin/docker_ipv6_manual_bridge \
+    /usr/local/bin/docker_ipv6_allocations \
+    /usr/local/bin/docker_ipv6_targets \
+    /usr/local/bin/docker_ipv6_ndp_required \
+    /usr/local/bin/docker_ipv6_uplink \
+    /usr/local/bin/docker_ndpresponder_owned \
     /usr/local/bin/docker_check_ipv6 \
     /usr/local/bin/docker_fe80_address \
     /usr/local/bin/docker_mac_address \
@@ -312,6 +358,9 @@ done
 if is_project_docker_ipv6_nat_helper; then
     rm -f /usr/local/bin/docker-ipv6-nat.sh && _yellow "  删除 /usr/local/bin/docker-ipv6-nat.sh"
 fi
+if is_project_docker_ipv6_attach_helper; then
+    rm -f /usr/local/bin/docker-ipv6-attach.sh && _yellow "  删除 /usr/local/bin/docker-ipv6-attach.sh"
+fi
 # 清理 /root 下的脚本文件
 for f in \
     /root/ssh_bash.sh \
@@ -324,34 +373,11 @@ rm -f /tmp/spiritlhl_*.tar.gz 2>/dev/null || true
 rm -f /tmp/ssh_bash.sh /tmp/ssh_sh.sh 2>/dev/null || true
 _green "  状态文件已清理"
 
-# ======== 9. 清理 sysctl 配置 ========
-_blue "[9/9] 清理 sysctl 配置..."
-for sysctl_file in /etc/sysctl.conf /etc/sysctl.d/99-custom.conf /etc/sysctl.d/99-docker.conf; do
-    if [[ -f "$sysctl_file" ]]; then
-        sed -i \
-            -e '/^net\.ipv4\.ip_forward=/d' \
-            -e '/^net\.ipv6\.conf\.all\.forwarding=/d' \
-            -e '/^net\.ipv6\.conf\.all\.proxy_ndp=/d' \
-            -e '/^net\.ipv6\.conf\.all\.accept_ra=/d' \
-            -e '/^net\.ipv6\.conf\.default\.forwarding=/d' \
-            -e '/^net\.ipv6\.conf\.default\.proxy_ndp=/d' \
-            -e '/^net\.ipv6\.conf\.default\.accept_ra=/d' \
-            -e '/^net\.ipv6\.conf\.docker0\.forwarding=/d' \
-            -e '/^net\.ipv6\.conf\.docker0\.proxy_ndp=/d' \
-            -e '/^net\.ipv6\.conf\.docker0\.accept_ra=/d' \
-            -e '/^net\.ipv6\.conf\.[^.]*\.proxy_ndp=/d' \
-            "$sysctl_file"
-        _yellow "  清理 $sysctl_file 中的 Docker IPv6/sysctl 配置"
-    fi
-done
-[[ -f /etc/sysctl.d/99-docker.conf ]] && rm -f /etc/sysctl.d/99-docker.conf
-[[ -f /etc/radvd.conf ]] && rm -f /etc/radvd.conf && _yellow "  删除 /etc/radvd.conf"
-if command -v crontab >/dev/null 2>&1; then
-    tmp_cron=$(mktemp)
-    if crontab -l >"$tmp_cron" 2>/dev/null; then
-        grep -v 'ipv6.ip.sb' "$tmp_cron" | crontab - 2>/dev/null || true
-    fi
-    rm -f "$tmp_cron"
+# ======== 9. 清理安装器专用 sysctl 配置 ========
+_blue "[9/9] 清理安装器专用 sysctl 配置..."
+if is_project_docker_ipv6_sysctl; then
+    rm -f /etc/sysctl.d/99-oneclickvirt-docker-ipv6.conf
+    _yellow "  删除 /etc/sysctl.d/99-oneclickvirt-docker-ipv6.conf"
 fi
 sysctl --system >/dev/null 2>&1 || true
 _green "  sysctl 已清理"

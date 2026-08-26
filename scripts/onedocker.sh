@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2026.08.26
+# 2026.08.27
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system> <disk>
 
@@ -448,6 +448,11 @@ ipv6_network_mode="managed"
 if [ -s /usr/local/bin/docker_ipv6_network_mode ]; then
     ipv6_network_mode=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_network_mode 2>/dev/null || true)
 fi
+ndp_required="true"
+if [ -s /usr/local/bin/docker_ipv6_ndp_required ]; then
+    ndp_required=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_ndp_required 2>/dev/null || true)
+fi
+manual_ipv6_helper="/usr/local/bin/docker-ipv6-attach.sh"
 if [ "$ipv6_network_mode" = "nat" ]; then
     _yellow "Docker IPv6 is using an isolated ULA with NAT66; public /128 assignment is not available in this mode"
     _yellow "Docker IPv6 当前使用隔离 ULA NAT66，此模式不提供公网 /128 独立地址"
@@ -472,6 +477,60 @@ if [ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_i
     ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
     ipv6_address_without_last_segment="${ipv6_address%:*}:"
 fi
+ipv6_network_ready="N"
+manual_ipv6_attachment="N"
+case "$ipv6_network_mode" in
+    nat)
+        [ "$ipv6_net_status" = "Y" ] && ipv6_network_ready="Y"
+        ;;
+    manual)
+        if [ "$ipv6_net_status" != "Y" ] || [ ! -x "$manual_ipv6_helper" ]; then
+            _yellow "Routed Docker IPv6 state is incomplete; public /128 attachment is unavailable"
+            _yellow "Docker 手动路由 IPv6 状态不完整，暂不可附加公网 /128"
+        elif [ "$ndp_required" = "false" ] || [ "$ndpresponder_status" = "Y" ]; then
+            ipv6_network_ready="Y"
+            manual_ipv6_attachment="Y"
+            if [ "$ndp_required" = "false" ]; then
+                _green "Routed Docker IPv6 uses a tunnel/non-Ethernet uplink; NDP responder is not required"
+            fi
+        else
+            _yellow "Routed Docker IPv6 requires a healthy ndpresponder before a public /128 can be attached"
+            _yellow "Docker 手动路由 IPv6 需要健康的 ndpresponder 才能附加公网 /128"
+        fi
+        ;;
+    *)
+        # Preserve older installer-managed public IPv6 networks. They use the
+        # responder's Docker API discovery instead of the routed /128 helper.
+        if [ "$ipv6_net_status" = "Y" ] && [ "$ndpresponder_status" = "Y" ] && \
+           [ -n "${ipv6_address:-}" ] && [ -n "${ipv6_address_without_last_segment:-}" ]; then
+            ipv6_network_ready="Y"
+        fi
+        ;;
+esac
+if [ "$independent_ipv6" = "y" ] && [ "$ipv6_network_ready" != "Y" ]; then
+    _yellow "Independent IPv6 was requested but is not ready; creating the container on the default IPv4 network"
+    _yellow "已请求独立 IPv6，但当前未就绪；将使用默认 IPv4 网络创建容器"
+fi
+
+attach_manual_ipv6_or_rollback() {
+    [ "$manual_ipv6_attachment" = "Y" ] || return 0
+    if "$manual_ipv6_helper" "$name"; then
+        _green "Attached routed public IPv6 to ${name}"
+        return 0
+    fi
+    _red "Failed to attach routed IPv6 to ${name}, removing partial container."
+    _red "为 ${name} 附加路由 IPv6 失败，删除未完成容器。"
+    "$manual_ipv6_helper" --remove "$name" >/dev/null 2>&1 || true
+    docker rm -f "$name" >/dev/null 2>&1 || true
+    return 1
+}
+
+remove_partial_container() {
+    if [ "$manual_ipv6_attachment" = "Y" ] && [ -x "$manual_ipv6_helper" ]; then
+        "$manual_ipv6_helper" --remove "$name" >/dev/null 2>&1 || true
+    fi
+    docker rm -f "$name" >/dev/null 2>&1 || true
+}
 lxcfs_volumes=()
 if [ "$lxcfs_available" = "Y" ]; then
     lxcfs_volumes=(
@@ -493,7 +552,7 @@ if [ "$btrfs_support" = "Y" ] && [ "$disk" != "0" ]; then
     storage_opts=(--storage-opt "size=${disk}G")
 fi
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
-    if [ "$ipv6_net_status" = "Y" ] && { [ "$ipv6_network_mode" = "nat" ] || [ "$ndpresponder_status" = "Y" ]; } && { [ "$ipv6_network_mode" = "nat" ] || { [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ]; }; } && [ "$independent_ipv6" = "y" ]; then
+    if [ "$ipv6_network_ready" = "Y" ] && [ "$independent_ipv6" = "y" ]; then
         if ! docker run -d \
             --cpus="${cpu}" \
             --memory="${memory}m" \
@@ -528,18 +587,21 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             _red "创建容器失败: ${name}"
             exit 1
         fi
+    fi
+    if ! attach_manual_ipv6_or_rollback; then
+        exit 1
     fi
     if ! download_ssh_scripts "${name}" "${system}" || \
        ! docker exec "${name}" sh -c 'sh /ssh_sh.sh "$1"' sh "$passwd" || \
        ! docker exec "${name}" sh -c 'printf "%s\n" "root:$1" | chpasswd' sh "$passwd"; then
         _red "SSH initialization failed for ${name}, removing partial container."
         _red "${name} SSH 初始化失败，删除未完成容器。"
-        docker rm -f "${name}" >/dev/null 2>&1 || true
+        remove_partial_container
         exit 1
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
-    if [ "$ipv6_net_status" = "Y" ] && { [ "$ipv6_network_mode" = "nat" ] || [ "$ndpresponder_status" = "Y" ]; } && { [ "$ipv6_network_mode" = "nat" ] || { [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_address_without_last_segment" ]; }; } && [ "$independent_ipv6" = "y" ]; then
+    if [ "$ipv6_network_ready" = "Y" ] && [ "$independent_ipv6" = "y" ]; then
         if ! docker run -d \
             --cpus="${cpu}" \
             --memory="${memory}m" \
@@ -575,12 +637,15 @@ else
             exit 1
         fi
     fi
+    if ! attach_manual_ipv6_or_rollback; then
+        exit 1
+    fi
     if ! download_ssh_scripts "${name}" "${system}" || \
        ! docker exec "${name}" bash -c 'bash /ssh_bash.sh "$1"' bash "$passwd" || \
        ! docker exec "${name}" bash -c 'printf "%s\n" "root:$1" | chpasswd' bash "$passwd"; then
         _red "SSH initialization failed for ${name}, removing partial container."
         _red "${name} SSH 初始化失败，删除未完成容器。"
-        docker rm -f "${name}" >/dev/null 2>&1 || true
+        remove_partial_container
         exit 1
     fi
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"

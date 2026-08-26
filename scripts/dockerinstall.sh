@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2026.08.26
+# 2026.08.27
 
 _red() { echo -e "\033[31m\033[01m$*\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$*\033[0m"; }
@@ -51,7 +51,6 @@ fi
 #   WITHOUTCDN=true          - 禁用 CDN 加速
 #   CN=true                  - 强制使用中国镜像源
 #   CN=false                 - 强制不使用中国镜像源（跳过检测）
-#   IPV6_MAXIMUM_SUBSET=y/n  - 是否使用 IPv6 最大子网范围（SLAAC 场景）
 #   NEED_DISK_LIMIT=y/n      - 是否启用容器磁盘大小限制（btrfs）
 #   DOCKER_INSTALL_PATH=...  - Docker 数据目录（默认 /var/lib/docker）
 #   DOCKER_POOL_SIZE=20      - Docker 存储池大小（单位 GB，需 NEED_DISK_LIMIT=y）
@@ -73,8 +72,6 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
-touch /etc/cloud/cloud-init.disabled
-
 detect_virtualization() {
     VIRT_TYPE=""
     if [ -f "/proc/1/environ" ]; then
@@ -230,48 +227,6 @@ try_storage_drivers() {
             echo "overlay2" > /usr/local/bin/docker_storage_driver
             return 0
         fi
-    fi
-}
-
-rebuild_cloud_init() {
-    if [ -f "/etc/cloud/cloud.cfg" ]; then
-        chattr -i /etc/cloud/cloud.cfg
-        if grep -q "preserve_hostname: true" "/etc/cloud/cloud.cfg"; then
-            :
-        else
-            # 检测 sed 是否支持 -E 选项
-            if echo "test" | sed -E 's/test/test/' >/dev/null 2>&1; then
-                sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' "/etc/cloud/cloud.cfg"
-            else
-                # BusyBox 兼容方法，使用基本正则表达式
-                sed -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' "/etc/cloud/cloud.cfg"
-            fi
-            echo "change preserve_hostname to true"
-        fi
-        if grep -q "disable_root: false" "/etc/cloud/cloud.cfg"; then
-            :
-        else
-            # 检测 sed 是否支持 -E 选项
-            if echo "test" | sed -E 's/test/test/' >/dev/null 2>&1; then
-                sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' "/etc/cloud/cloud.cfg"
-            else
-                # BusyBox 兼容方法，使用基本正则表达式
-                sed -i 's/disable_root:[[:space:]]*true/disable_root: false/g' "/etc/cloud/cloud.cfg"
-            fi
-            echo "change disable_root to false"
-        fi
-        chattr -i /etc/cloud/cloud.cfg
-        content=$(cat /etc/cloud/cloud.cfg)
-        line_number=$(grep -n "^system_info:" "/etc/cloud/cloud.cfg" | cut -d ':' -f 1)
-        if [ -n "$line_number" ]; then
-            lines_after_system_info=$(echo "$content" | sed -n "$((line_number + 1)),\$p")
-            if [ -n "$lines_after_system_info" ]; then
-                updated_content=$(echo "$content" | sed "$((line_number + 1)),\$d")
-                echo "$updated_content" >"/etc/cloud/cloud.cfg"
-            fi
-        fi
-        sed -i '/^\s*- set-passwords/s/^/#/' /etc/cloud/cloud.cfg
-        chattr +i /etc/cloud/cloud.cfg
     fi
 }
 
@@ -759,6 +714,185 @@ create_docker_ula_ipv6_network() {
     return 1
 }
 
+docker_ipv6_normalize_public_parent() {
+    local cidr="${1:-}" address
+    [[ "$cidr" == */* ]] || return 1
+    address="${cidr%/*}"
+    is_public_ipv6 "$address" || return 1
+    python3 - "$cidr" <<'PY'
+import ipaddress
+import sys
+
+try:
+    network = ipaddress.IPv6Network(sys.argv[1], strict=False)
+except ValueError:
+    raise SystemExit(1)
+if network.prefixlen >= 128:
+    raise SystemExit(1)
+print(network)
+PY
+}
+
+docker_ipv6_network_has_attached_containers() {
+    docker ps -aq --filter 'network=ipv6_net' 2>/dev/null | grep -q '[^[:space:]]'
+}
+
+docker_ipv6_manual_state_matches_network() {
+    local recorded_mode="$1" recorded_subnet="$2" network_subnet="$3" recorded_parent="$4"
+    [[ "$recorded_mode" == "manual" && "$recorded_subnet" == "$network_subnet" && -n "$recorded_parent" ]] || return 1
+    docker_ipv6_ula_is_safe "$network_subnet" || return 1
+    docker_ipv6_normalize_public_parent "$recorded_parent" >/dev/null
+}
+
+docker_ipv6_network_bridge() {
+    local bridge network_id
+    bridge=$(docker network inspect -f '{{index .Options "com.docker.network.bridge.name"}}' ipv6_net 2>/dev/null || true)
+    if [[ -z "$bridge" || "$bridge" == '<no value>' ]]; then
+        network_id=$(docker network inspect -f '{{.Id}}' ipv6_net 2>/dev/null || true)
+        [[ "$network_id" =~ ^[[:xdigit:]]{12,}$ ]] || return 1
+        bridge="br-${network_id:0:12}"
+    fi
+    [[ "$bridge" =~ ^[[:alnum:]_.-]+$ ]] || return 1
+    ip link show dev "$bridge" >/dev/null 2>&1 || return 1
+    printf '%s\n' "$bridge"
+}
+
+# The IPv6 default route identifies the NDP-facing uplink more reliably than
+# the first physical NIC. This matters on PVE bridges and tunnel hosts where
+# the interface carrying the public prefix is not named eth0.
+docker_ipv6_uplink_interface() {
+    local uplink selected
+    uplink=$(ip -6 route show default 2>/dev/null | awk '
+        /^default / {
+            for (i = 1; i < NF; i++) {
+                if ($i == "dev") {
+                    print $(i + 1)
+                    exit
+                }
+            }
+        }
+    ')
+    if [[ -n "$uplink" ]] && ip link show dev "$uplink" >/dev/null 2>&1; then
+        printf '%s\n' "$uplink"
+        return 0
+    fi
+
+    selected=$(select_public_ipv6_cidr 2>/dev/null || true)
+    [[ "$selected" == */* ]] || return 1
+    # A host can put the same IPv6 address on a /128 uplink and a delegated
+    # prefix bridge. Match the complete address/CIDR so PVE-style delegated
+    # bridges are selected instead of the narrower address on another link.
+    uplink=$(ip -6 -o addr show scope global 2>/dev/null | awk -v cidr="$selected" '$4 == cidr {print $2; exit}')
+    [[ -n "$uplink" ]] || return 1
+    printf '%s\n' "$uplink"
+}
+
+docker_ipv6_uplink_supports_ndp() {
+    local uplink="$1" link_info
+    [[ -n "$uplink" ]] || return 1
+    link_info=$(ip -d link show dev "$uplink" 2>/dev/null || ip link show dev "$uplink" 2>/dev/null || true)
+    grep -q 'link/ether' <<<"$link_info"
+}
+
+docker_ipv6_clear_manual_state() {
+    rm -f \
+        /usr/local/bin/docker_ipv6_manual_subnet \
+        /usr/local/bin/docker_ipv6_manual_gateway \
+        /usr/local/bin/docker_ipv6_manual_bridge \
+        /usr/local/bin/docker_ipv6_allocations \
+        /usr/local/bin/docker_ipv6_targets \
+        /usr/local/bin/docker_ipv6_ndp_required \
+        /usr/local/bin/docker_ipv6_uplink
+}
+
+# Docker refuses every public child that overlaps a host route. Keep Docker's
+# IPAM on a private ULA bridge, then give containers public /128 addresses
+# through explicit host routes after they start. This preserves SLAAC,
+# delegated prefixes, PVE bridges, and tunnels without touching host network
+# manager files.
+create_docker_manual_ipv6_network() {
+    local public_parent="$1" normalized_parent manual_subnet gateway bridge uplink
+    local recorded_mode recorded_subnet recorded_parent index created=false ndp_required=false
+
+    normalized_parent=$(docker_ipv6_normalize_public_parent "$public_parent" 2>/dev/null || true)
+    [[ -n "$normalized_parent" ]] || return 1
+    command -v nsenter >/dev/null 2>&1 || {
+        _yellow "nsenter is required for routed Docker IPv6 attachment"
+        return 1
+    }
+    uplink=$(docker_ipv6_uplink_interface 2>/dev/null || true)
+    [[ -n "$uplink" ]] || {
+        _yellow "Could not determine the IPv6 uplink for routed Docker IPv6"
+        return 1
+    }
+
+    if docker network inspect ipv6_net >/dev/null 2>&1; then
+        manual_subnet=$(docker_ipv6_network_ipv6_subnet 2>/dev/null || true)
+        recorded_mode=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_network_mode 2>/dev/null || true)
+        recorded_subnet=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_subnet 2>/dev/null || true)
+        recorded_parent=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_public_parent 2>/dev/null || true)
+        if ! docker_ipv6_manual_state_matches_network "$recorded_mode" "$recorded_subnet" "$manual_subnet" "$recorded_parent"; then
+            _yellow "Existing ipv6_net is not the installer-managed routed IPv6 network; preserving its current mode"
+            _yellow "现有 ipv6_net 不是安装器托管的手动路由 IPv6 网络，保留其当前模式"
+            return 1
+        fi
+        if [[ "$recorded_parent" != "$normalized_parent" ]]; then
+            _yellow "The public IPv6 parent changed from ${recorded_parent} to ${normalized_parent}; preserving existing routed allocations"
+            _yellow "公网 IPv6 父前缀已变化，保留现有手动路由地址分配，不自动接管"
+            return 1
+        fi
+        bridge=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_manual_bridge 2>/dev/null || true)
+        if [[ -z "$bridge" ]] || ! ip link show dev "$bridge" >/dev/null 2>&1; then
+            bridge=$(docker_ipv6_network_bridge 2>/dev/null || true)
+        fi
+        [[ -n "$bridge" ]] || return 1
+        gateway=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_manual_gateway 2>/dev/null || true)
+        [[ -n "$gateway" ]] || gateway=$(docker_ipv6_ula_gateway "$manual_subnet" 2>/dev/null || true)
+    else
+        for index in $(seq 0 255); do
+            manual_subnet=$(docker_ipv6_ula_candidate "$index" 2>/dev/null || true)
+            gateway=$(docker_ipv6_ula_gateway "$manual_subnet" 2>/dev/null || true)
+            [[ -n "$manual_subnet" && -n "$gateway" ]] || continue
+            docker_ipv6_subnet_overlaps_host "$manual_subnet" && continue
+            docker_ipv6_ula_overlaps_docker_network "$manual_subnet" && continue
+            if docker network create --ipv6 \
+                --subnet=172.26.0.0/16 \
+                --subnet="$manual_subnet" --gateway="$gateway" ipv6_net >/dev/null 2>&1; then
+                created=true
+                break
+            fi
+        done
+        [[ "$created" == true ]] || return 1
+        bridge=$(docker_ipv6_network_bridge 2>/dev/null || true)
+        if [[ -z "$bridge" ]]; then
+            docker network rm ipv6_net >/dev/null 2>&1 || true
+            _yellow "Could not identify the newly created Docker IPv6 bridge"
+            return 1
+        fi
+    fi
+
+    if docker_ipv6_uplink_supports_ndp "$uplink"; then
+        ndp_required=true
+    fi
+    printf '%s\n' "$manual_subnet" > /usr/local/bin/docker_ipv6_subnet
+    printf '%s\n' manual > /usr/local/bin/docker_ipv6_network_mode
+    printf '%s\n' "$normalized_parent" > /usr/local/bin/docker_ipv6_public_parent
+    printf '%s\n' "$manual_subnet" > /usr/local/bin/docker_ipv6_manual_subnet
+    printf '%s\n' "$gateway" > /usr/local/bin/docker_ipv6_manual_gateway
+    printf '%s\n' "$bridge" > /usr/local/bin/docker_ipv6_manual_bridge
+    printf '%s\n' "$uplink" > /usr/local/bin/docker_ipv6_uplink
+    printf '%s\n' "$ndp_required" > /usr/local/bin/docker_ipv6_ndp_required
+    [[ -f /usr/local/bin/docker_ipv6_allocations ]] || : > /usr/local/bin/docker_ipv6_allocations
+    [[ -f /usr/local/bin/docker_ipv6_targets ]] || : > /usr/local/bin/docker_ipv6_targets
+    chmod 600 /usr/local/bin/docker_ipv6_allocations
+    chmod 644 /usr/local/bin/docker_ipv6_targets
+    install_docker_manual_ipv6_attach_helper
+    install_docker_manual_ipv6_restore_service
+    _green "Docker IPv6 network uses routed /128 attachment: internal=${manual_subnet}, public parent=${normalized_parent}"
+    _yellow "Docker IPAM remains isolated; public IPv6 addresses are attached after each container starts"
+    return 0
+}
+
 check_ipv6() {
     IPV6=""
     IPV6_CIDR=""
@@ -767,19 +901,6 @@ check_ipv6() {
     if [[ -n "$candidate" ]]; then
         IPV6_CIDR="$candidate"
         IPV6="${candidate%/*}"
-    fi
-    if [ ! -f /usr/local/bin/docker_last_ipv6 ] || [ ! -s /usr/local/bin/docker_last_ipv6 ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_last_ipv6)" = "" ]; then
-        ipv6_list=$(ip -6 addr show | grep global | awk '{print length, $2}' | sort -nr | awk '{print $2}')
-        line_count=$(echo "$ipv6_list" | wc -l)
-        if [ "$line_count" -ge 2 ]; then
-            last_ipv6=$(echo "$ipv6_list" | tail -n 1)
-            last_ipv6_prefix="${last_ipv6%:*}:"
-            if [ "${last_ipv6_prefix}" = "${ipv6_gateway%:*}:" ]; then
-                echo $last_ipv6 >/usr/local/bin/docker_last_ipv6
-            fi
-            _green "The local machine is bound to more than one IPV6 address"
-            _green "本机绑定了不止一个IPV6地址"
-        fi
     fi
     if [[ -n "$IPV6_CIDR" ]]; then
         _green "Locally bound public IPv6 detected: ${IPV6} (${IPV6_CIDR})"
@@ -850,6 +971,61 @@ ndpresponder_image_matches_architecture() {
     return 1
 }
 
+ndpresponder_supports_target_file() {
+    local image="$1" help_output
+    help_output=$(docker run --rm "$image" --help 2>&1 || true)
+    grep -Eq -- '(^|[[:space:],])--target-file([[:space:],=]|$)' <<<"$help_output"
+}
+
+ndpresponder_image_supports_required_features() {
+    if [[ "${NDPRESPONDER_TARGET_FILE_REQUIRED:-false}" != true ]]; then
+        return 0
+    fi
+    if ndpresponder_supports_target_file "$1"; then
+        return 0
+    fi
+    _yellow "Responder image does not support --target-file; a source build is required for routed IPv6"
+    _yellow "Responder 镜像不支持 --target-file；手动路由 IPv6 需要从源码构建新版程序"
+    return 1
+}
+
+docker_ndpresponder_is_installer_owned() {
+    local image
+    [[ "$(tr -d '[:space:]' </usr/local/bin/docker_ndpresponder_owned 2>/dev/null || true)" == true ]] && return 0
+    image=$(docker inspect -f '{{.Config.Image}}' ndpresponder 2>/dev/null || true)
+    case "$image" in
+        spiritlhl/ndpresponder_*|localhost/oneclickvirt-ndpresponder:*) return 0 ;;
+    esac
+    return 1
+}
+
+docker_ndpresponder_existing_image() {
+    local image
+    docker inspect ndpresponder >/dev/null 2>&1 || return 1
+    image=$(docker inspect -f '{{.Config.Image}}' ndpresponder 2>/dev/null || true)
+    [[ -n "$image" && "$image" != '<no value>' ]] || return 1
+    printf '%s\n' "$image"
+}
+
+quarantine_incompatible_docker_ndpresponder() {
+    local existing_image
+    [[ "${NDPRESPONDER_TARGET_FILE_REQUIRED:-false}" == true ]] || return 0
+    existing_image=$(docker_ndpresponder_existing_image 2>/dev/null || true)
+    [[ -n "$existing_image" ]] || return 0
+    if ndpresponder_supports_target_file "$existing_image"; then
+        return 0
+    fi
+    if ! docker_ndpresponder_is_installer_owned; then
+        _yellow "Existing ndpresponder is not installer-managed and lacks --target-file; preserving it"
+        return 1
+    fi
+    _yellow "Existing ndpresponder lacks --target-file; removing it to stop an incompatible restart loop"
+    _yellow "已有 ndpresponder 不支持 --target-file，正在移除以停止不兼容的重启循环"
+    docker update --restart=no ndpresponder >/dev/null 2>&1 || true
+    docker rm -f ndpresponder >/dev/null 2>&1 || true
+    rm -f /usr/local/bin/docker_ndpresponder_owned
+}
+
 # Resolve a responder image without trusting a registry tag's architecture.
 # ARMv7 has no published tag, so it intentionally follows the source-build
 # path. Keep this function free of container mutation: callers may only remove
@@ -864,7 +1040,8 @@ resolve_ndpresponder_image() {
         _yellow "Pulling ndpresponder image: ${registry_image}"
         if docker pull "$registry_image" >/dev/null 2>&1; then
             image_arch=$(docker image inspect -f '{{.Architecture}}' "$registry_image" 2>/dev/null || true)
-            if ndpresponder_image_matches_architecture "$expected_arch" "$image_arch"; then
+            if ndpresponder_image_matches_architecture "$expected_arch" "$image_arch" && \
+               ndpresponder_image_supports_required_features "$registry_image"; then
                 NDPRESPONDER_IMAGE="$registry_image"
                 return 0
             fi
@@ -888,8 +1065,445 @@ resolve_ndpresponder_image() {
         _yellow "Locally built responder image ${source_image} is ${image_arch:-unknown}, expected ${expected_arch}; preserving any existing responder"
         return 1
     fi
+    if ! ndpresponder_image_supports_required_features "$source_image"; then
+        _yellow "The source-built responder is missing the required target-file capability; preserving any existing responder"
+        _yellow "源码构建的 ndpresponder 缺少所需的 target-file 能力，将保留已有 responder"
+        return 1
+    fi
     NDPRESPONDER_IMAGE="$source_image"
     return 0
+}
+
+start_docker_manual_ndpresponder() {
+    local ndp_required uplink ndp_image ndp_status expected_arch registry_ndp_image
+    local target_file
+
+    [[ "$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_network_mode 2>/dev/null || true)" == manual ]] || return 0
+    ndp_required=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_ndp_required 2>/dev/null || true)
+    if [[ "$ndp_required" != true ]]; then
+        _green "Routed Docker IPv6 uses a non-Ethernet uplink; NDP responder is not required"
+        return 0
+    fi
+    uplink=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_uplink 2>/dev/null || true)
+    target_file=/usr/local/bin/docker_ipv6_targets
+    [[ -n "$uplink" && -f "$target_file" ]] || {
+        _yellow "Routed Docker IPv6 NDP state is incomplete"
+        return 1
+    }
+
+    case "$system_arch" in
+        x86)
+            registry_ndp_image="spiritlhl/ndpresponder_x86"
+            expected_arch="amd64"
+            ;;
+        arch)
+            registry_ndp_image="spiritlhl/ndpresponder_aarch64"
+            expected_arch="arm64"
+            ;;
+        arm)
+            registry_ndp_image=""
+            expected_arch="arm"
+            ;;
+        *)
+            _yellow "Unsupported responder architecture: ${system_arch:-unknown}"
+            return 1
+            ;;
+    esac
+
+    if docker inspect ndpresponder >/dev/null 2>&1 && ! docker_ndpresponder_is_installer_owned; then
+        _yellow "An existing ndpresponder is not installer-managed; preserving it instead of replacing it"
+        _yellow "已有 ndpresponder 不属于安装器管理范围，保留现状，不替换其配置"
+        return 1
+    fi
+
+    NDPRESPONDER_TARGET_FILE_REQUIRED=true
+    quarantine_incompatible_docker_ndpresponder || return 1
+    if ! resolve_ndpresponder_image "$expected_arch" "$registry_ndp_image"; then
+        return 1
+    fi
+    ndp_image="$NDPRESPONDER_IMAGE"
+
+    if docker inspect ndpresponder >/dev/null 2>&1; then
+        docker update --restart=no ndpresponder >/dev/null 2>&1 || true
+        docker rm -f ndpresponder >/dev/null 2>&1 || return 1
+    fi
+    if ! docker run -d \
+        --restart on-failure:3 \
+        --cpus 0.02 \
+        --memory 64M \
+        --label io.oneclickvirt.docker.ipv6-managed=true \
+        --cap-drop=ALL \
+        --cap-add=NET_RAW \
+        --cap-add=NET_ADMIN \
+        --network host \
+        --volume "$target_file:/etc/ndpresponder-targets:ro" \
+        --name ndpresponder \
+        "$ndp_image" \
+        -i "$uplink" --target-file /etc/ndpresponder-targets; then
+        _yellow "Failed to create ndpresponder for routed Docker IPv6"
+        return 1
+    fi
+    for _ndp_attempt in 1 2 3; do
+        sleep 1
+        ndp_status=$(docker inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null || true)
+        [[ "$ndp_status" == running ]] && break
+    done
+    if [[ "$ndp_status" == running ]]; then
+        printf '%s\n' true > /usr/local/bin/docker_ndpresponder_owned
+        _green "NDP responder started for routed Docker IPv6"
+        return 0
+    fi
+    _yellow "ndpresponder is not running: $(docker logs --tail 20 ndpresponder 2>&1 || true)"
+    docker update --restart=no ndpresponder >/dev/null 2>&1 || true
+    docker rm -f ndpresponder >/dev/null 2>&1 || true
+    rm -f /usr/local/bin/docker_ndpresponder_owned
+    return 1
+}
+
+install_docker_manual_ipv6_attach_helper() {
+    local helper=/usr/local/bin/docker-ipv6-attach.sh
+    cat > "$helper" <<'EOF'
+#!/bin/bash
+# Installer-owned routed IPv6 attachment for Docker's isolated ULA bridge.
+set -u
+
+state_dir=/usr/local/bin
+runtime=docker
+parent_file="${state_dir}/docker_ipv6_public_parent"
+subnet_file="${state_dir}/docker_ipv6_manual_subnet"
+gateway_file="${state_dir}/docker_ipv6_manual_gateway"
+bridge_file="${state_dir}/docker_ipv6_manual_bridge"
+map_file="${state_dir}/docker_ipv6_allocations"
+target_file="${state_dir}/docker_ipv6_targets"
+mode_file="${state_dir}/docker_ipv6_network_mode"
+lock_dir="${map_file}.lock"
+
+fail() { printf '%s\n' "$*" >&2; return 1; }
+valid_name() { [[ "${1:-}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; }
+
+read_state() {
+    mode=$(tr -d '[:space:]' <"$mode_file" 2>/dev/null || true)
+    parent=$(tr -d '[:space:]' <"$parent_file" 2>/dev/null || true)
+    subnet=$(tr -d '[:space:]' <"$subnet_file" 2>/dev/null || true)
+    gateway=$(tr -d '[:space:]' <"$gateway_file" 2>/dev/null || true)
+    bridge=$(tr -d '[:space:]' <"$bridge_file" 2>/dev/null || true)
+    [[ "$mode" == manual && -n "$parent" && -n "$subnet" && -n "$gateway" && -n "$bridge" ]] || \
+        fail "Docker routed IPv6 state is incomplete"
+}
+
+valid_ipv6_in_parent() {
+    python3 - "$1" "$2" <<'PY'
+import ipaddress
+import sys
+try:
+    address = ipaddress.IPv6Address(sys.argv[1])
+    parent = ipaddress.IPv6Network(sys.argv[2], strict=False)
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(0 if address in parent and not address.is_unspecified and not address.is_multicast else 1)
+PY
+}
+
+allocate_address() {
+    python3 - "$parent" "$map_file" "$gateway" <<'PY'
+import ipaddress
+import subprocess
+import sys
+
+parent = ipaddress.IPv6Network(sys.argv[1], strict=False)
+used = set()
+try:
+    with open(sys.argv[2], encoding="utf-8") as handle:
+        for line in handle:
+            fields = line.split()
+            if len(fields) >= 2:
+                used.add(ipaddress.IPv6Address(fields[1]))
+except (OSError, ValueError):
+    pass
+try:
+    used.add(ipaddress.IPv6Address(sys.argv[3]))
+except ValueError:
+    pass
+try:
+    output = subprocess.check_output(["ip", "-6", "-o", "addr", "show"], text=True, stderr=subprocess.DEVNULL)
+except (OSError, subprocess.CalledProcessError):
+    output = ""
+for line in output.splitlines():
+    fields = line.split()
+    if len(fields) < 4:
+        continue
+    try:
+        address = ipaddress.IPv6Interface(fields[3]).ip
+    except ValueError:
+        continue
+    if address in parent:
+        used.add(address)
+try:
+    routes = subprocess.check_output(["ip", "-6", "route", "show", "default"], text=True, stderr=subprocess.DEVNULL)
+except (OSError, subprocess.CalledProcessError):
+    routes = ""
+for line in routes.splitlines():
+    fields = line.split()
+    for index, field in enumerate(fields[:-1]):
+        if field != "via":
+            continue
+        try:
+            gateway = ipaddress.IPv6Address(fields[index + 1])
+        except ValueError:
+            continue
+        if gateway in parent:
+            used.add(gateway)
+start = int(parent.network_address) + (0x1000 if parent.prefixlen <= 112 else 1)
+limit = min(int(parent.broadcast_address), start + 1_000_000)
+for value in range(start, limit + 1):
+    candidate = ipaddress.IPv6Address(value)
+    if candidate not in used and candidate != parent.network_address:
+        print(candidate)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+sync_targets() {
+    local tmp rc
+    tmp=$(mktemp "${target_file}.tmp.XXXXXX") || return 1
+    awk 'NF >= 2 {print $2 "/128"}' "$map_file" | sort -u >"$tmp"
+    chmod 644 "$tmp"
+    if cat "$tmp" >"$target_file"; then
+        rm -f "$tmp"
+        return 0
+    fi
+    rc=$?
+    rm -f "$tmp"
+    return "$rc"
+}
+
+replace_mapping() {
+    local name="$1" address="$2" tmp
+    tmp=$(mktemp "${map_file}.tmp.XXXXXX") || return 1
+    awk -v name="$name" '$1 != name {print}' "$map_file" 2>/dev/null >"$tmp" || true
+    printf '%s %s\n' "$name" "$address" >>"$tmp"
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$map_file" || return 1
+    sync_targets
+}
+
+acquire_lock() {
+    local attempt
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        mkdir "$lock_dir" 2>/dev/null && return 0
+        sleep 0.1
+    done
+    fail "Timed out waiting for the Docker IPv6 allocation lock"
+}
+
+release_lock() {
+    rmdir "$lock_dir" 2>/dev/null || true
+}
+
+find_container_iface() {
+    local name="$1" pid="$2" ula iface
+    ula=$($runtime inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{"\n"}}{{end}}' "$name" 2>/dev/null | awk '/:/{print; exit}' || true)
+    if [[ -n "$ula" ]]; then
+        iface=$(nsenter -t "$pid" -n ip -o -6 addr show 2>/dev/null | awk -v target="$ula" '$4 ~ ("^" target "/") {print $2; exit}' || true)
+        [[ -n "$iface" ]] && {
+            printf '%s\n' "$iface"
+            return 0
+        }
+    fi
+    nsenter -t "$pid" -n ip -o link show 2>/dev/null | awk -F': ' '$2 !~ /^lo(@|:|$)/ {gsub(/@.*$/, "", $2); iface=$2} END {if (iface != "") print iface}'
+}
+
+attach_one_locked() {
+    local name="$1" requested="${2:-}" pid address iface
+    pid=$($runtime inspect -f '{{.State.Pid}}' "$name" 2>/dev/null || true)
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    address=$(awk -v name="$name" '$1 == name {print $2; exit}' "$map_file" 2>/dev/null || true)
+    if [[ -n "$requested" ]]; then
+        valid_ipv6_in_parent "$requested" "$parent" || {
+            fail "Requested IPv6 is outside the routed parent: $requested"
+            return 1
+        }
+        if awk -v name="$name" -v address="$requested" '$1 != name && $2 == address {found=1} END {exit found ? 0 : 1}' "$map_file" 2>/dev/null; then
+            fail "Requested IPv6 is already allocated: $requested"
+            return 1
+        fi
+        address="$requested"
+    fi
+    [[ -n "$address" ]] || address=$(allocate_address) || return 1
+    valid_ipv6_in_parent "$address" "$parent" || return 1
+    iface=$(find_container_iface "$name" "$pid")
+    [[ -n "$iface" ]] || {
+        fail "Unable to find the IPv6 network interface for $name"
+        return 1
+    }
+    nsenter -t "$pid" -n ip link set "$iface" up || return 1
+    nsenter -t "$pid" -n ip -6 addr replace "$address/128" dev "$iface" || return 1
+    nsenter -t "$pid" -n ip -6 route replace default via "$gateway" dev "$iface" || return 1
+    ip -6 route replace "$address/128" dev "$bridge" || return 1
+    replace_mapping "$name" "$address" || return 1
+    printf '%s\n' "$address"
+}
+
+attach_one() {
+    local name="$1" requested="${2:-}" rc
+    valid_name "$name" || return 1
+    read_state || return 1
+    [[ -f "$map_file" ]] || : >"$map_file"
+    [[ -f "$target_file" ]] || : >"$target_file"
+    acquire_lock || return 1
+    attach_one_locked "$name" "$requested"
+    rc=$?
+    release_lock
+    return "$rc"
+}
+
+prune_stale_mappings_locked() {
+    local name address tmp changed=false
+    [[ -f "$map_file" ]] || return 0
+    tmp=$(mktemp "${map_file}.tmp.XXXXXX") || return 1
+    while read -r name address; do
+        [[ -n "$name" && -n "$address" ]] || continue
+        if valid_name "$name" && valid_ipv6_in_parent "$address" "$parent" && \
+           "$runtime" inspect "$name" >/dev/null 2>&1; then
+            printf '%s %s\n' "$name" "$address" >>"$tmp"
+            continue
+        fi
+        changed=true
+        if valid_ipv6_in_parent "$address" "$parent"; then
+            ip -6 route del "$address/128" dev "$bridge" 2>/dev/null || true
+        fi
+    done <"$map_file"
+    if [[ "$changed" == true ]]; then
+        chmod 600 "$tmp"
+        mv -f "$tmp" "$map_file" || return 1
+        sync_targets
+        return $?
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
+restore_all() {
+    local name address rc=0
+    read_state || return 1
+    [[ -f "$map_file" ]] || return 0
+    [[ -f "$target_file" ]] || : >"$target_file"
+    acquire_lock || return 1
+    prune_stale_mappings_locked || rc=1
+    while read -r name address; do
+        [[ -n "$name" && -n "$address" ]] || continue
+        [[ "$($runtime inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)" == true ]] || continue
+        attach_one_locked "$name" "$address" >/dev/null || {
+            printf 'Failed to restore IPv6 for %s\n' "$name" >&2
+            rc=1
+        }
+    done <"$map_file"
+    release_lock
+    return "$rc"
+}
+
+watch_all() {
+    local interval="${DOCKER_IPV6_WATCH_INTERVAL:-2}" mode
+    [[ "$interval" =~ ^[1-9][0-9]*$ ]] || interval=2
+    while :; do
+        mode=$(tr -d '[:space:]' <"$mode_file" 2>/dev/null || true)
+        [[ "$mode" == manual ]] || exit 0
+        restore_all || true
+        sleep "$interval"
+    done
+}
+
+remove_one_locked() {
+    local name="$1" old_address tmp
+    old_address=$(awk -v name="$name" '$1 == name {print $2; exit}' "$map_file" 2>/dev/null || true)
+    tmp=$(mktemp "${map_file}.tmp.XXXXXX") || return 1
+    awk -v name="$name" '$1 != name {print}' "$map_file" 2>/dev/null >"$tmp" || true
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$map_file" || return 1
+    sync_targets || return 1
+    if [[ -n "$old_address" ]]; then
+        ip -6 route del "$old_address/128" dev "$bridge" 2>/dev/null || true
+    fi
+}
+
+remove_one() {
+    local name="$1" rc
+    valid_name "$name" || return 1
+    read_state || return 1
+    [[ -f "$map_file" ]] || : >"$map_file"
+    [[ -f "$target_file" ]] || : >"$target_file"
+    acquire_lock || return 1
+    remove_one_locked "$name"
+    rc=$?
+    release_lock
+    return "$rc"
+}
+
+case "${1:-}" in
+    --restore-all) restore_all ;;
+    --watch) watch_all ;;
+    --remove)
+        name="${2:-}"
+        remove_one "$name"
+        ;;
+    *)
+        [[ -n "${1:-}" ]] || {
+            printf 'usage: %s <container> [IPv6] | --restore-all | --watch | --remove <container>\n' "$0" >&2
+            exit 2
+        }
+        attach_one "$@"
+        ;;
+esac
+EOF
+    chmod 700 "$helper"
+}
+
+install_docker_manual_ipv6_restore_service() {
+    if command -v systemctl >/dev/null 2>&1; then
+        cat > /etc/systemd/system/docker-ipv6-attach.service <<'EOF'
+[Unit]
+Description=Restore OneClickVirt Docker routed IPv6 addresses
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/docker-ipv6-attach.sh --watch
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl enable --now docker-ipv6-attach.service 2>/dev/null || \
+            _yellow "Could not start docker-ipv6-attach.service; rerun the installer after a reboot"
+        return 0
+    fi
+    if command -v rc-update >/dev/null 2>&1 && command -v rc-service >/dev/null 2>&1; then
+        cat > /etc/init.d/docker-ipv6-attach <<'EOF'
+#!/sbin/openrc-run
+# OneClickVirt Docker routed IPv6 restore service.
+
+description="Restore OneClickVirt Docker routed IPv6 addresses"
+command="/usr/local/bin/docker-ipv6-attach.sh"
+command_args="--watch"
+command_background=true
+pidfile="/run/docker-ipv6-attach.pid"
+
+depend() {
+    need net docker
+    after docker
+}
+EOF
+        chmod 700 /etc/init.d/docker-ipv6-attach
+        rc-update add docker-ipv6-attach default 2>/dev/null || true
+        rc-service docker-ipv6-attach restart 2>/dev/null || \
+            _yellow "Could not start docker-ipv6-attach OpenRC service; rerun the installer after a reboot"
+        return 0
+    fi
+    _yellow "No service manager found; routed Docker IPv6 addresses must be restored manually after reboot"
 }
 
 check_china() {
@@ -928,46 +1542,31 @@ check_china() {
     fi
 }
 
-update_sysctl() {
-    sysctl_config="$1"
+update_docker_ipv6_sysctl() {
+    local sysctl_config="$1" key value config_file temp_file
     key="${sysctl_config%%=*}"
     value="${sysctl_config#*=}"
-    custom_conf="/etc/sysctl.d/99-custom.conf"
-    mkdir -p /etc/sysctl.d
-    use_etc_sysctl_conf=false
-    if [ -f /etc/sysctl.conf ]; then
-        if grep -q "/etc/sysctl.conf" /etc/sysctl.d/README* 2>/dev/null || \
-           grep -q "/etc/sysctl.conf" /lib/systemd/system/sysctl.service 2>/dev/null; then
-            use_etc_sysctl_conf=true
+    config_file="/etc/sysctl.d/99-oneclickvirt-docker-ipv6.conf"
+    mkdir -p /etc/sysctl.d || return 1
+    temp_file=$(mktemp "${config_file}.XXXXXX") || return 1
+    {
+        printf '%s\n' '# Managed by OneClickVirt Docker IPv6. Remove this file to revert installer-owned settings.'
+        if [[ -f "$config_file" ]]; then
+            awk -v target="$key" 'index($0, target "=") != 1 && $0 !~ /^# Managed by OneClickVirt Docker IPv6\./ {print}' "$config_file"
         fi
-    fi
-    if grep -q "^$sysctl_config" "$custom_conf" 2>/dev/null; then
-        :
-    elif grep -q "^#$sysctl_config" "$custom_conf" 2>/dev/null; then
-        sed -i "s/^#$sysctl_config/$sysctl_config/" "$custom_conf"
-    elif grep -q "^$key" "$custom_conf" 2>/dev/null; then
-        sed -i "s|^$key.*|$sysctl_config|" "$custom_conf"
-    else
-        echo "$sysctl_config" >> "$custom_conf"
-    fi
-    if [ "$use_etc_sysctl_conf" = true ]; then
-        if grep -q "^$sysctl_config" /etc/sysctl.conf; then
-            :
-        elif grep -q "^#$sysctl_config" /etc/sysctl.conf; then
-            sed -i "s/^#$sysctl_config/$sysctl_config/" /etc/sysctl.conf
-        elif grep -q "^$key" /etc/sysctl.conf; then
-            sed -i "s|^$key.*|$sysctl_config|" /etc/sysctl.conf
-        else
-            echo "$sysctl_config" >> /etc/sysctl.conf
-        fi
-    fi
+        printf '%s\n' "$sysctl_config"
+    } >"$temp_file" || {
+        rm -f "$temp_file"
+        return 1
+    }
+    chmod 644 "$temp_file"
+    mv -f "$temp_file" "$config_file" || return 1
     sysctl -w "$key=$value" >/dev/null 2>&1
 }
 
 if [ ! -d /usr/local/bin ]; then
     mkdir -p /usr/local/bin
 fi
-rebuild_cloud_init
 statistics_of_run_times
 _green "脚本当天运行次数:${TODAY}，累计运行次数:${TOTAL}"
 check_update
@@ -1019,59 +1618,6 @@ if ! command -v ipcalc >/dev/null 2>&1; then
         ${PACKAGE_INSTALL[int]} ipcalc-ng
     else
         ${PACKAGE_INSTALL[int]} ipcalc
-    fi
-fi
-if [[ "$SYSTEM" == "CentOS" ]] && ! command -v sipcalc >/dev/null 2>&1; then
-    ARCH=$(uname -m)
-    if [[ "$ARCH" == "x86_64" ]]; then
-        REL_PATH="x86_64/Packages/s/sipcalc-1.1.6-17.el8.x86_64.rpm"
-    elif [[ "$ARCH" == "aarch64" ]]; then
-        REL_PATH="aarch64/Packages/s/sipcalc-1.1.6-17.el8.aarch64.rpm"
-    else
-        echo "Unsupported architecture: $ARCH"
-        exit 1
-    fi
-    FILENAME=$(basename "$REL_PATH")
-    MIRRORS=(
-        "https://dl.fedoraproject.org/pub/epel/8/Everything/$REL_PATH"
-        "https://mirrors.aliyun.com/epel/8/Everything/$REL_PATH"
-        "https://repo.huaweicloud.com/epel/8/Everything/$REL_PATH"
-        "https://mirrors.tuna.tsinghua.edu.cn/epel/8/Everything/$REL_PATH"
-    )
-    echo "rpm detected — installing sipcalc from EPEL ($ARCH)"
-    for URL in "${MIRRORS[@]}"; do
-        echo "Trying $URL"
-        if curl -fLO "$URL"; then
-            echo "Downloaded sipcalc from: $URL"
-            break
-        else
-            echo "Failed to download from: $URL"
-        fi
-    done
-    if command -v dnf >/dev/null 2>&1; then
-        dnf install -y "./$FILENAME"
-    else
-        yum install -y "./$FILENAME"
-    fi
-    rm -f "./$FILENAME"
-    if ! command -v sipcalc >/dev/null 2>&1; then
-        ${PACKAGE_INSTALL[int]} epel-release
-        echo "sipcalc not found after install, trying fallback package installation..."
-        ${PACKAGE_INSTALL[int]} sipcalc
-    fi
-elif [[ "$SYSTEM" != "Alpine" ]] && ! command -v sipcalc >/dev/null 2>&1; then
-    ${PACKAGE_INSTALL[int]} sipcalc
-fi
-if [[ "$SYSTEM" == "Alpine" ]] && ! command -v sipcalc >/dev/null 2>&1; then
-    _yellow "Alpine does not have sipcalc in official repos, will use ipcalc for calculations"
-fi
-if ! command -v rdisc6 >/dev/null 2>&1; then
-    _blue "Installing ndisc6 package for IPv6 router discovery..."
-    _green "正在安装 ndisc6 软件包用于 IPv6 路由器发现..."
-    if [[ "$SYSTEM" == "Alpine" ]]; then
-        ${PACKAGE_INSTALL[int]} ndisc6 || _yellow "ndisc6 not available on Alpine, skipping IPv6 router discovery"
-    else
-        ${PACKAGE_INSTALL[int]} ndisc6 || _yellow "Failed to install ndisc6, IPv6 router discovery will be skipped"
     fi
 fi
 if ! command -v lxcfs >/dev/null 2>&1; then
@@ -1199,199 +1745,6 @@ fi
 ipv4_subnet=$(cat /usr/local/bin/docker_ipv4_subnet)
 ipv4_prefixlen=$(echo "$ipv4_address" | cut -d '/' -f 2)
 
-if [ ! -f /usr/local/bin/docker_ipv6_prefixlen ] || [ ! -s /usr/local/bin/docker_ipv6_prefixlen ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_prefixlen)" = "" ]; then
-    ipv6_prefixlen=""
-    if command -v ifconfig >/dev/null 2>&1; then
-        # 检测 grep 是否支持 -P 选项
-        if echo "test" | grep -P "test" >/dev/null 2>&1; then
-            output=$(ifconfig ${interface} | grep -oP 'inet6 (?!fe80:).*prefixlen \K\d+')
-        else
-            # BusyBox 兼容方法
-            output=$(ifconfig ${interface} | grep 'inet6' | grep -v 'fe80:' | sed -n 's/.*prefixlen \([0-9]*\).*/\1/p')
-        fi
-    else
-        output=$(ip -6 addr show ${interface} | grep 'inet6' | grep -v 'fe80:' | awk '{print $2}' | cut -d'/' -f2)
-    fi
-    num_lines=$(echo "$output" | wc -l)
-    if [ $num_lines -ge 2 ]; then
-        ipv6_prefixlen=$(echo "$output" | sort -n | head -n 1)
-    else
-        ipv6_prefixlen=$(echo "$output" | head -n 1)
-    fi
-    if command -v rdisc6 >/dev/null 2>&1 && [ ! -f /usr/local/bin/docker_ipv6_real_prefixlen ]; then
-        _blue "Attempting to get real IPv6 prefix from router advertisement..."
-        _green "尝试从路由器通告中获取真实的 IPv6 前缀..."
-        _blue "Using network interface: ${interface}"
-        _green "正在使用网络接口: ${interface}"
-        rdisc6_output=$(timeout 10 rdisc6 ${interface} 2>/dev/null)
-        if [ -n "$rdisc6_output" ]; then
-            # 检测 grep 是否支持 -P 选项
-            if echo "test" | grep -P "test" >/dev/null 2>&1; then
-                real_prefixlen=$(echo "$rdisc6_output" | grep -i "Prefix" | grep -oP '[:：]\s*[0-9a-fA-F:]+/\K\d+' | head -n 1)
-            else
-                # BusyBox 兼容方法
-                real_prefixlen=$(echo "$rdisc6_output" | grep -i "Prefix" | sed -n 's/.*[:：][[:space:]]*[0-9a-fA-F:]*\/\([0-9]*\).*/\1/p' | head -n 1)
-            fi
-            if [ -n "$real_prefixlen" ] && [ "$real_prefixlen" -gt 0 ] && [ "$real_prefixlen" -le 128 ]; then
-                _green "Found real IPv6 prefix length from router advertisement: /$real_prefixlen"
-                _green "从路由器通告中发现真实的 IPv6 前缀长度: /$real_prefixlen"
-                if [ -n "$ipv6_prefixlen" ] && [ "$ipv6_prefixlen" -gt "$real_prefixlen" ]; then
-                    _yellow "Warning: Current interface prefix /$ipv6_prefixlen is smaller than router advertised /$real_prefixlen"
-                    _yellow "警告: 当前接口前缀 /$ipv6_prefixlen 小于路由器通告的 /$real_prefixlen"
-                    _blue "Using the larger prefix /$real_prefixlen from router advertisement"
-                    _green "将使用路由器通告的更大前缀 /$real_prefixlen"
-                    ipv6_prefixlen="$real_prefixlen"
-                elif [ -z "$ipv6_prefixlen" ]; then
-                    ipv6_prefixlen="$real_prefixlen"
-                fi
-                echo "$real_prefixlen" >/usr/local/bin/docker_ipv6_real_prefixlen
-            else
-                _yellow "Could not parse IPv6 prefix length on interface ${interface}"
-                _yellow "无法从接口 ${interface} 中解析 IPv6 前缀长度"
-            fi
-        else
-            _yellow "Could not get router advertisement response on interface ${interface} (timeout or no response)"
-            _yellow "无法在接口 ${interface} 获取路由器通告响应(超时或无响应)"
-        fi
-    fi
-    
-    echo "$ipv6_prefixlen" >/usr/local/bin/docker_ipv6_prefixlen
-fi
-if [ -f /usr/local/bin/docker_ipv6_real_prefixlen ] && [ -s /usr/local/bin/docker_ipv6_real_prefixlen ]; then
-    real_prefixlen=$(cat /usr/local/bin/docker_ipv6_real_prefixlen)
-    ipv6_prefixlen="$real_prefixlen"
-    _blue "Using real IPv6 prefix length: /$ipv6_prefixlen"
-    _green "检测到的真实 IPv6 前缀长度: /$ipv6_prefixlen"
-    echo "$ipv6_prefixlen" >/usr/local/bin/docker_ipv6_prefixlen
-else
-    ipv6_prefixlen=$(cat /usr/local/bin/docker_ipv6_prefixlen)
-fi
-if [ ! -f /usr/local/bin/docker_ipv6_gateway ] || [ ! -s /usr/local/bin/docker_ipv6_gateway ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_ipv6_gateway)" = "" ]; then
-    output=$(ip -6 route show | awk '/default via/{print $3}')
-    num_lines=$(echo "$output" | wc -l)
-    ipv6_gateway=""
-    if [ $num_lines -eq 1 ]; then
-        ipv6_gateway="$output"
-    elif [ $num_lines -ge 2 ]; then
-        non_fe80_lines=$(echo "$output" | grep -v '^fe80')
-        if [ -n "$non_fe80_lines" ]; then
-            ipv6_gateway=$(echo "$non_fe80_lines" | head -n 1)
-        else
-            ipv6_gateway=$(echo "$output" | head -n 1)
-        fi
-    fi
-    echo "$ipv6_gateway" >/usr/local/bin/docker_ipv6_gateway
-    if [[ $ipv6_gateway == fe80* ]]; then
-        ipv6_gateway_fe80="Y"
-    else
-        ipv6_gateway_fe80="N"
-    fi
-fi
-# Always refresh from local interfaces.  A saved value from older releases may
-# have come from an external egress API and is not valid evidence of a routed
-# prefix that Docker may allocate from.
-check_ipv6
-if [ ! -f /usr/local/bin/docker_fe80_address ] || [ ! -s /usr/local/bin/docker_fe80_address ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_fe80_address)" = "" ]; then
-    fe80_address=$(ip -6 addr show dev $interface | awk '/inet6 fe80/ {print $2}')
-    echo "$fe80_address" >/usr/local/bin/docker_fe80_address
-fi
-ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
-selected_ipv6_cidr=$(cat /usr/local/bin/docker_check_ipv6_cidr 2>/dev/null || true)
-selected_ipv6_prefixlen=$(ipv6_cidr_prefix_length "$selected_ipv6_cidr" 2>/dev/null || true)
-if [[ -n "$selected_ipv6_prefixlen" ]]; then
-    # Keep the prefix paired with the address chosen by check_ipv6. This avoids
-    # combining a primary-uplink /128 with a delegated bridge address.
-    ipv6_prefixlen="$selected_ipv6_prefixlen"
-    printf '%s\n' "$ipv6_prefixlen" > /usr/local/bin/docker_ipv6_prefixlen
-else
-    ipv6_prefixlen=$(cat /usr/local/bin/docker_ipv6_prefixlen)
-fi
-ipv6_gateway=$(cat /usr/local/bin/docker_ipv6_gateway)
-fe80_address=$(cat /usr/local/bin/docker_fe80_address)
-if [[ $ipv6_gateway == fe80* ]]; then
-    ipv6_gateway_fe80="Y"
-else
-    ipv6_gateway_fe80="N"
-fi
-if [[ -n "$ipv6_address" ]]; then 
-    ipv6_address_without_last_segment="${ipv6_address%:*}:"
-    mac_end_suffix=$(echo $mac_address | awk -F: '{print $4$5}')
-    ipv6_end_suffix=${ipv6_address##*:}
-    slaac_status=false
-    if [[ $ipv6_address == *"ff:fe"* ]]; then
-        _blue "Since the IPV6 address contains the ff:fe block, the probability is that the IPV6 address assigned out through SLAAC"
-        _green "由于IPV6地址含有ff:fe块，大概率通过SLAAC分配出的IPV6地址"
-        slaac_status=true
-    elif [[ $ipv6_gateway == "fe80"* ]]; then
-        _blue "Since IPV6 gateways begin with fe80, it is generally assumed that IPV6 addresses assigned through the SLAAC"
-        _green "由于IPV6的网关是fe80开头，一般认为通过SLAAC分配出的IPV6地址"
-        slaac_status=true
-    elif [[ $ipv6_end_suffix == "$mac_end_suffix" ]]; then
-        _blue "Since IPV6 addresses have the same suffix as mac addresses, the probability is that the IPV6 address assigned through the SLAAC"
-        _green "由于IPV6的地址和mac地址后缀相同，大概率通过SLAAC分配出的IPV6地址"
-        slaac_status=true
-    fi
-    if [[ $slaac_status == true ]] && [ ! -f /usr/local/bin/docker_slaac_status ]; then
-        _blue "Since IPV6 addresses are assigned via SLAAC, the subsequent one-click script installation process needs to determine whether to use the largest subnet"
-        _blue "If using the largest subnet make sure that the host is assigned an entire subnet and not just an IPV6 address"
-        _blue "It is not possible to determine within the host computer how large a subnet the upstream has given to this machine, please ask the upstream technician for details."
-        _green "由于是通过SLAAC分配出IPV6地址，所以后续一键脚本安装过程中需要判断是否使用最大子网"
-        _green "若使用最大子网请确保宿主机被分配的是整个子网而不是仅一个IPV6地址"
-        _green "无法在宿主机内部判断上游给了本机多大的子网，详情请询问上游技术人员"
-        echo "" >/usr/local/bin/docker_slaac_status
-    fi
-    if [ -f /usr/local/bin/docker_slaac_status ] && [ ! -f /usr/local/bin/docker_maximum_subset ] && [ ! -f /usr/local/bin/fix_interfaces_ipv6_auto_type ]; then
-        _blue "It is detected that IPV6 addresses are most likely to be dynamically assigned by SLAAC, and if there is no subsequent need to assign separate IPV6 addresses to VMs/containers, the following option is best selected n"
-        _green "检测到IPV6地址大概率由SLAAC动态分配，若后续不需要分配独立的IPV6地址给虚拟机/容器，则下面选项最好选 n, 选择 y 有概率导致宿主机丢失网络"
-        _blue "Is the maximum subnet range feasible with IPV6 used?([n]/y)"
-        if [[ "${IPV6_MAXIMUM_SUBSET^^}" == "Y" || "${IPV6_MAXIMUM_SUBSET^^}" == "TRUE" ]]; then
-            _yellow "IPV6_MAXIMUM_SUBSET=${IPV6_MAXIMUM_SUBSET} detected, using maximum IPv6 subnet"
-            select_maximum_subset="y"
-        elif [[ "${IPV6_MAXIMUM_SUBSET^^}" == "N" || "${IPV6_MAXIMUM_SUBSET^^}" == "FALSE" ]]; then
-            _yellow "IPV6_MAXIMUM_SUBSET=${IPV6_MAXIMUM_SUBSET} detected, skipping maximum IPv6 subnet"
-            select_maximum_subset="n"
-        elif is_noninteractive; then
-            _yellow "noninteractive=true detected, using default IPv6 maximum subnet choice: n"
-            select_maximum_subset="n"
-        else
-            reading "是否使用IPV6可行的最大子网范围？([n]/y)" select_maximum_subset
-        fi
-        if [ "$select_maximum_subset" = "y" ] || [ "$select_maximum_subset" = "Y" ]; then
-            echo "true" >/usr/local/bin/docker_maximum_subset
-        else
-            echo "false" >/usr/local/bin/docker_maximum_subset
-        fi
-        echo "" >/usr/local/bin/fix_interfaces_ipv6_auto_type
-    fi
-    maximum_subset_value=$(cat /usr/local/bin/docker_maximum_subset 2>/dev/null || echo "")
-    if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ "$maximum_subset_value" = true ]; then
-        ipv6_address_without_last_segment="${ipv6_address%:*}:"
-        if [[ $ipv6_address != *:: && $ipv6_address_without_last_segment != *:: ]]; then
-            # 检测 sipcalc 是否可用
-            if command -v sipcalc >/dev/null 2>&1; then
-                ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
-                ipv6_address="${ipv6_address%:*}:1"
-                if [ "$ipv6_address" == "$ipv6_gateway" ]; then
-                    ipv6_address="${ipv6_address%:*}:2"
-                fi
-                ipv6_address_without_last_segment="${ipv6_address%:*}:"
-                if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
-                    check_ipv6
-                    ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
-                    echo "${ipv6_address}" >/usr/local/bin/docker_check_ipv6
-                fi
-            else
-                _yellow "sipcalc command not found, skipping IPv6 subnet calculation"
-                _yellow "sipcalc 命令不存在，跳过 IPv6 子网计算"
-            fi
-        elif [[ $ipv6_address == *:: ]]; then
-            ipv6_address="${ipv6_address}1"
-            if [ "$ipv6_address" == "$ipv6_gateway" ]; then
-                ipv6_address="${ipv6_address%:*}:2"
-            fi
-        fi
-    fi
-fi
 _green "Do you need Docker with container disk size limitation? (Support btrfs storage driver)"
 _green "是否需要支持容器硬盘大小限制的Docker环境？（支持btrfs存储驱动）"
 _blue "If you choose 'y', you can limit the disk space for each container"
@@ -1576,534 +1929,112 @@ install_docker_and_compose() {
 }
 
 adapt_ipv6() {
-    if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
-        return 0
-    fi
-    if [ -z "$ipv6_address" ] || [ -z "$ipv6_prefixlen" ] || [ -z "$ipv6_gateway" ] || [ -z "$ipv6_address_without_last_segment" ] || [ -z "$interface" ] || [ -z "$ipv4_address" ] || [ -z "$ipv4_prefixlen" ] || [ -z "$ipv4_gateway" ] || [ -z "$ipv4_subnet" ] || [ -z "$fe80_address" ]; then
-        _yellow "IPv6 data is incomplete, skipping host network adaptation until the next run."
-        _yellow "IPv6 信息不完整，本次跳过宿主机网络适配，避免写入错误状态。"
+    local uplink
+    uplink=$(docker_ipv6_uplink_interface 2>/dev/null || true)
+    [[ -n "$uplink" ]] || {
+        _yellow "Could not determine the IPv6 uplink; leaving host network configuration unchanged"
+        return 1
+    }
+
+    # Do not rewrite cloud-init, ifupdown, NetworkManager, systemd-networkd,
+    # addresses, routes, or link-local IPv6 state. Forwarding requires
+    # accept_ra=2 only on the actual IPv6 uplink so SLAAC routes survive.
+    if ! update_docker_ipv6_sysctl "net.ipv6.conf.all.forwarding=1" || \
+       ! update_docker_ipv6_sysctl "net.ipv6.conf.${uplink}.accept_ra=2"; then
+        _yellow "Could not enable IPv6 forwarding without changing host network files"
         return 1
     fi
-    echo "1" > /usr/local/bin/docker_adapt_ipv6
-    network_manager=$(cat /usr/local/bin/docker_network_manager)
-    case "$network_manager" in
-        "systemd-networkd")
-            configure_systemd_networkd
-            ;;
-        "NetworkManager")
-            configure_network_manager
-            ;;
-        "networking")
-            configure_networking
-            ;;
-        *)
-            configure_networking
-            ;;
-    esac
-    update_sysctl "net.ipv6.conf.all.forwarding=1"
-    update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
-    update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
-    update_sysctl "net.ipv6.conf.docker0.proxy_ndp=1"
-    # Forwarding otherwise disables ordinary RA processing on Linux. Keep the
-    # physical uplink's SLAAC default route alive after this setup.
-    update_sysctl "net.ipv6.conf.${interface}.accept_ra=2"
-    update_sysctl "net.ipv6.conf.${interface}.proxy_ndp=1"
-    if [ "$status_he" = true ]; then
-        update_sysctl "net.ipv6.conf.he-ipv6.proxy_ndp=1"
-    fi
-    reboot_message="请重启服务器以启用新的网络配置"
-    if [ -f /usr/local/bin/docker_storage_reboot ]; then
-        reboot_message="${reboot_message}和存储驱动内核模块"
-    fi
-    _green "${reboot_message}，重启后等待20秒后请再次执行本脚本"
-    exit 1
-}
-
-configure_systemd_networkd() {
-    mkdir -p /etc/systemd/network/
-    cat <<EOF > /etc/systemd/network/10-${interface}.network
-[Match]
-Name=${interface}
-
-[Network]
-Address=${ipv4_address}
-Gateway=${ipv4_gateway}
-DNS=8.8.8.8
-DNS=8.8.4.4
-
-Address=${ipv6_address}/${ipv6_prefixlen}
-Gateway=${ipv6_gateway}
-IPv6AcceptRA=no
-IPv6ProxyNDP=yes
-IPv6SendRA=yes
-
-[IPv6SendRA]
-EmitDNS=yes
-DNS=2001:4860:4860::8888
-DNS=2606:4700:4700::1111
-EOF
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl restart systemd-networkd
-    fi
-}
-
-configure_network_manager() {
-    connection_name=$(nmcli -t -f NAME,DEVICE connection show | grep $interface | cut -d':' -f1)
-    if [ -z "$connection_name" ]; then
-        connection_name="${interface}-connection"
-        nmcli connection add type ethernet con-name "$connection_name" ifname $interface
-    fi
-    nmcli connection modify "$connection_name" ipv4.method manual
-    nmcli connection modify "$connection_name" ipv4.addresses $ipv4_address/$ipv4_prefixlen
-    nmcli connection modify "$connection_name" ipv4.gateway $ipv4_gateway
-    nmcli connection modify "$connection_name" ipv4.dns "8.8.8.8,8.8.4.4"
-    nmcli connection modify "$connection_name" ipv6.method manual
-    nmcli connection modify "$connection_name" ipv6.addresses $ipv6_address/$ipv6_prefixlen
-    nmcli connection modify "$connection_name" ipv6.gateway $ipv6_gateway
-    nmcli connection modify "$connection_name" ipv6.dns "2001:4860:4860::8888,2606:4700:4700::1111"
-    nmcli connection up "$connection_name"
-}
-
-configure_networking() {
-    if [[ "$SYSTEM" == "Alpine" ]]; then
-        _yellow "Configuring Alpine networking..."
-        cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        netmask $ipv4_subnet
-        gateway $ipv4_gateway
-        dns-nameservers 8.8.8.8 8.8.4.4
-EOF
-        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ]; then
-            cat <<EOF >>/etc/network/interfaces
-
-iface $interface inet6 static
-        address $ipv6_address
-        netmask $ipv6_prefixlen
-        gateway $ipv6_gateway
-EOF
-        fi
-        if command -v rc-service >/dev/null 2>&1; then
-            rc-service networking restart
-        fi
-        return
-    fi
-    chattr -i /etc/network/interfaces
-    if grep -q "auto he-ipv6" /etc/network/interfaces; then
-        status_he=true
-        temp_config=$(awk '/auto he-ipv6/{flag=1; print $0; next} flag && flag++<10' /etc/network/interfaces)
-        cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-        up ip addr del $fe80_address dev $interface
-EOF
-    elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
-        last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
-        cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address ${last_ipv6}
-        gateway ${ipv6_gateway}
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-
-iface $interface inet6 static
-    address $ipv6_address/$ipv6_prefixlen
-EOF
-    elif [ -f /usr/local/bin/docker_last_ipv6 ] && [[ "${ipv6_gateway_fe80}" == "N" ]]; then
-        last_ipv6=$(cat /usr/local/bin/docker_last_ipv6)
-        cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address ${last_ipv6}
-        gateway ${ipv6_gateway}
-        up ip addr del $fe80_address dev $interface
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-
-iface $interface inet6 static
-    address $ipv6_address/$ipv6_prefixlen
-EOF
-    else
-        if [[ "${ipv6_gateway_fe80}" == "Y" ]]; then
-            cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address $ipv6_address/$ipv6_prefixlen
-        gateway $ipv6_gateway
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-EOF
-        elif [[ "${ipv6_gateway_fe80}" == "N" ]]; then
-            cat <<EOF >/etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-auto $interface
-iface $interface inet static
-        address $ipv4_address
-        gateway $ipv4_gateway
-        netmask $ipv4_subnet
-        dns-nameservers 8.8.8.8 8.8.4.4
-
-iface $interface inet6 static
-        address $ipv6_address/$ipv6_prefixlen
-        gateway $ipv6_gateway
-        up ip addr del $fe80_address dev $interface
-        up sysctl -w "net.ipv6.conf.$interface.proxy_ndp=1"
-EOF
-        fi
-    fi
-    if [ "$status_he" = true ]; then
-        chattr -i /etc/network/interfaces
-        sudo tee -a /etc/network/interfaces <<EOF
-${temp_config}
-EOF
-    fi
-    chattr +i /etc/network/interfaces
+    printf "%s\n" "$uplink" > /usr/local/bin/docker_ipv6_uplink
+    _green "Configured Docker IPv6 forwarding without modifying host network files"
+    _green "已配置 Docker IPv6 转发，未改写宿主机网络配置文件"
+    return 0
 }
 
 docker_build_ipv6() {
-    if [ -f /usr/local/bin/docker_adapt_ipv6 ]; then
-        _green "A new network has been detected that has rebooted the server to configure IPV6 and is testing IPV6 connectivity, please be patient!"
-        _green "检测到已重启服务器配置IPV6的新网络，正在测试IPV6的连通性，请耐心等待"
-        if [ ! -f /usr/local/bin/docker_build_ipv6 ]; then
-            # 检测 sipcalc 是否可用
-            if ! command -v sipcalc >/dev/null 2>&1; then
-                _yellow "sipcalc command not found, IPv6 advanced configuration is not available"
-                _yellow "sipcalc 命令不存在，IPv6 高级配置不可用"
-                return 1
-            fi
-            if command -v systemctl >/dev/null 2>&1; then
-                systemctl restart networking
-            elif command -v rc-service >/dev/null 2>&1; then
-                rc-service networking restart
-            fi
-            sleep 3
-            local public_parent="" public_parent_prefix=""
-            public_parent=$(cat /usr/local/bin/docker_check_ipv6_cidr 2>/dev/null || true)
-            public_parent_prefix=$(ipv6_cidr_prefix_length "$public_parent" 2>/dev/null || true)
-            # Docker needs a real child subnet with enough addresses for its
-            # bridge and endpoints. A host /113-/128 has IPv6 egress but is not
-            # a safe public allocation pool, so use ULA NAT66 instead of
-            # reporting a successful setup with no usable ipv6_net.
-            if [[ "$public_parent_prefix" =~ ^[0-9]+$ ]] && (( public_parent_prefix > 112 )); then
-                install_docker_and_compose
-                if create_docker_ula_ipv6_network "$public_parent"; then
-                    echo "1" >/usr/local/bin/docker_build_ipv6
-                    return 0
-                fi
-                _red "Could not create Docker ULA NAT66 network for narrow public IPv6 parent ${public_parent}"
-                _red "无法为过窄的公网 IPv6 前缀 ${public_parent} 创建 Docker ULA NAT66 网络"
-                rm -f /usr/local/bin/docker_build_ipv6
-                return 1
-            fi
-            ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
-            ipv6_address="${ipv6_address%:*}:1"
-            if [ "$ipv6_address" == "$ipv6_gateway" ]; then
-                ipv6_address="${ipv6_address%:*}:2"
-            fi
-            ipv6_address_without_last_segment="${ipv6_address%:*}:"
-            if ping -c 1 -6 -W 3 $ipv6_address >/dev/null 2>&1; then
-                check_ipv6
-            fi
-            target_mask=${ipv6_prefixlen}
-            # 确保 target_mask 有值且在合法范围内 [1, 128]
-            if [ -z "$target_mask" ] || ! [[ "$target_mask" =~ ^[0-9]+$ ]]; then
-                _red "Failed to get IPv6 prefix length"
-                _red "无法获取 IPv6 前缀长度"
-                return 1
-            fi
-            if [ "$target_mask" -lt 1 ] || [ "$target_mask" -gt 128 ]; then
-                _red "IPv6 prefix length ${target_mask} is out of valid range [1, 128]"
-                _red "IPv6 前缀长度 ${target_mask} 超出合法范围 [1, 128]"
-                return 1
-            fi
-            echo "Before: target_mask = $target_mask"
-            # 向上取整到下一个8的倍数（用于子网切分）
-            # 注意：当 target_mask 已是8的倍数时，需额外加8以获得更细分的子网
-            ((target_mask += 8 - (target_mask % 8)))
-            # 确保 target_mask 不超过 IPv6 最大前缀长度 128
-            if [ "$target_mask" -gt 128 ]; then
-                _yellow "Warning: computed target_mask=${target_mask} exceeds IPv6 maximum prefix length 128, capping at 128"
-                _yellow "警告: 计算出的 target_mask=${target_mask} 超过 IPv6 最大前缀长度 128，限制为 128"
-                target_mask=128
-            fi
-            # 若 target_mask 不大于 ipv6_prefixlen，则无法进行有效分割
-            if [ "$target_mask" -le "$ipv6_prefixlen" ]; then
-                _yellow "Cannot split subnet: target_mask (/${target_mask}) must be larger than ipv6_prefixlen (/${ipv6_prefixlen}), skipping split"
-                _yellow "无法切分子网：target_mask (/${target_mask}) 必须大于 ipv6_prefixlen (/${ipv6_prefixlen})，跳过切分"
-                install_docker_and_compose
-                echo "1" >/usr/local/bin/docker_build_ipv6
-                return 0
-            fi
-            echo "After: target_mask = $target_mask"
-            ipv6_subnet_2=$(sipcalc --v6split=${target_mask} ${ipv6_address}/${ipv6_prefixlen} | awk '/Network/{n++} n==2' | awk '{print $3}' | grep -v '^$')
-            # 注意：当 ipv6_subnet_2 为空时，"${ipv6_subnet_2%:*}:" 会得到 ":"（非空），
-            # 因此必须先检查 ipv6_subnet_2 本身是否为空
-            if [ -n "$ipv6_subnet_2" ] && [ -n "$target_mask" ]; then
-                ipv6_subnet_2_without_last_segment="${ipv6_subnet_2%:*}:"
-                new_subnet="${ipv6_subnet_2}/${target_mask}"
-                _green "Use cuted IPV6 subnet：${new_subnet}"
-                _green "使用切分出来的IPV6子网：${new_subnet}"
-            else
-                _red "The ipv6 subnet 2: ${ipv6_subnet_2}"
-                _red "The ipv6 target mask: ${target_mask}"
-                return 1
-            fi
-            install_docker_and_compose
-            if docker_ipv6_subnet_overlaps_host "$new_subnet"; then
-                _yellow "Docker IPv6 subnet ${new_subnet} overlaps a host IPv6 address/route; switching to isolated ULA NAT66"
-                _yellow "Docker IPv6 子网 ${new_subnet} 与宿主机 IPv6 地址或路由重叠，切换到隔离 ULA NAT66"
-                if create_docker_ula_ipv6_network "$(cat /usr/local/bin/docker_check_ipv6_cidr 2>/dev/null || true)"; then
-                    echo "1" >/usr/local/bin/docker_build_ipv6
-                    return 0
-                fi
-                _red "Could not find a host-disjoint ULA subnet for Docker IPv6"
-                _red "无法找到与宿主机网络不冲突的 Docker ULA IPv6 子网"
-                rm -f /usr/local/bin/docker_build_ipv6
-                return 1
-            fi
-            if [ "$ipv6_prefixlen" -le 112 ]; then
-                if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$new_subnet" ]; then
-                    local subnet_check=0
-                    docker_ipv6_subnet_has_live_address "$new_subnet"
-                    subnet_check=$?
-                    if [[ "$subnet_check" -eq 0 ]]; then
-                        _red "Refusing Docker IPv6 subnet ${new_subnet}: it contains a live host IPv6 address"
-                        _red "拒绝使用 Docker IPv6 子网 ${new_subnet}：其中包含宿主机正在使用的 IPv6 地址"
-                        rm -f /usr/local/bin/docker_build_ipv6
-                        return 1
-                    elif [[ "$subnet_check" -ne 1 ]]; then
-                        _red "Cannot safely validate Docker IPv6 subnet ${new_subnet}; Python 3 is required"
-                        _red "无法安全校验 Docker IPv6 子网 ${new_subnet}；需要 Python 3"
-                        rm -f /usr/local/bin/docker_build_ipv6
-                        return 1
-                    fi
-                    if ! docker network inspect ipv6_net >/dev/null 2>&1; then
-                        if ! docker network create --ipv6 --subnet=172.26.0.0/16 --subnet="$new_subnet" ipv6_net; then
-                            _red "Failed to create Docker IPv6 network ipv6_net"
-                            _red "创建 Docker IPv6 网络 ipv6_net 失败"
-                            rm -f /usr/local/bin/docker_build_ipv6
-                            return 1
-                        fi
-                    fi
-                    local ndp_image="" registry_ndp_image="" expected_ndp_arch=""
-                    local ndp_interface="$interface"
-                    if [ "$status_he" = true ]; then
-                        ndp_interface="he-ipv6"
-                    fi
-                    case "$system_arch" in
-                        x86)
-                            registry_ndp_image="spiritlhl/ndpresponder_x86"
-                            expected_ndp_arch="amd64"
-                            ;;
-                        arch)
-                            registry_ndp_image="spiritlhl/ndpresponder_aarch64"
-                            expected_ndp_arch="arm64"
-                            ;;
-                        arm)
-                            expected_ndp_arch="arm"
-                            ;;
-                        *)
-                            _red "Unsupported responder architecture: ${system_arch:-unknown}"
-                            _red "不支持当前架构的 responder，独立 IPv6 不会启用"
-                            rm -f /usr/local/bin/docker_build_ipv6
-                            return 1
-                            ;;
-                    esac
-                    local docker_socket=""
-                    for docker_socket in /var/run/docker.sock /run/docker.sock; do
-                        [[ -S "$docker_socket" ]] && break
-                        docker_socket=""
-                    done
-                    if [[ -z "$docker_socket" ]]; then
-                        _red "Docker API socket not found; ndpresponder cannot track container IPv6 addresses"
-                        rm -f /usr/local/bin/docker_build_ipv6
-                        return 1
-                    fi
-                    if ! resolve_ndpresponder_image "$expected_ndp_arch" "$registry_ndp_image"; then
-                        _red "No verified ndpresponder image is available for ${expected_ndp_arch}; preserving any existing responder"
-                        _red "没有可验证的 ${expected_ndp_arch} responder 镜像，保留已有 responder"
-                        rm -f /usr/local/bin/docker_build_ipv6
-                        return 1
-                    fi
-                    ndp_image="$NDPRESPONDER_IMAGE"
-                    if docker inspect ndpresponder >/dev/null 2>&1; then
-                        local existing_image="" existing_arch=""
-                        existing_image=$(docker inspect -f '{{.Image}}' ndpresponder 2>/dev/null || true)
-                        existing_arch=$(docker image inspect -f '{{.Architecture}}' "$existing_image" 2>/dev/null || true)
-                        if ndpresponder_image_matches_architecture "$expected_ndp_arch" "$existing_arch"; then
-                            docker update --restart on-failure:3 ndpresponder >/dev/null 2>&1 || true
-                            docker start ndpresponder >/dev/null 2>&1 || true
-                        elif ! docker rm -f ndpresponder >/dev/null 2>&1; then
-                            _red "Could not remove an incompatible ndpresponder after verifying a replacement image"
-                            rm -f /usr/local/bin/docker_build_ipv6
-                            return 1
-                        elif ! docker run -d \
-                            --restart on-failure:3 --cpus 0.02 --memory 64M \
-                            -v "${docker_socket}:/var/run/docker.sock:ro" \
-                            -e DOCKER_HOST=unix:///var/run/docker.sock \
-                            --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                            --network host --name ndpresponder \
-                            "$ndp_image" -i "$ndp_interface" -N ipv6_net; then
-                            _red "Failed to create ndpresponder container"
-                            _red "创建 ndpresponder 容器失败"
-                            rm -f /usr/local/bin/docker_build_ipv6
-                            return 1
-                        fi
-                    elif ! docker run -d \
-                        --restart on-failure:3 --cpus 0.02 --memory 64M \
-                        -v "${docker_socket}:/var/run/docker.sock:ro" \
-                        -e DOCKER_HOST=unix:///var/run/docker.sock \
-                        --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
-                        --network host --name ndpresponder \
-                        "$ndp_image" -i "$ndp_interface" -N ipv6_net; then
-                        _red "Failed to create ndpresponder container"
-                        _red "创建 ndpresponder 容器失败"
-                        rm -f /usr/local/bin/docker_build_ipv6
-                        return 1
-                    fi
-                    local ndp_status=""
-                    for _ndp_attempt in 1 2 3; do
-                        sleep 1
-                        ndp_status=$(docker inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null || true)
-                        [[ "$ndp_status" == "running" ]] && break
-                    done
-                    if [[ "$ndp_status" != "running" ]]; then
-                        _red "ndpresponder is not running: $(docker logs --tail 20 ndpresponder 2>&1 || true)"
-                        docker update --restart=no ndpresponder >/dev/null 2>&1 || true
-                        docker rm -f ndpresponder >/dev/null 2>&1 || true
-                        rm -f /usr/local/bin/docker_build_ipv6
-                        return 1
-                    fi
-                fi
-            fi
-            echo "1" >/usr/local/bin/docker_build_ipv6
-            if ! command -v radvd >/dev/null 2>&1; then
-                _yellow "Installing radvd"
-                if [[ "$SYSTEM" == "Alpine" ]]; then
-                    ${PACKAGE_INSTALL[int]} radvd
-                    if command -v rc-update >/dev/null 2>&1; then
-                        rc-update add radvd default
-                        rc-service radvd start
-                    fi
-                else
-                    ${PACKAGE_INSTALL[int]} radvd
-                fi
-            fi
-            if [ "$status_he" = true ]; then
-                config_content="interface he-ipv6 {
-  AdvSendAdvert on;
-  MinRtrAdvInterval 3;
-  MaxRtrAdvInterval 10;
-  prefix ${ipv6_address_without_last_segment}0/$ipv6_prefixlen {
-    AdvOnLink on;
-    AdvAutonomous on;
-    AdvRouterAddr on;
-  };
-};"
-            else
-                config_content="interface $interface {
-  AdvSendAdvert on;
-  MinRtrAdvInterval 3;
-  MaxRtrAdvInterval 10;
-  prefix ${ipv6_address_without_last_segment}0/$ipv6_prefixlen {
-    AdvOnLink on;
-    AdvAutonomous on;
-    AdvRouterAddr on;
-  };
-};"
-            fi
-            echo "$config_content" | sudo tee /etc/radvd.conf >/dev/null
-            if command -v systemctl >/dev/null 2>&1; then
-                systemctl restart radvd && systemctl enable radvd
-            elif command -v rc-service >/dev/null 2>&1; then
-                rc-service radvd restart
-            fi
-            update_sysctl "net.ipv6.conf.all.forwarding=1"
-            update_sysctl "net.ipv6.conf.all.proxy_ndp=1"
-            update_sysctl "net.ipv6.conf.default.proxy_ndp=1"
-            (crontab -l 2>/dev/null; echo '*/1 * * * * curl -m 6 -s ipv6.ip.sb >/dev/null 2>&1 && curl -m 6 -s ipv6.ip.sb >/dev/null 2>&1') | sort -u | crontab -
-        fi
-    fi
-}
+    local public_parent public_parent_prefix network_mode existing_subnet
 
-handle_networking() {
-    network_manager=$(cat /usr/local/bin/docker_network_manager)
-    case "$network_manager" in
-        "systemd-networkd")
-            if command -v systemctl >/dev/null 2>&1; then
-                systemctl restart systemd-networkd
-            fi
-            ;;
-        "NetworkManager")
-            if command -v systemctl >/dev/null 2>&1; then
-                systemctl restart NetworkManager
-            fi
-            ;;
-        "networking")
-            if command -v systemctl >/dev/null 2>&1; then
-                systemctl restart networking
-            elif command -v rc-service >/dev/null 2>&1; then
-                rc-service networking restart
-            fi
-            ;;
-        *)
-            if command -v systemctl >/dev/null 2>&1; then
-                systemctl restart networking 2>/dev/null || true
-                systemctl restart systemd-networkd 2>/dev/null || true
-                systemctl restart NetworkManager 2>/dev/null || true
-            elif command -v rc-service >/dev/null 2>&1; then
-                rc-service networking restart 2>/dev/null || true
-            fi
-            ;;
-    esac
+    check_ipv6
+    public_parent="$IPV6_CIDR"
+    if [[ -z "$public_parent" ]]; then
+        _yellow "No locally bound public IPv6 CIDR found; independent IPv6 remains disabled"
+        return 0
+    fi
+    if ! adapt_ipv6; then
+        return 1
+    fi
+
+    if docker network inspect ipv6_net >/dev/null 2>&1; then
+        network_mode=$(tr -d "[:space:]" </usr/local/bin/docker_ipv6_network_mode 2>/dev/null || true)
+        case "$network_mode" in
+            nat)
+                existing_subnet=$(docker_ipv6_network_ipv6_subnet 2>/dev/null || true)
+                if ! docker_ipv6_ula_state_matches_network "$network_mode" "$(tr -d "[:space:]" </usr/local/bin/docker_ipv6_subnet 2>/dev/null || true)" "$existing_subnet"; then
+                    _yellow "Existing ipv6_net does not match installer NAT66 state; preserving it unchanged"
+                    return 1
+                fi
+                configure_docker_ipv6_nat66 "$existing_subnet" || return 1
+                printf "%s\n" "$public_parent" > /usr/local/bin/docker_ipv6_public_parent
+                install_docker_ipv6_nat66_service
+                printf "%s\n" 1 > /usr/local/bin/docker_build_ipv6
+                return 0
+                ;;
+            manual)
+                if ! create_docker_manual_ipv6_network "$public_parent"; then
+                    return 1
+                fi
+                if ! start_docker_manual_ndpresponder; then
+                    _yellow "Routed Docker IPv6 network is ready, but NDP responder is not ready for public attachment"
+                    return 1
+                fi
+                printf "%s\n" 1 > /usr/local/bin/docker_build_ipv6
+                return 0
+                ;;
+            *)
+                _yellow "Existing ipv6_net is not installer-managed; preserving it and skipping IPv6 migration"
+                _yellow "现有 ipv6_net 不属于安装器管理范围，保留现状并跳过 IPv6 迁移"
+                return 1
+                ;;
+        esac
+    fi
+
+    public_parent_prefix=$(ipv6_cidr_prefix_length "$public_parent" 2>/dev/null || true)
+    if [[ ! "$public_parent_prefix" =~ ^[0-9]+$ ]]; then
+        _yellow "Could not parse the local public IPv6 CIDR: $public_parent"
+        return 1
+    fi
+    if (( public_parent_prefix == 128 )); then
+        _yellow "Host IPv6 is a lone /128; using isolated ULA NAT66 for outbound IPv6"
+        if ! create_docker_ula_ipv6_network "$public_parent"; then
+            _yellow "Could not create Docker ULA NAT66 network"
+            return 1
+        fi
+        printf "%s\n" 1 > /usr/local/bin/docker_build_ipv6
+        return 0
+    fi
+
+    if ! create_docker_manual_ipv6_network "$public_parent"; then
+        _yellow "Could not prepare routed public IPv6; falling back to isolated ULA NAT66"
+        if ! create_docker_ula_ipv6_network "$public_parent"; then
+            _yellow "Could not create Docker ULA NAT66 fallback network"
+            return 1
+        fi
+        printf "%s\n" 1 > /usr/local/bin/docker_build_ipv6
+        return 0
+    fi
+    if ! start_docker_manual_ndpresponder; then
+        _yellow "Routed Docker IPv6 waits for a healthy NDP responder before public addresses are attached"
+        return 1
+    fi
+    printf "%s\n" 1 > /usr/local/bin/docker_build_ipv6
+    return 0
 }
 
 check_and_adapt_ipv6() {
-    if [[ -n "$ipv6_address" ]]; then 
-        maximum_subset_value=$(cat /usr/local/bin/docker_maximum_subset 2>/dev/null || echo "")
-        if [ ! -f /usr/local/bin/docker_maximum_subset ] || [ "$maximum_subset_value" = true ]; then
-            adapt_ipv6
-            docker_build_ipv6
-        fi
+    if ! command -v docker >/dev/null 2>&1; then
+        _yellow "Docker is not ready; skipping independent IPv6 setup"
+        return 1
     fi
+    docker_build_ipv6
 }
 
 setup_dns_check() {
@@ -2132,60 +2063,37 @@ setup_dns_check() {
     fi
 }
 
-detect_network_manager() {
+ensure_docker_ready() {
+    local attempt
     if command -v systemctl >/dev/null 2>&1; then
-        if systemctl is-active --quiet systemd-networkd; then
-            network_manager="systemd-networkd"
-        elif systemctl is-active --quiet NetworkManager; then
-            network_manager="NetworkManager"
-        elif systemctl is-active --quiet networking; then
-            network_manager="networking"
-        else
-            network_manager="networking"
-        fi
+        systemctl restart docker 2>/dev/null || true
     elif command -v rc-service >/dev/null 2>&1; then
-        network_manager="networking"
-    else
-        network_manager="networking"
+        rc-service docker restart 2>/dev/null || true
     fi
-    echo "$network_manager" > /usr/local/bin/docker_network_manager
-}
-
-restart_services() {
-    sysctl_path=$(command -v sysctl || true)
-    if [ -n "$sysctl_path" ]; then
-        ${sysctl_path} -p >/dev/null 2>&1 || ${sysctl_path} --system >/dev/null 2>&1 || true
-    fi
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl restart docker
-        sleep 4
-        systemctl status docker 2>/dev/null
-        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
-            systemctl status radvd 2>/dev/null
+    for attempt in 1 2 3 4 5; do
+        if docker info >/dev/null 2>&1; then
+            return 0
         fi
-    elif command -v rc-service >/dev/null 2>&1; then
-        rc-service docker restart
-        sleep 4
-        rc-service docker status 2>/dev/null
-        if [ ! -z "$ipv6_address" ] && [ ! -z "$ipv6_prefixlen" ] && [ ! -z "$ipv6_gateway" ] && [ ! -z "$ipv6_address_without_last_segment" ]; then
-            rc-service radvd status 2>/dev/null
-        fi
-    fi
+        sleep 1
+    done
+    _yellow "Docker daemon is not ready; independent IPv6 setup was skipped"
+    return 1
 }
 
 cleanup_and_finish() {
-    rm -rf /usr/local/bin/ifupdown_installed.txt
-    _green "Please run reboot to reboot the machine later. The environment has been installed"
-    _green "请稍后执行 reboot 重启本机, 环境已安装完毕。"
+    rm -f /usr/local/bin/ifupdown_installed.txt
+    _green "Docker environment installed. IPv6 setup did not rewrite host network files or require a host reboot."
+    _green "Docker 环境已安装。IPv6 配置未改写宿主网络文件，也不需要重启宿主机。"
 }
 
 main() {
-    detect_network_manager
-    check_and_adapt_ipv6
     install_docker_and_compose
+    if ensure_docker_ready; then
+        check_and_adapt_ipv6 || _yellow "Independent IPv6 was not enabled; IPv4 NAT and port mappings remain available"
+    else
+        _yellow "Docker is unavailable after installation; skip independent IPv6 setup"
+    fi
     setup_dns_check
-    handle_networking
-    restart_services
     cleanup_and_finish
 }
 

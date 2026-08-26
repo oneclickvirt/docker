@@ -4,10 +4,11 @@
 
 ## 更新
 
-2026.08.26
+2026.08.27
 
-- 修复宿主仅提供 SLAAC 公网 `/64` 或过窄公网 `/113` 至 `/128` 时独立 IPv6 子网不可分配的问题；改用安装器托管的 ULA `/64` + NAT66，并保护重跑时的既有网络
-- NDP responder 启动失败或镜像不兼容时改为有限重试并清理失败容器，避免无限重启占满 CPU；仅关闭独立 IPv6，保留原有 IPv4 NAT 与端口映射
+- 修复 SLAAC `/64`、委派前缀、PVE 网桥和隧道场景的 Docker 独立 IPv6：Docker 使用隔离 ULA 网桥，容器启动后按需附加公网 `/128` 路由，不再尝试创建与宿主前缀重叠的公网桥接子网
+- 仅单个公网 `/128` 使用 NAT66 出站回退；以太网上要求支持 `--target-file` 的健康 NDP responder，隧道/非以太网链路无需 responder；旧 responder 不支持该参数时会停止其有限重启循环
+- 不再改写 cloud-init、网络管理器、接口地址、路由或链路本地地址；卸载只清理本安装器的 IPv6 服务和专用 sysctl 文件
 
 [更新日志](CHANGELOG.md)
 
@@ -71,7 +72,6 @@ bash <(wget -qO- https://raw.githubusercontent.com/oneclickvirt/docker/main/scri
 | `noninteractive` | 空 | 设为 `true` 时跳过脚本交互提示，统一使用默认值或已传入变量 |
 | `WITHOUTCDN` | `false` | 设为 `TRUE` 时禁用 CDN 加速地址探测 |
 | `CN` | 自动检测 | `true` 强制使用中国镜像源，`false` 跳过中国 IP 检测 |
-| `IPV6_MAXIMUM_SUBSET` | `n` | 是否在 SLAAC 场景使用 IPv6 最大子网范围 |
 | `NEED_DISK_LIMIT` | `n` | 是否启用 btrfs 容器磁盘限制 |
 | `DOCKER_INSTALL_PATH` | `/var/lib/docker` | Docker 数据目录 |
 | `DOCKER_POOL_SIZE` | `20` | btrfs 存储池大小，单位 GB |
@@ -164,9 +164,10 @@ docker pull ghcr.io/oneclickvirt/docker:debian
 ## 网络说明
 
 - 默认使用主机 NAT 网络，通过端口映射暴露 SSH 及自定义端口
-- 独立 IPv6 只从宿主机本地绑定的公网 IPv6 CIDR 分配；历史版本写入的外部出口检测结果会在安装时刷新，不能被当作可路由子网使用
-- 创建 `ipv6_net` 前会拒绝包含宿主机正在使用 IPv6 地址的子网，避免 Docker/Netavark 类似的 host-subnet 冲突
-- NDP responder 会使用实际存在的 Docker API socket，并在启动后确认容器仍在运行；官方镜像拉取失败或架构不符时会从 `NDPRESPONDER_SOURCE_URL` 构建本地镜像并再次校验架构，失败时不会替换已有 responder。socket 或 responder 不可用时，独立 IPv6 保持禁用，IPv4 NAT 和端口映射不受影响
+- 独立 IPv6 只从宿主机本地绑定的公网 IPv6 CIDR 分配；Docker 的 `ipv6_net` 始终使用安装器管理的私有 ULA，避免与宿主 CIDR 重叠而被 Docker 拒绝
+- 宿主有 `/64`、委派 `/38`、`/120` 或 `/127` 等可路由前缀且其中存在未占用地址时，容器启动后会获得该前缀中的公网 `/128` 和主机路由；PVE 网桥、SLAAC 与隧道接口均不需要改写宿主网络配置
+- 宿主只有一个公网 `/128` 时会使用 ULA NAT66，保留出站 IPv6，但不承诺公网独立 `/128`；其他场景仅在安全路由初始化失败时才回退到该模式
+- 以太网链路通过 `ndpresponder --target-file` 宣告已分配地址；官方镜像不支持该参数时会先构建并校验源码镜像。隧道/非以太网链路会跳过 NDP responder。responder 不健康时不会分配公网 `/128`，IPv4 NAT 和端口映射不受影响
 
 ## 致谢
 
