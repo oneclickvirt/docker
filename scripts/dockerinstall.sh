@@ -393,6 +393,38 @@ raise SystemExit(0 if usable else 1)
 PY
 }
 
+# A host can hold a /128 on its primary uplink and a delegated prefix on a
+# bridge or tunnel at the same time. Prefer the widest locally bound public
+# CIDR so the later bridge allocation has the largest safe parent to inspect.
+# Keep a lone /128 as a fallback: it still proves IPv6 connectivity even
+# though it cannot provide independently routed container addresses.
+select_public_ipv6_cidr() {
+    local candidate address prefix prefix_number best_cidr="" best_prefix=129
+    while IFS= read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        address="${candidate%/*}"
+        prefix="${candidate##*/}"
+        [[ "$prefix" =~ ^[0-9]+$ ]] || continue
+        prefix_number=$((10#$prefix))
+        (( prefix_number <= 128 )) || continue
+        if is_public_ipv6 "$address" && (( prefix_number < best_prefix )); then
+            best_cidr="$candidate"
+            best_prefix=$prefix_number
+        fi
+    done < <(ip -6 -o addr show scope global 2>/dev/null | awk '$0 !~ / tentative/ {print $4}')
+    [[ -n "$best_cidr" ]] || return 1
+    printf '%s\n' "$best_cidr"
+}
+
+ipv6_cidr_prefix_length() {
+    local cidr="${1:-}" prefix
+    [[ "$cidr" == */* ]] || return 1
+    prefix="${cidr##*/}"
+    [[ "$prefix" =~ ^[0-9]+$ ]] || return 1
+    (( 10#$prefix <= 128 )) || return 1
+    printf '%s\n' "$prefix"
+}
+
 docker_ipv6_subnet_has_live_address() {
     local subnet="$1"
     command -v python3 >/dev/null 2>&1 || return 2
@@ -730,16 +762,12 @@ create_docker_ula_ipv6_network() {
 check_ipv6() {
     IPV6=""
     IPV6_CIDR=""
-    local candidate address
-    while IFS= read -r candidate; do
-        [[ -n "$candidate" ]] || continue
-        address="${candidate%/*}"
-        if is_public_ipv6 "$address"; then
-            IPV6="$address"
-            IPV6_CIDR="$candidate"
-            break
-        fi
-    done < <(ip -6 -o addr show scope global 2>/dev/null | awk '$0 !~ / tentative/ {print $4}')
+    local candidate
+    candidate=$(select_public_ipv6_cidr || true)
+    if [[ -n "$candidate" ]]; then
+        IPV6_CIDR="$candidate"
+        IPV6="${candidate%/*}"
+    fi
     if [ ! -f /usr/local/bin/docker_last_ipv6 ] || [ ! -s /usr/local/bin/docker_last_ipv6 ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_last_ipv6)" = "" ]; then
         ipv6_list=$(ip -6 addr show | grep global | awk '{print length, $2}' | sort -nr | awk '{print $2}')
         line_count=$(echo "$ipv6_list" | wc -l)
@@ -1268,7 +1296,16 @@ if [ ! -f /usr/local/bin/docker_fe80_address ] || [ ! -s /usr/local/bin/docker_f
     echo "$fe80_address" >/usr/local/bin/docker_fe80_address
 fi
 ipv6_address=$(cat /usr/local/bin/docker_check_ipv6)
-ipv6_prefixlen=$(cat /usr/local/bin/docker_ipv6_prefixlen)
+selected_ipv6_cidr=$(cat /usr/local/bin/docker_check_ipv6_cidr 2>/dev/null || true)
+selected_ipv6_prefixlen=$(ipv6_cidr_prefix_length "$selected_ipv6_cidr" 2>/dev/null || true)
+if [[ -n "$selected_ipv6_prefixlen" ]]; then
+    # Keep the prefix paired with the address chosen by check_ipv6. This avoids
+    # combining a primary-uplink /128 with a delegated bridge address.
+    ipv6_prefixlen="$selected_ipv6_prefixlen"
+    printf '%s\n' "$ipv6_prefixlen" > /usr/local/bin/docker_ipv6_prefixlen
+else
+    ipv6_prefixlen=$(cat /usr/local/bin/docker_ipv6_prefixlen)
+fi
 ipv6_gateway=$(cat /usr/local/bin/docker_ipv6_gateway)
 fe80_address=$(cat /usr/local/bin/docker_fe80_address)
 if [[ $ipv6_gateway == fe80* ]]; then

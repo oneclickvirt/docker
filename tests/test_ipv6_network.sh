@@ -29,6 +29,10 @@ source <(extract_function docker_ipv6_ula_is_safe)
 source <(extract_function docker_ipv6_ula_state_matches_network)
 # shellcheck disable=SC1090 # The test intentionally loads one installer function.
 source <(extract_function is_public_ipv6)
+# shellcheck disable=SC1090 # The test intentionally loads the CIDR selector.
+source <(extract_function select_public_ipv6_cidr)
+# shellcheck disable=SC1090 # The test intentionally loads the CIDR prefix parser.
+source <(extract_function ipv6_cidr_prefix_length)
 # shellcheck disable=SC1090 # The test intentionally loads one installer helper.
 source <(extract_function ndpresponder_image_matches_architecture)
 # shellcheck disable=SC1090 # The test intentionally loads one installer helper.
@@ -42,12 +46,45 @@ if [ "${1:-}" = "-6" ] && [ "${2:-}" = "route" ]; then
     printf '%s\n' '2a14:6781:a::/64 dev eth0 proto kernel metric 256'
     exit 0
 fi
-printf '%s\n' '2: eth0    inet6 2a14:6781:000a:0000::9/64 scope global'
+case "${IPV6_TEST_SCENARIO:-default}" in
+    delegated)
+        printf '%s\n' '2: vmbr0    inet6 2a14:7c0:1002:10f8::1/128 scope global'
+        printf '%s\n' '4: vmbr2    inet6 2a14:7c0:1002:10f8::1/38 scope global'
+        ;;
+    tunnel)
+        printf '%s\n' '5: he-ipv6    inet6 2001:470:1f14:9::2/64 scope global'
+        ;;
+    *)
+        printf '%s\n' '2: eth0    inet6 2a14:6781:000a:0000::9/64 scope global'
+        ;;
+esac
 EOF
 chmod 700 "$tmpdir/ip"
 
 old_path="$PATH"
 export PATH="$tmpdir:$PATH"
+selected=$(select_public_ipv6_cidr)
+if [[ "$selected" != '2a14:6781:000a:0000::9/64' ]]; then
+    printf 'normal /64 selection returned %q\n' "$selected" >&2
+    exit 1
+fi
+export IPV6_TEST_SCENARIO=delegated
+selected=$(select_public_ipv6_cidr)
+if [[ "$selected" != '2a14:7c0:1002:10f8::1/38' ]]; then
+    printf 'delegated /38 was hidden by an uplink /128: %q\n' "$selected" >&2
+    exit 1
+fi
+if [[ "$(ipv6_cidr_prefix_length "$selected")" != 38 ]]; then
+    printf 'delegated IPv6 CIDR did not retain its /38 prefix length\n' >&2
+    exit 1
+fi
+export IPV6_TEST_SCENARIO=tunnel
+selected=$(select_public_ipv6_cidr)
+if [[ "$selected" != '2001:470:1f14:9::2/64' ]]; then
+    printf 'tunnel /64 selection returned %q\n' "$selected" >&2
+    exit 1
+fi
+unset IPV6_TEST_SCENARIO
 docker_ipv6_subnet_has_live_address "2a14:6781:000a:0000::/64"
 if docker_ipv6_subnet_has_live_address "2a14:6781:000a:0000:1::/80"; then
     printf 'sibling subnet was incorrectly reported as containing a host address\n' >&2
