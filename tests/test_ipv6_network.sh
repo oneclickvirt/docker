@@ -25,37 +25,37 @@ fail() {
 }
 
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function is_public_ipv6)
+eval "$(extract_function is_public_ipv6)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function select_public_ipv6_cidr)
+eval "$(extract_function select_public_ipv6_cidr)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function ipv6_cidr_prefix_length)
+eval "$(extract_function ipv6_cidr_prefix_length)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function docker_ipv6_subnet_has_live_address)
+eval "$(extract_function docker_ipv6_subnet_has_live_address)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function docker_ipv6_subnet_overlaps_host)
+eval "$(extract_function docker_ipv6_subnet_overlaps_host)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function docker_ipv6_ula_candidate)
+eval "$(extract_function docker_ipv6_ula_candidate)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function docker_ipv6_ula_is_safe)
+eval "$(extract_function docker_ipv6_ula_is_safe)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function docker_ipv6_ula_state_matches_network)
+eval "$(extract_function docker_ipv6_ula_state_matches_network)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function docker_ipv6_normalize_public_parent)
+eval "$(extract_function docker_ipv6_normalize_public_parent)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function docker_ipv6_manual_state_matches_network)
+eval "$(extract_function docker_ipv6_manual_state_matches_network)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function docker_ipv6_uplink_interface)
+eval "$(extract_function docker_ipv6_uplink_interface)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function docker_ipv6_uplink_supports_ndp)
+eval "$(extract_function docker_ipv6_uplink_supports_ndp)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function ndpresponder_image_matches_architecture)
+eval "$(extract_function ndpresponder_image_matches_architecture)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function ndpresponder_supports_target_file)
+eval "$(extract_function ndpresponder_supports_target_file)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function ndpresponder_image_supports_required_features)
+eval "$(extract_function ndpresponder_image_supports_required_features)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
-source <(extract_function resolve_ndpresponder_image)
+eval "$(extract_function resolve_ndpresponder_image)"
 
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/docker-ipv6-test.XXXXXX")
 trap 'rm -rf -- "$tmpdir"' EXIT
