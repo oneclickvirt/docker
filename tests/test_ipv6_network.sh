@@ -72,7 +72,7 @@ if docker_ipv6_ula_state_matches_network managed "$managed_ula" "$managed_ula" |
     printf 'unmanaged or mismatched Docker IPv6 network was accepted for reuse\n' >&2
     exit 1
 fi
-if extract_function create_docker_ula_ipv6_network | grep -Fq 'docker_ipv6_subnet_overlaps_host "$existing_ula"'; then
+if extract_function create_docker_ula_ipv6_network | grep -Fq "docker_ipv6_subnet_overlaps_host \"\$existing_ula\""; then
     printf 'Docker ULA reuse incorrectly checks its own connected bridge route\n' >&2
     exit 1
 fi
@@ -93,7 +93,7 @@ if extract_function check_ipv6 | grep -Eq 'API_NET|curl[[:space:]]'; then
     printf 'check_ipv6 must not use an external address as a Docker subnet source\n' >&2
     exit 1
 fi
-if ! extract_function adapt_ipv6 | grep -Fq 'net.ipv6.conf.${interface}.accept_ra=2'; then
+if ! extract_function adapt_ipv6 | grep -Fq "net.ipv6.conf.\${interface}.accept_ra=2"; then
     printf 'Docker IPv6 forwarding must preserve router advertisements on the uplink\n' >&2
     exit 1
 fi
@@ -106,6 +106,18 @@ if ! ndpresponder_image_matches_architecture arm64 arm64 ||
 fi
 if ! grep -Fq 'registry_ndp_image="spiritlhl/ndpresponder_aarch64"' "$installer"; then
     printf 'Docker must select the published aarch64 responder tag on ARM64\n' >&2
+    exit 1
+fi
+if extract_function docker_build_ipv6 | grep -Fq -- '--restart always'; then
+    printf 'Docker ndpresponder must not retain an unconditional restart policy\n' >&2
+    exit 1
+fi
+if ! extract_function docker_build_ipv6 | grep -Fq -- '--restart on-failure:3'; then
+    printf 'Docker ndpresponder must use a bounded failure restart policy\n' >&2
+    exit 1
+fi
+if ! extract_function docker_build_ipv6 | grep -Fq 'docker update --restart=no ndpresponder'; then
+    printf 'Docker must stop a failed ndpresponder restart loop during health verification\n' >&2
     exit 1
 fi
 
@@ -143,6 +155,7 @@ docker() {
             ;;
     esac
 }
+# shellcheck disable=SC2034 # Consumed by the dynamically sourced resolver.
 NDPRESPONDER_SOURCE_URL=https://example.invalid/ndpresponder.git
 if ! resolve_ndpresponder_image arm64 spiritlhl/ndpresponder_aarch64; then
     printf 'Docker did not build a validated local responder after a bad registry architecture\n' >&2

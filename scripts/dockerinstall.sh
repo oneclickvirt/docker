@@ -1914,13 +1914,14 @@ docker_build_ipv6() {
                         existing_image=$(docker inspect -f '{{.Image}}' ndpresponder 2>/dev/null || true)
                         existing_arch=$(docker image inspect -f '{{.Architecture}}' "$existing_image" 2>/dev/null || true)
                         if ndpresponder_image_matches_architecture "$expected_ndp_arch" "$existing_arch"; then
+                            docker update --restart on-failure:3 ndpresponder >/dev/null 2>&1 || true
                             docker start ndpresponder >/dev/null 2>&1 || true
                         elif ! docker rm -f ndpresponder >/dev/null 2>&1; then
                             _red "Could not remove an incompatible ndpresponder after verifying a replacement image"
                             rm -f /usr/local/bin/docker_build_ipv6
                             return 1
                         elif ! docker run -d \
-                            --restart always --cpus 0.02 --memory 64M \
+                            --restart on-failure:3 --cpus 0.02 --memory 64M \
                             -v "${docker_socket}:/var/run/docker.sock:ro" \
                             -e DOCKER_HOST=unix:///var/run/docker.sock \
                             --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
@@ -1932,7 +1933,7 @@ docker_build_ipv6() {
                             return 1
                         fi
                     elif ! docker run -d \
-                        --restart always --cpus 0.02 --memory 64M \
+                        --restart on-failure:3 --cpus 0.02 --memory 64M \
                         -v "${docker_socket}:/var/run/docker.sock:ro" \
                         -e DOCKER_HOST=unix:///var/run/docker.sock \
                         --cap-drop=ALL --cap-add=NET_RAW --cap-add=NET_ADMIN \
@@ -1951,6 +1952,8 @@ docker_build_ipv6() {
                     done
                     if [[ "$ndp_status" != "running" ]]; then
                         _red "ndpresponder is not running: $(docker logs --tail 20 ndpresponder 2>&1 || true)"
+                        docker update --restart=no ndpresponder >/dev/null 2>&1 || true
+                        docker rm -f ndpresponder >/dev/null 2>&1 || true
                         rm -f /usr/local/bin/docker_build_ipv6
                         return 1
                     fi
