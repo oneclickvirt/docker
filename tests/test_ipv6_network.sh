@@ -134,6 +134,12 @@ if ! extract_function adapt_ipv6 | grep -Fq "net.ipv6.conf.\${interface}.accept_
     printf 'Docker IPv6 forwarding must preserve router advertisements on the uplink\n' >&2
     exit 1
 fi
+docker_build_ipv6_source=$(extract_function docker_build_ipv6)
+if ! grep -Fq 'public_parent_prefix > 112' <<<"$docker_build_ipv6_source" || \
+   ! grep -Fq "create_docker_ula_ipv6_network \"\$public_parent\"" <<<"$docker_build_ipv6_source"; then
+    printf 'Docker must use ULA NAT66 instead of pretending a /113-/128 parent can create a public bridge subnet\n' >&2
+    exit 1
+fi
 if ! ndpresponder_image_matches_architecture arm64 arm64 ||
    ! ndpresponder_image_matches_architecture arm arm ||
    ndpresponder_image_matches_architecture arm64 amd64 ||

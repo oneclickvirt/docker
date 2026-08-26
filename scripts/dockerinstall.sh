@@ -1815,6 +1815,24 @@ docker_build_ipv6() {
                 rc-service networking restart
             fi
             sleep 3
+            local public_parent="" public_parent_prefix=""
+            public_parent=$(cat /usr/local/bin/docker_check_ipv6_cidr 2>/dev/null || true)
+            public_parent_prefix=$(ipv6_cidr_prefix_length "$public_parent" 2>/dev/null || true)
+            # Docker needs a real child subnet with enough addresses for its
+            # bridge and endpoints. A host /113-/128 has IPv6 egress but is not
+            # a safe public allocation pool, so use ULA NAT66 instead of
+            # reporting a successful setup with no usable ipv6_net.
+            if [[ "$public_parent_prefix" =~ ^[0-9]+$ ]] && (( public_parent_prefix > 112 )); then
+                install_docker_and_compose
+                if create_docker_ula_ipv6_network "$public_parent"; then
+                    echo "1" >/usr/local/bin/docker_build_ipv6
+                    return 0
+                fi
+                _red "Could not create Docker ULA NAT66 network for narrow public IPv6 parent ${public_parent}"
+                _red "无法为过窄的公网 IPv6 前缀 ${public_parent} 创建 Docker ULA NAT66 网络"
+                rm -f /usr/local/bin/docker_build_ipv6
+                return 1
+            fi
             ipv6_address=$(sipcalc -i ${ipv6_address}/${ipv6_prefixlen} | grep "Subnet prefix (masked)" | cut -d ' ' -f 4 | cut -d '/' -f 1 | sed 's/:0:0:0:0:/::/' | sed 's/:0:0:0:/::/')
             ipv6_address="${ipv6_address%:*}:1"
             if [ "$ipv6_address" == "$ipv6_gateway" ]; then
