@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2026.08.27
+# 2026.08.30
 
 _red() { echo -e "\033[31m\033[01m$*\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$*\033[0m"; }
@@ -757,11 +757,24 @@ docker_ipv6_network_bridge() {
     printf '%s\n' "$bridge"
 }
 
-# The IPv6 default route identifies the NDP-facing uplink more reliably than
-# the first physical NIC. This matters on PVE bridges and tunnel hosts where
-# the interface carrying the public prefix is not named eth0.
+# Prefer the interface that owns the selected public CIDR. A PVE host can have
+# a management /128 and a delegated /38 on different bridges while its IPv6
+# default route still points at the management bridge. Only fall back to the
+# default route when the selected CIDR cannot be mapped to a live interface.
 docker_ipv6_uplink_interface() {
-    local uplink selected
+    local uplink selected selected_if
+    selected="${IPV6_CIDR:-}"
+    if [[ "$selected" != */* ]]; then
+        selected=$(select_public_ipv6_cidr 2>/dev/null || true)
+    fi
+    if [[ "$selected" == */* ]]; then
+        selected_if=$(ip -6 -o addr show scope global 2>/dev/null | awk -v cidr="$selected" '$4 == cidr {print $2; exit}')
+        if [[ -n "$selected_if" ]] && ip link show dev "$selected_if" >/dev/null 2>&1; then
+            printf '%s\n' "$selected_if"
+            return 0
+        fi
+    fi
+
     uplink=$(ip -6 route show default 2>/dev/null | awk '
         /^default / {
             for (i = 1; i < NF; i++) {
@@ -777,14 +790,7 @@ docker_ipv6_uplink_interface() {
         return 0
     fi
 
-    selected=$(select_public_ipv6_cidr 2>/dev/null || true)
-    [[ "$selected" == */* ]] || return 1
-    # A host can put the same IPv6 address on a /128 uplink and a delegated
-    # prefix bridge. Match the complete address/CIDR so PVE-style delegated
-    # bridges are selected instead of the narrower address on another link.
-    uplink=$(ip -6 -o addr show scope global 2>/dev/null | awk -v cidr="$selected" '$4 == cidr {print $2; exit}')
-    [[ -n "$uplink" ]] || return 1
-    printf '%s\n' "$uplink"
+    return 1
 }
 
 docker_ipv6_uplink_supports_ndp() {
@@ -801,6 +807,8 @@ docker_ipv6_clear_manual_state() {
         /usr/local/bin/docker_ipv6_manual_bridge \
         /usr/local/bin/docker_ipv6_allocations \
         /usr/local/bin/docker_ipv6_targets \
+        /usr/local/bin/docker_ipv6_ndp_ready \
+        /usr/local/bin/docker_ipv6_ndp_ready_required \
         /usr/local/bin/docker_ipv6_ndp_required \
         /usr/local/bin/docker_ipv6_uplink
 }
@@ -977,15 +985,26 @@ ndpresponder_supports_target_file() {
     grep -Eq -- '(^|[[:space:],])--target-file([[:space:],=]|$)' <<<"$help_output"
 }
 
+ndpresponder_supports_manual_routed_features() {
+    local image="$1" help_output
+    # A legacy image can recognize --target-file but retain its startup
+    # snapshot. Routed public /128 addresses need reload and readiness support
+    # before the installer can safely advertise IPv6 as available.
+    help_output=$(docker run --rm "$image" --help 2>&1 || true)
+    grep -Eq -- '(^|[[:space:],])--target-file([[:space:],=]|$)' <<<"$help_output" && \
+        grep -Eq -- '(^|[[:space:],])--target-file-reload-interval([[:space:],=]|$)' <<<"$help_output" && \
+        grep -Eq -- '(^|[[:space:],])--ready-file([[:space:],=]|$)' <<<"$help_output"
+}
+
 ndpresponder_image_supports_required_features() {
     if [[ "${NDPRESPONDER_TARGET_FILE_REQUIRED:-false}" != true ]]; then
         return 0
     fi
-    if ndpresponder_supports_target_file "$1"; then
+    if ndpresponder_supports_manual_routed_features "$1"; then
         return 0
     fi
-    _yellow "Responder image does not support --target-file; a source build is required for routed IPv6"
-    _yellow "Responder 镜像不支持 --target-file；手动路由 IPv6 需要从源码构建新版程序"
+    _yellow "Responder image does not support target-file reload and readiness; a source build is required for routed IPv6"
+    _yellow "Responder 镜像不支持目标文件热加载和就绪标记；手动路由 IPv6 需要从源码构建新版程序"
     return 1
 }
 
@@ -1012,15 +1031,15 @@ quarantine_incompatible_docker_ndpresponder() {
     [[ "${NDPRESPONDER_TARGET_FILE_REQUIRED:-false}" == true ]] || return 0
     existing_image=$(docker_ndpresponder_existing_image 2>/dev/null || true)
     [[ -n "$existing_image" ]] || return 0
-    if ndpresponder_supports_target_file "$existing_image"; then
+    if ndpresponder_supports_manual_routed_features "$existing_image"; then
         return 0
     fi
     if ! docker_ndpresponder_is_installer_owned; then
-        _yellow "Existing ndpresponder is not installer-managed and lacks --target-file; preserving it"
+        _yellow "Existing ndpresponder is not installer-managed and lacks routed IPv6 reload/readiness support; preserving it"
         return 1
     fi
-    _yellow "Existing ndpresponder lacks --target-file; removing it to stop an incompatible restart loop"
-    _yellow "已有 ndpresponder 不支持 --target-file，正在移除以停止不兼容的重启循环"
+    _yellow "Existing ndpresponder lacks routed IPv6 reload/readiness support; removing it to stop an incompatible restart loop"
+    _yellow "已有 ndpresponder 缺少路由 IPv6 热加载/就绪支持，正在移除以停止不兼容的重启循环"
     docker update --restart=no ndpresponder >/dev/null 2>&1 || true
     docker rm -f ndpresponder >/dev/null 2>&1 || true
     rm -f /usr/local/bin/docker_ndpresponder_owned
@@ -1066,8 +1085,8 @@ resolve_ndpresponder_image() {
         return 1
     fi
     if ! ndpresponder_image_supports_required_features "$source_image"; then
-        _yellow "The source-built responder is missing the required target-file capability; preserving any existing responder"
-        _yellow "源码构建的 ndpresponder 缺少所需的 target-file 能力，将保留已有 responder"
+        _yellow "The source-built responder is missing the required routed IPv6 capabilities; preserving any existing responder"
+        _yellow "源码构建的 ndpresponder 缺少所需的路由 IPv6 能力，将保留已有 responder"
         return 1
     fi
     NDPRESPONDER_IMAGE="$source_image"
@@ -1076,7 +1095,7 @@ resolve_ndpresponder_image() {
 
 start_docker_manual_ndpresponder() {
     local ndp_required uplink ndp_image ndp_status expected_arch registry_ndp_image
-    local target_file
+    local target_file ready_file
 
     [[ "$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_network_mode 2>/dev/null || true)" == manual ]] || return 0
     ndp_required=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_ndp_required 2>/dev/null || true)
@@ -1086,10 +1105,14 @@ start_docker_manual_ndpresponder() {
     fi
     uplink=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_uplink 2>/dev/null || true)
     target_file=/usr/local/bin/docker_ipv6_targets
+    ready_file=/usr/local/bin/docker_ipv6_ndp_ready
     [[ -n "$uplink" && -f "$target_file" ]] || {
         _yellow "Routed Docker IPv6 NDP state is incomplete"
         return 1
     }
+    : > "$ready_file"
+    chmod 600 "$ready_file"
+    rm -f /usr/local/bin/docker_ipv6_ndp_ready_required
 
     case "$system_arch" in
         x86)
@@ -1137,25 +1160,29 @@ start_docker_manual_ndpresponder() {
         --cap-add=NET_ADMIN \
         --network host \
         --volume "$target_file:/etc/ndpresponder-targets:ro" \
+        --volume "$ready_file:/run/ndpresponder-ready" \
         --name ndpresponder \
         "$ndp_image" \
-        -i "$uplink" --target-file /etc/ndpresponder-targets; then
+        -i "$uplink" --target-file /etc/ndpresponder-targets --target-file-reload-interval 2s --ready-file /run/ndpresponder-ready; then
         _yellow "Failed to create ndpresponder for routed Docker IPv6"
         return 1
     fi
-    for _ndp_attempt in 1 2 3; do
+    for ((_ndp_attempt = 1; _ndp_attempt <= 35; _ndp_attempt++)); do
         sleep 1
         ndp_status=$(docker inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null || true)
-        [[ "$ndp_status" == running ]] && break
+        [[ "$ndp_status" == running && -s "$ready_file" ]] && break
     done
-    if [[ "$ndp_status" == running ]]; then
+    if [[ "$ndp_status" == running && -s "$ready_file" ]]; then
         printf '%s\n' true > /usr/local/bin/docker_ndpresponder_owned
-        _green "NDP responder started for routed Docker IPv6"
+        printf '%s\n' true > /usr/local/bin/docker_ipv6_ndp_ready_required
+        _green "NDP responder started and is ready for routed Docker IPv6"
         return 0
     fi
-    _yellow "ndpresponder is not running: $(docker logs --tail 20 ndpresponder 2>&1 || true)"
+    _yellow "ndpresponder did not become ready: $(docker logs --tail 20 ndpresponder 2>&1 || true)"
     docker update --restart=no ndpresponder >/dev/null 2>&1 || true
     docker rm -f ndpresponder >/dev/null 2>&1 || true
+    : > "$ready_file" 2>/dev/null || true
+    rm -f /usr/local/bin/docker_ipv6_ndp_ready_required
     rm -f /usr/local/bin/docker_ndpresponder_owned
     return 1
 }

@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2026.08.27
+# 2026.08.30
 # 完整卸载 Docker 环境及所有容器
 # 支持的环境变量（一键非交互卸载）：
 #   noninteractive=true - 跳过卸载确认提示，直接执行卸载
@@ -329,6 +329,8 @@ for f in \
     /usr/local/bin/docker_ipv6_manual_bridge \
     /usr/local/bin/docker_ipv6_allocations \
     /usr/local/bin/docker_ipv6_targets \
+    /usr/local/bin/docker_ipv6_ndp_ready \
+    /usr/local/bin/docker_ipv6_ndp_ready_required \
     /usr/local/bin/docker_ipv6_ndp_required \
     /usr/local/bin/docker_ipv6_uplink \
     /usr/local/bin/docker_ndpresponder_owned \

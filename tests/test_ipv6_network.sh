@@ -53,6 +53,8 @@ eval "$(extract_function ndpresponder_image_matches_architecture)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 eval "$(extract_function ndpresponder_supports_target_file)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+eval "$(extract_function ndpresponder_supports_manual_routed_features)"
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 eval "$(extract_function ndpresponder_image_supports_required_features)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 eval "$(extract_function resolve_ndpresponder_image)"
@@ -73,6 +75,12 @@ if [ "${1:-}" = "link" ]; then
     exit 0
 fi
 if [ "${1:-}" = "-6" ] && [ "${2:-}" = "route" ]; then
+    if [ "${3:-}" = "show" ] && [ "${4:-}" = "default" ] && [ "${IPV6_TEST_SCENARIO:-}" = delegated ]; then
+        # The management /128 uses the default route, while the delegated
+        # /38 is carried by a separate PVE bridge.
+        printf '%s\n' 'default via fe80::1 dev eth0 proto ra metric 1024'
+        exit 0
+    fi
     printf '%s\n' '2a14:6781:a::/64 dev eth0 proto kernel metric 256'
     exit 0
 fi
@@ -105,6 +113,8 @@ export PATH="$tmpdir:$PATH"
 
 selected=$(select_public_ipv6_cidr)
 [[ "$selected" == '2a14:6781:000a:0000::9/64' ]] || fail "normal /64 selection returned $selected"
+uplink=$(docker_ipv6_uplink_interface)
+[[ "$uplink" == eth0 ]] || fail "normal /64 uplink detection returned $uplink"
 
 export IPV6_TEST_SCENARIO=delegated
 selected=$(select_public_ipv6_cidr)
@@ -164,7 +174,8 @@ if docker_ipv6_ula_state_matches_network managed "$managed_ula" "$managed_ula" |
    docker_ipv6_ula_state_matches_network nat '2a14:6781:a::/64' '2a14:6781:a::/64'; then
     fail "unmanaged or mismatched Docker ULA was accepted for reuse"
 fi
-if extract_function create_docker_ula_ipv6_network | grep -Fq 'docker_ipv6_subnet_overlaps_host "$existing_ula"'; then
+reuse_overlap_check="docker_ipv6_subnet_overlaps_host \"\$existing_ula\""
+if extract_function create_docker_ula_ipv6_network | grep -Fq "$reuse_overlap_check"; then
     fail "Docker ULA reuse incorrectly checks its own connected bridge route"
 fi
 export PATH="$old_path"
@@ -180,7 +191,8 @@ if extract_function check_ipv6 | grep -Eq 'API_NET|curl[[:space:]]|docker_last_i
     fail "check_ipv6 must only use locally bound IPv6 state"
 fi
 adapt_source=$(extract_function adapt_ipv6)
-if ! grep -Fq 'net.ipv6.conf.${uplink}.accept_ra=2' <<<"$adapt_source"; then
+accept_ra_setting="net.ipv6.conf.\${uplink}.accept_ra=2"
+if ! grep -Fq "$accept_ra_setting" <<<"$adapt_source"; then
     fail "Docker IPv6 forwarding must preserve router advertisements on the uplink"
 fi
 if grep -Fq 'proxy_ndp' <<<"$adapt_source"; then
@@ -199,9 +211,11 @@ ipv6_line=$(grep -nF 'check_and_adapt_ipv6' <<<"$main_source" | head -n 1 | cut 
 grep -Fq 'ensure_docker_ready' <<<"$main_source" || fail "main must wait for Docker before configuring IPv6"
 
 docker_build_ipv6_source=$(extract_function docker_build_ipv6)
+manual_ipv6_create_call="create_docker_manual_ipv6_network \"\$public_parent\""
+ula_ipv6_create_call="create_docker_ula_ipv6_network \"\$public_parent\""
 if ! grep -Fq 'public_parent_prefix == 128' <<<"$docker_build_ipv6_source" || \
-   ! grep -Fq 'create_docker_manual_ipv6_network "$public_parent"' <<<"$docker_build_ipv6_source" || \
-   ! grep -Fq 'create_docker_ula_ipv6_network "$public_parent"' <<<"$docker_build_ipv6_source"; then
+   ! grep -Fq "$manual_ipv6_create_call" <<<"$docker_build_ipv6_source" || \
+   ! grep -Fq "$ula_ipv6_create_call" <<<"$docker_build_ipv6_source"; then
     fail "Docker must route non-/128 parents and use NAT66 only for a lone /128"
 fi
 if grep -Fq 'public_parent_prefix > 112' <<<"$docker_build_ipv6_source"; then
@@ -213,19 +227,24 @@ ndp_source=$(extract_function start_docker_manual_ndpresponder)
 if grep -Fq -- '--restart always' <<<"$ndp_source"; then
     fail "Docker ndpresponder must not retain an unconditional restart policy"
 fi
-for required in '--restart on-failure:3' 'docker update --restart=no ndpresponder' '--target-file /etc/ndpresponder-targets'; do
+for required in '--restart on-failure:3' 'docker update --restart=no ndpresponder' '--target-file /etc/ndpresponder-targets' '--target-file-reload-interval 2s' '--ready-file /run/ndpresponder-ready'; do
     grep -Fq -- "$required" <<<"$ndp_source" || fail "Docker responder is missing required safeguard: $required"
 done
 grep -Fq 'quarantine_incompatible_docker_ndpresponder' <<<"$ndp_source" || fail "Docker must quarantine a legacy responder before target-file use"
 grep -Fq 'docker-ipv6-attach.sh' "$onedocker" || fail "container creation does not invoke the routed IPv6 helper"
 grep -Fq 'attach_manual_ipv6_or_rollback' "$onedocker" || fail "container creation does not roll back failed IPv6 attachment"
-grep -Fq '"$manual_ipv6_helper" --remove "$name"' "$onedocker" || fail "failed attachment does not remove its address mapping"
-grep -Fq '[ "$ndp_required" = "false" ]' "$onedocker" || fail "tunnel/non-Ethernet IPv6 still requires an NDP responder"
+grep -Fq 'docker_ipv6_ndp_ready_required' "$onedocker" || fail "container creation does not honor the responder readiness contract"
+grep -Fq 'docker_ipv6_ndp_ready' "$onedocker" || fail "container creation does not inspect the responder readiness marker"
+manual_ipv6_rollback_call="\"\$manual_ipv6_helper\" --remove \"\$name\""
+tunnel_ndp_check="[ \"\$ndp_required\" = \"false\" ]"
+grep -Fq "$manual_ipv6_rollback_call" "$onedocker" || fail "failed attachment does not remove its address mapping"
+grep -Fq "$tunnel_ndp_check" "$onedocker" || fail "tunnel/non-Ethernet IPv6 still requires an NDP responder"
 if grep -Fq 'radvd' "$uninstaller" || grep -Fq '/etc/sysctl.d/99-custom.conf' "$uninstaller"; then
     fail "Docker uninstall must not remove host-owned IPv6 services or generic sysctl state"
 fi
 grep -Fq 'docker-ipv6-attach.service' "$uninstaller" || fail "Docker uninstall does not clean the installer-owned routed IPv6 service"
 grep -Fq '99-oneclickvirt-docker-ipv6.conf' "$uninstaller" || fail "Docker uninstall does not clean the installer-owned sysctl file"
+grep -Fq 'docker_ipv6_ndp_ready_required' "$uninstaller" || fail "Docker uninstall does not clean the readiness requirement state"
 
 # A registry tag can be published for the wrong CPU. The resolver must build a
 # local image, validate that image too, and leave container mutation to its
@@ -235,6 +254,7 @@ NDPRESPONDER_TARGET_FILE_REQUIRED=false
 mock_build_succeeds=true
 mock_build_called=false
 mock_remove_called=false
+# shellcheck disable=SC2317,SC2329 # Invoked by the dynamically sourced resolver.
 docker() {
     case "$1:$2" in
         pull:*)
@@ -281,21 +301,26 @@ fi
 docker() {
     if [[ "$1" == run && "$2" == --rm && "$4" == --help ]]; then
         case "$3" in
-            supports-target-file) printf '%s\n' '  --target-file value  reload static IPv6 targets' ;;
+            supports-target-file)
+                printf '%s\n' '  --target-file value  reload static IPv6 targets'
+                printf '%s\n' '  --target-file-reload-interval value  target refresh interval'
+                printf '%s\n' '  --ready-file value  responder readiness marker'
+                ;;
             *) printf '%s\n' 'Usage: ndpresponder -i IFACE' ;;
         esac
         return 0
     fi
     return 1
 }
+# shellcheck disable=SC2034 # Consumed by the dynamically sourced capability probe.
 NDPRESPONDER_TARGET_FILE_REQUIRED=true
-ndpresponder_supports_target_file supports-target-file || fail "new responder target-file capability was not detected"
-if ndpresponder_supports_target_file legacy-image; then
-    fail "legacy responder was incorrectly accepted for target-file mode"
+ndpresponder_supports_manual_routed_features supports-target-file || fail "new responder routed IPv6 capabilities were not detected"
+if ndpresponder_supports_manual_routed_features legacy-image; then
+    fail "legacy responder was incorrectly accepted for routed IPv6 mode"
 fi
-ndpresponder_image_supports_required_features supports-target-file || fail "target-file-capable responder was rejected"
+ndpresponder_image_supports_required_features supports-target-file || fail "routed IPv6-capable responder was rejected"
 if ndpresponder_image_supports_required_features legacy-image; then
-    fail "target-file-incompatible responder was accepted"
+    fail "routed IPv6-incompatible responder was accepted"
 fi
 
 printf 'docker IPv6 network regression tests passed\n'

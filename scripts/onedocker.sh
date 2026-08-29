@@ -1,7 +1,7 @@
 #!/bin/bash
 # from
 # https://github.com/oneclickvirt/docker
-# 2026.08.27
+# 2026.08.30
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system> <disk>
 
@@ -452,6 +452,11 @@ ndp_required="true"
 if [ -s /usr/local/bin/docker_ipv6_ndp_required ]; then
     ndp_required=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_ndp_required 2>/dev/null || true)
 fi
+ndp_ready_required="false"
+if [ -s /usr/local/bin/docker_ipv6_ndp_ready_required ]; then
+    ndp_ready_required=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_ndp_ready_required 2>/dev/null || true)
+fi
+ndp_ready_file=/usr/local/bin/docker_ipv6_ndp_ready
 manual_ipv6_helper="/usr/local/bin/docker-ipv6-attach.sh"
 if [ "$ipv6_network_mode" = "nat" ]; then
     _yellow "Docker IPv6 is using an isolated ULA with NAT66; public /128 assignment is not available in this mode"
@@ -487,21 +492,25 @@ case "$ipv6_network_mode" in
         if [ "$ipv6_net_status" != "Y" ] || [ ! -x "$manual_ipv6_helper" ]; then
             _yellow "Routed Docker IPv6 state is incomplete; public /128 attachment is unavailable"
             _yellow "Docker 手动路由 IPv6 状态不完整，暂不可附加公网 /128"
-        elif [ "$ndp_required" = "false" ] || [ "$ndpresponder_status" = "Y" ]; then
+        elif [ "$ndp_required" = "false" ] || {
+            [ "$ndpresponder_status" = "Y" ] &&
+            { [ "$ndp_ready_required" != "true" ] || [ -s "$ndp_ready_file" ]; }
+        }; then
             ipv6_network_ready="Y"
             manual_ipv6_attachment="Y"
             if [ "$ndp_required" = "false" ]; then
                 _green "Routed Docker IPv6 uses a tunnel/non-Ethernet uplink; NDP responder is not required"
             fi
         else
-            _yellow "Routed Docker IPv6 requires a healthy ndpresponder before a public /128 can be attached"
-            _yellow "Docker 手动路由 IPv6 需要健康的 ndpresponder 才能附加公网 /128"
+            _yellow "Routed Docker IPv6 requires a healthy and ready ndpresponder before a public /128 can be attached"
+            _yellow "Docker 手动路由 IPv6 需要健康且已就绪的 ndpresponder 才能附加公网 /128"
         fi
         ;;
     *)
         # Preserve older installer-managed public IPv6 networks. They use the
         # responder's Docker API discovery instead of the routed /128 helper.
         if [ "$ipv6_net_status" = "Y" ] && [ "$ndpresponder_status" = "Y" ] && \
+           { [ "$ndp_ready_required" != "true" ] || [ -s "$ndp_ready_file" ]; } && \
            [ -n "${ipv6_address:-}" ] && [ -n "${ipv6_address_without_last_segment:-}" ]; then
             ipv6_network_ready="Y"
         fi
