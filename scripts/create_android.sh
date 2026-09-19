@@ -9,7 +9,9 @@ _green() { echo -e "\033[32m\033[01m$*\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 is_noninteractive() {
-    case "${noninteractive:-}" in
+    noninteractive="${noninteractive:-${NONINTERACTIVE:-}}"
+    export noninteractive
+    case "$noninteractive" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
     esac
     return 1
@@ -132,11 +134,34 @@ if command -v dpkg >/dev/null 2>&1; then
     fi
 fi
 if ! command -v npm >/dev/null 2>&1; then
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    if ! nvm_installer=$(mktemp /tmp/oneclickvirt-nvm.XXXXXX); then
+        _red "Failed to allocate a temporary file for nvm"
+        _red "无法为 nvm 分配临时文件"
+        exit 1
+    fi
+    if ! curl -fsSL --connect-timeout 15 --max-time 120 \
+        https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh -o "$nvm_installer" ||
+       [ ! -s "$nvm_installer" ] || ! bash "$nvm_installer"; then
+        rm -f "$nvm_installer"
+        _red "Failed to install nvm"
+        _red "nvm 安装失败"
+        exit 1
+    fi
+    rm -f "$nvm_installer"
     export NVM_DIR="$HOME/.nvm"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+    if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+        _red "nvm installer did not create nvm.sh"
+        _red "nvm 安装器未生成 nvm.sh"
+        exit 1
+    fi
+    # shellcheck disable=SC1090
+    . "$NVM_DIR/nvm.sh"  # This loads nvm
     [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-    nvm install 20
+    if ! nvm install 20; then
+        _red "Failed to install Node.js 20"
+        _red "Node.js 20 安装失败"
+        exit 1
+    fi
     echo "node version:"
     node -v
     echo "npm version:"

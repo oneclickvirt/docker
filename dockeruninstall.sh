@@ -13,7 +13,9 @@ _yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
 _blue()   { echo -e "\033[36m\033[01m$*\033[0m"; }
 
 is_noninteractive() {
-    case "${noninteractive:-}" in
+    noninteractive="${noninteractive:-${NONINTERACTIVE:-}}"
+    export noninteractive
+    case "$noninteractive" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
     esac
     return 1

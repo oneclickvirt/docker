@@ -40,22 +40,76 @@ if [ -f /etc/cloud/cloud.cfg ]; then
 fi
 
 # 确保 /var/run/sshd 目录存在
-mkdir -p /var/run/sshd
+if ! mkdir -p /var/run/sshd; then
+    echo "Failed to create /var/run/sshd" >&2
+    exit 1
+fi
 
 # 生成 SSH host keys
-ssh-keygen -A 2>/dev/null || true
+if ! ssh-keygen -A 2>/dev/null; then
+    echo "Failed to generate SSH host keys" >&2
+    exit 1
+fi
 
 # 设置 root 密码
-printf "%s\n" "root:${passwd_input}" | chpasswd 2>/dev/null || true
+if ! printf "%s\n" "root:${passwd_input}" | chpasswd 2>/dev/null; then
+    echo "Failed to set the root password" >&2
+    exit 1
+fi
 
 # 启动 sshd
-rc-update add sshd default 2>/dev/null || true
-/usr/sbin/sshd 2>/dev/null || true
+if command -v rc-update >/dev/null 2>&1; then
+    if ! rc-update add sshd default 2>/dev/null; then
+        echo "Failed to enable sshd at boot" >&2
+        exit 1
+    fi
+else
+    echo "Warning: OpenRC is unavailable; sshd will not be registered for boot" >&2
+fi
+if ! /usr/sbin/sshd -t 2>/dev/null || ! /usr/sbin/sshd 2>/dev/null; then
+    echo "Failed to start sshd" >&2
+    exit 1
+fi
+if command -v pgrep >/dev/null 2>&1; then
+    pgrep -x sshd >/dev/null 2>&1 || { echo "Failed to start sshd" >&2; exit 1; }
+elif command -v pidof >/dev/null 2>&1; then
+    pidof sshd >/dev/null 2>&1 || { echo "Failed to start sshd" >&2; exit 1; }
+fi
 
 # 设置 cron 保活
 cron_line="* * * * * pgrep -x sshd>/dev/null||/usr/sbin/sshd"
-(crontab -l 2>/dev/null | grep -v "sshd"; echo "$cron_line") | crontab - 2>/dev/null || true
-crond 2>/dev/null || true
+if command -v crontab >/dev/null 2>&1; then
+    cron_lock=/run/oneclickvirt-sshd-cron.lock
+    cron_locked=false
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        if mkdir "$cron_lock" 2>/dev/null; then
+            cron_locked=true
+            break
+        fi
+        sleep 1
+    done
+    if [ "$cron_locked" = true ]; then
+        if cron_tmp=$(mktemp /tmp/oneclickvirt-sshd-crontab.XXXXXX); then
+            crontab -l >"$cron_tmp" 2>/dev/null || :
+            grep -v "sshd" "$cron_tmp" >"${cron_tmp}.filtered" || :
+            printf '%s\n' "$cron_line" >>"${cron_tmp}.filtered"
+            if ! crontab "${cron_tmp}.filtered"; then
+                echo "Warning: failed to install the SSH keepalive cron job" >&2
+            fi
+            rm -f -- "$cron_tmp" "${cron_tmp}.filtered"
+        else
+            echo "Warning: unable to create a temporary SSH keepalive crontab" >&2
+        fi
+        rmdir "$cron_lock" 2>/dev/null || true
+    else
+        echo "Warning: timed out waiting for the SSH keepalive cron lock" >&2
+    fi
+else
+    echo "Warning: crontab is unavailable; SSH keepalive was not installed" >&2
+fi
+if command -v crond >/dev/null 2>&1 && ! crond 2>/dev/null; then
+    echo "Warning: failed to start crond; SSH itself is still running" >&2
+fi
 
 # 更新 motd
 if [ -f /etc/motd ]; then

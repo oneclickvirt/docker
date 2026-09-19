@@ -404,7 +404,13 @@ download_ssh_scripts() {
         local script_url="${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/${script_name}"
         source_script="/tmp/${script_name}"
         cleanup_source="true"
-        curl -fsSL "$script_url" -o "$source_script" --connect-timeout 10 --max-time 30
+        rm -f -- "$source_script"
+        if ! curl -fsSL "$script_url" -o "$source_script" --connect-timeout 10 --max-time 30 || [ ! -s "$source_script" ]; then
+            rm -f -- "$source_script"
+            _red "Failed to download ${script_name}"
+            _red "下载 ${script_name} 失败"
+            return 1
+        fi
     fi
 
     if [ -f "$source_script" ] && [ -s "$source_script" ]; then

@@ -8,7 +8,9 @@ _green() { echo -e "\033[32m\033[01m$*\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
 _blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 is_noninteractive() {
-    case "${noninteractive:-}" in
+    noninteractive="${noninteractive:-${NONINTERACTIVE:-}}"
+    export noninteractive
+    case "$noninteractive" in
         [Tt][Rr][Uu][Ee]|1|[Yy]|[Yy][Ee][Ss]) return 0 ;;
     esac
     return 1
@@ -57,9 +59,9 @@ fi
 #   DOCKER_LOOP_FILE=...     - Docker loop 文件路径（默认 /opt/docker-pool.img）
 
 temp_file_apt_fix="/tmp/apt_fix.txt"
-REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch" "alpine")
+REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "amazon[[:space:]]+linux" "fedora" "arch" "alpine")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch" "Alpine")
-PACKAGE_UPDATE=("! apt-get update && apt-get --fix-broken install -y && apt-get update" "apt-get update" "yum -y update" "yum -y update" "yum -y update" "pacman -Sy" "apk update")
+PACKAGE_UPDATE=("apt-get update" "apt-get update" "yum -y update" "yum -y update" "yum -y update" "pacman -Sy" "apk update")
 PACKAGE_INSTALL=("apt-get -y install" "apt-get -y install" "yum -y install" "yum -y install" "yum -y install" "pacman -Sy --noconfirm --needed" "apk add --no-cache")
 PACKAGE_REMOVE=("apt-get -y remove" "apt-get -y remove" "yum -y remove" "yum -y remove" "yum -y remove" "pacman -Rsc --noconfirm" "apk del")
 PACKAGE_UNINSTALL=("apt-get -y autoremove" "apt-get -y autoremove" "yum -y autoremove" "yum -y autoremove" "yum -y autoremove" "" "")
@@ -95,10 +97,12 @@ check_storage_driver_support() {
     local driver="$1"
     case "$driver" in
         "btrfs")
-            if command -v btrfs >/dev/null 2>&1; then
+            command -v btrfs >/dev/null 2>&1 || return 1
+            if grep -qw btrfs /proc/filesystems 2>/dev/null || grep -qw btrfs /proc/modules 2>/dev/null; then
                 return 0
             fi
-            return 1
+            modprobe btrfs 2>/dev/null || true
+            grep -qw btrfs /proc/filesystems 2>/dev/null || grep -qw btrfs /proc/modules 2>/dev/null
             ;;
         *)
             return 1
@@ -126,8 +130,11 @@ install_storage_driver() {
         echo "$driver" > /usr/local/bin/docker_storage_reboot
         _green "Storage driver $driver installed. System will reboot in 5 seconds to load kernel modules."
         sleep 5
-        reboot
-        exit 0
+        if reboot; then
+            exit 0
+        fi
+        _red "System reboot command failed; refusing to continue without the requested btrfs driver."
+        return 1
     fi
 }
 
@@ -138,44 +145,101 @@ setup_docker_btrfs_loop() {
     _yellow "Setting up Docker btrfs loop filesystem..."
     local loop_dir=$(dirname "$loop_file")
     if [ ! -d "$loop_dir" ]; then
-        mkdir -p "$loop_dir"
+        mkdir -p "$loop_dir" || {
+            _red "Unable to create Docker loop directory: $loop_dir"
+            return 1
+        }
     fi
     if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet docker; then
-        systemctl stop docker
+        systemctl stop docker || {
+            _red "Unable to stop Docker before preparing its btrfs data root"
+            return 1
+        }
     elif command -v rc-service >/dev/null 2>&1 && rc-service docker status >/dev/null 2>&1; then
-        rc-service docker stop
+        rc-service docker stop || {
+            _red "Unable to stop Docker before preparing its btrfs data root"
+            return 1
+        }
     fi
     # 若 loop 文件已存在且已挂载，则跳过格式化以避免损坏已有数据
     if [ -f "$loop_file" ] && losetup -j "$loop_file" 2>/dev/null | grep -q "$loop_file"; then
         _green "Loop file $loop_file already exists and is attached, skipping creation."
         loop_device=$(losetup -j "$loop_file" | cut -d: -f1)
-        mkdir -p "$mount_point"
-        mount "$loop_device" "$mount_point" 2>/dev/null || true
-        echo "$loop_device" > /usr/local/bin/docker_loop_device
-        echo "$loop_file" > /usr/local/bin/docker_loop_file
-        echo "$mount_point" > /usr/local/bin/docker_mount_point
+        mkdir -p "$mount_point" || return 1
+        if ! mountpoint -q "$mount_point" 2>/dev/null && ! mount "$loop_device" "$mount_point" 2>/dev/null; then
+            _red "Existing Docker btrfs loop filesystem could not be mounted: $mount_point"
+            return 1
+        fi
+        mountpoint -q "$mount_point" 2>/dev/null || {
+            _red "Docker btrfs loop mount is not active: $mount_point"
+            return 1
+        }
+        printf '%s\n' "$loop_device" > /usr/local/bin/docker_loop_device || return 1
+        printf '%s\n' "$loop_file" > /usr/local/bin/docker_loop_file || return 1
+        printf '%s\n' "$mount_point" > /usr/local/bin/docker_mount_point || return 1
         return
+    fi
+    # An existing image that is not attached may still contain a previous
+    # installation. Preserve it before fallocate can truncate the path.
+    if [ -f "$loop_file" ]; then
+        local backup_loop_file="${loop_file}.backup.$(date +%Y%m%d-%H%M%S)"
+        if ! mv -- "$loop_file" "$backup_loop_file"; then
+            _red "Failed to back up existing Docker loop file: $loop_file"
+            return 1
+        fi
+        _yellow "Existing Docker loop file backed up to: $backup_loop_file"
     fi
     if [ -d "$mount_point" ] && [ "$(ls -A "$mount_point" 2>/dev/null)" ]; then
         _yellow "Backing up existing Docker data..."
-        mv "$mount_point" "${mount_point}.backup.$(date +%Y%m%d-%H%M%S)"
+        mv "$mount_point" "${mount_point}.backup.$(date +%Y%m%d-%H%M%S)" || {
+            _red "Failed to back up existing Docker data: $mount_point"
+            return 1
+        }
     fi
     _yellow "Creating ${pool_size_gb}GB loop file at $loop_file..."
-    fallocate -l "${pool_size_gb}G" "$loop_file"
-    loop_device=$(losetup --find --show "$loop_file")
+    if ! fallocate -l "${pool_size_gb}G" "$loop_file"; then
+        _red "Failed to allocate Docker btrfs loop file: $loop_file"
+        return 1
+    fi
+    if ! loop_device=$(losetup --find --show "$loop_file") || [ -z "$loop_device" ]; then
+        _red "Failed to attach Docker btrfs loop file: $loop_file"
+        rm -f -- "$loop_file"
+        return 1
+    fi
     _green "Loop device created: $loop_device"
     _yellow "Creating btrfs filesystem on $loop_device..."
-    mkfs.btrfs -f "$loop_device"
-    mkdir -p "$mount_point"
-    mount "$loop_device" "$mount_point"
-    if ! grep -q "$loop_file" /etc/fstab; then
-        echo "$loop_file $mount_point btrfs loop,defaults 0 0" >> /etc/fstab
+    if ! mkfs.btrfs -f "$loop_device"; then
+        _red "Failed to format Docker btrfs loop device: $loop_device"
+        losetup -d "$loop_device" 2>/dev/null || true
+        rm -f -- "$loop_file"
+        return 1
     fi
-    chmod 755 "$mount_point"
+    if ! mkdir -p "$mount_point"; then
+        _red "Failed to create Docker mount point: $mount_point"
+        losetup -d "$loop_device" 2>/dev/null || true
+        rm -f -- "$loop_file"
+        return 1
+    fi
+    if ! mount "$loop_device" "$mount_point"; then
+        _red "Failed to mount Docker btrfs loop filesystem: $mount_point"
+        losetup -d "$loop_device" 2>/dev/null || true
+        rm -f -- "$loop_file"
+        return 1
+    fi
+    if ! grep -q "$loop_file" /etc/fstab; then
+        if ! printf '%s\n' "$loop_file $mount_point btrfs loop,defaults 0 0" >> /etc/fstab; then
+            _red "Failed to persist Docker btrfs mount in /etc/fstab"
+            umount "$mount_point" 2>/dev/null || true
+            losetup -d "$loop_device" 2>/dev/null || true
+            rm -f -- "$loop_file"
+            return 1
+        fi
+    fi
+    chmod 755 "$mount_point" || return 1
     _green "Docker btrfs loop filesystem setup completed"
-    echo "$loop_device" > /usr/local/bin/docker_loop_device
-    echo "$loop_file" > /usr/local/bin/docker_loop_file
-    echo "$mount_point" > /usr/local/bin/docker_mount_point
+    printf '%s\n' "$loop_device" > /usr/local/bin/docker_loop_device || return 1
+    printf '%s\n' "$loop_file" > /usr/local/bin/docker_loop_file || return 1
+    printf '%s\n' "$mount_point" > /usr/local/bin/docker_mount_point || return 1
 }
 
 try_storage_drivers() {
@@ -218,7 +282,7 @@ try_storage_drivers() {
         return 0
     else
         _yellow "Trying to install storage driver: btrfs"
-        install_storage_driver "btrfs"
+        install_storage_driver "btrfs" || return 1
         if check_storage_driver_support "btrfs"; then
             echo "btrfs" > /usr/local/bin/docker_storage_driver
             return 0
@@ -245,21 +309,25 @@ statistics_of_run_times() {
 }
 
 check_update() {
+    local apt_update_output update_status=0 public_keys joined_keys
     _yellow "Updating package management sources"
     if command -v apt-get >/dev/null 2>&1; then
-        apt_update_output=$(apt-get update 2>&1)
+        apt_update_output=$(apt-get update 2>&1) || update_status=$?
         echo "$apt_update_output" >"$temp_file_apt_fix"
         if grep -q 'NO_PUBKEY' "$temp_file_apt_fix"; then
             public_keys=$(grep -oE 'NO_PUBKEY [0-9A-F]+' "$temp_file_apt_fix" | awk '{ print $2 }')
-            joined_keys=$(echo "$public_keys" | paste -sd " ")
+            joined_keys=$(echo "$public_keys" | paste -sd " " -)
             _yellow "No Public Keys: ${joined_keys}"
-            apt-key adv --keyserver keyserver.ubuntu.com --recv-keys ${joined_keys}
-            apt-get update
-            if [ $? -eq 0 ]; then
+            if [ -n "$joined_keys" ] && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys ${joined_keys}; then
+                update_status=0
+                apt-get update || update_status=$?
+            fi
+            if [ "$update_status" -eq 0 ]; then
                 _green "Fixed"
             fi
         fi
         rm "$temp_file_apt_fix"
+        return "$update_status"
     elif command -v apk >/dev/null 2>&1; then
         apk update
     else
@@ -515,9 +583,9 @@ configure_docker_ipv6_nat66() {
         return
     fi
     if command -v nft >/dev/null 2>&1 && nft list ruleset >/dev/null 2>&1; then
-        nft add table ip6 "$nft_table" 2>/dev/null || true
-        nft "add chain ip6 ${nft_table} forward { type filter hook forward priority filter; policy accept; }" 2>/dev/null || true
-        nft "add chain ip6 ${nft_table} postrouting { type nat hook postrouting priority srcnat; policy accept; }" 2>/dev/null || true
+        nft list table ip6 "$nft_table" >/dev/null 2>&1 || nft add table ip6 "$nft_table" 2>/dev/null || return 1
+        nft list chain ip6 "$nft_table" forward >/dev/null 2>&1 || nft "add chain ip6 ${nft_table} forward { type filter hook forward priority filter; policy accept; }" 2>/dev/null || return 1
+        nft list chain ip6 "$nft_table" postrouting >/dev/null 2>&1 || nft "add chain ip6 ${nft_table} postrouting { type nat hook postrouting priority srcnat; policy accept; }" 2>/dev/null || return 1
         postrouting=$(nft list chain ip6 "$nft_table" postrouting 2>/dev/null || true)
         forward=$(nft list chain ip6 "$nft_table" forward 2>/dev/null || true)
         if ! grep -Fq "ip6 saddr ${subnet}" <<<"$postrouting" || ! grep -Fq 'masquerade' <<<"$postrouting"; then
@@ -572,9 +640,9 @@ fi
 
 command -v nft >/dev/null 2>&1 && nft list ruleset >/dev/null 2>&1 || exit 1
 nft_table=oneclickvirt_docker_ipv6
-nft add table ip6 "$nft_table" 2>/dev/null || true
-nft "add chain ip6 ${nft_table} forward { type filter hook forward priority filter; policy accept; }" 2>/dev/null || true
-nft "add chain ip6 ${nft_table} postrouting { type nat hook postrouting priority srcnat; policy accept; }" 2>/dev/null || true
+    nft list table ip6 "$nft_table" >/dev/null 2>&1 || nft add table ip6 "$nft_table" 2>/dev/null || exit 1
+    nft list chain ip6 "$nft_table" forward >/dev/null 2>&1 || nft "add chain ip6 ${nft_table} forward { type filter hook forward priority filter; policy accept; }" 2>/dev/null || exit 1
+    nft list chain ip6 "$nft_table" postrouting >/dev/null 2>&1 || nft "add chain ip6 ${nft_table} postrouting { type nat hook postrouting priority srcnat; policy accept; }" 2>/dev/null || exit 1
 postrouting=$(nft list chain ip6 "$nft_table" postrouting 2>/dev/null || true)
 forward=$(nft list chain ip6 "$nft_table" forward 2>/dev/null || true)
 grep -Fq "ip6 saddr ${subnet}" <<<"$postrouting" || \
@@ -585,9 +653,9 @@ grep -Fq "ip6 saddr ${subnet} accept" <<<"$forward" || \
     nft add rule ip6 "$nft_table" forward ip6 saddr "$subnet" accept || exit 1
 exit 0
 EOF
-    chmod 700 "$helper"
+    chmod 700 "$helper" || return 1
     if command -v systemctl >/dev/null 2>&1; then
-        cat > /etc/systemd/system/docker-ipv6-nat.service <<'EOF'
+        if ! cat > /etc/systemd/system/docker-ipv6-nat.service <<'EOF'
 [Unit]
 Description=Restore OneClickVirt Docker IPv6 NAT66 rules
 After=network-online.target docker.service
@@ -600,13 +668,21 @@ ExecStart=/usr/local/bin/docker-ipv6-nat.sh
 [Install]
 WantedBy=multi-user.target
 EOF
-        systemctl daemon-reload 2>/dev/null || true
-        systemctl enable --now docker-ipv6-nat.service 2>/dev/null || \
-            _yellow "Could not enable docker-ipv6-nat.service; verify NAT66 after reboot"
+        then
+            return 1
+        fi
+        if ! systemctl daemon-reload 2>/dev/null; then
+            _yellow "Could not reload systemd after installing docker-ipv6-nat.service"
+            return 1
+        fi
+        if ! systemctl enable --now docker-ipv6-nat.service 2>/dev/null; then
+            _yellow "Could not enable docker-ipv6-nat.service; NAT66 persistence is unavailable"
+            return 1
+        fi
         return 0
     fi
     if command -v rc-update >/dev/null 2>&1 && command -v rc-service >/dev/null 2>&1; then
-        cat > /etc/init.d/docker-ipv6-nat <<'EOF'
+        if ! cat > /etc/init.d/docker-ipv6-nat <<'EOF'
 #!/sbin/openrc-run
 # OneClickVirt Docker IPv6 NAT66 restore service.
 
@@ -623,10 +699,18 @@ start() {
     eend $?
 }
 EOF
-        chmod 700 /etc/init.d/docker-ipv6-nat
-        rc-update add docker-ipv6-nat default 2>/dev/null || true
-        rc-service docker-ipv6-nat restart 2>/dev/null || \
-            _yellow "Could not start docker-ipv6-nat OpenRC service; verify NAT66 after reboot"
+        then
+            return 1
+        fi
+        chmod 700 /etc/init.d/docker-ipv6-nat || return 1
+        if ! rc-update add docker-ipv6-nat default 2>/dev/null; then
+            _yellow "Could not enable docker-ipv6-nat OpenRC service"
+            return 1
+        fi
+        if ! rc-service docker-ipv6-nat restart 2>/dev/null; then
+            _yellow "Could not start docker-ipv6-nat OpenRC service; NAT66 persistence is unavailable"
+            return 1
+        fi
         return 0
     fi
     _yellow "No service manager found; verify Docker IPv6 NAT66 rules after reboot"
@@ -685,7 +769,7 @@ create_docker_ula_ipv6_network() {
         printf '%s\n' "$existing_ula" > /usr/local/bin/docker_ipv6_subnet
         printf '%s\n' nat > /usr/local/bin/docker_ipv6_network_mode
         printf '%s\n' "$public_parent" > /usr/local/bin/docker_ipv6_public_parent
-        install_docker_ipv6_nat66_service
+        install_docker_ipv6_nat66_service || return 1
         return 0
     fi
     for index in $(seq 0 255); do
@@ -705,7 +789,7 @@ create_docker_ula_ipv6_network() {
             printf '%s\n' "$ula" > /usr/local/bin/docker_ipv6_subnet
             printf '%s\n' nat > /usr/local/bin/docker_ipv6_network_mode
             printf '%s\n' "$public_parent" > /usr/local/bin/docker_ipv6_public_parent
-            install_docker_ipv6_nat66_service
+            install_docker_ipv6_nat66_service || return 1
             _green "Docker IPv6 network uses isolated ULA ${ula}; outbound NAT66 is enabled"
             _green "Docker IPv6 网络使用隔离 ULA ${ula}，已启用出站 NAT66"
             return 0
@@ -895,7 +979,7 @@ create_docker_manual_ipv6_network() {
     chmod 600 /usr/local/bin/docker_ipv6_allocations
     chmod 644 /usr/local/bin/docker_ipv6_targets
     install_docker_manual_ipv6_attach_helper
-    install_docker_manual_ipv6_restore_service
+    install_docker_manual_ipv6_restore_service || return 1
     _green "Docker IPv6 network uses routed /128 attachment: internal=${manual_subnet}, public parent=${normalized_parent}"
     _yellow "Docker IPAM remains isolated; public IPv6 addresses are attached after each container starts"
     return 0
@@ -1483,12 +1567,12 @@ case "${1:-}" in
         ;;
 esac
 EOF
-    chmod 700 "$helper"
+    chmod 700 "$helper" || return 1
 }
 
 install_docker_manual_ipv6_restore_service() {
     if command -v systemctl >/dev/null 2>&1; then
-        cat > /etc/systemd/system/docker-ipv6-attach.service <<'EOF'
+        if ! cat > /etc/systemd/system/docker-ipv6-attach.service <<'EOF'
 [Unit]
 Description=Restore OneClickVirt Docker routed IPv6 addresses
 After=network-online.target docker.service
@@ -1503,13 +1587,21 @@ RestartSec=2
 [Install]
 WantedBy=multi-user.target
 EOF
-        systemctl daemon-reload 2>/dev/null || true
-        systemctl enable --now docker-ipv6-attach.service 2>/dev/null || \
-            _yellow "Could not start docker-ipv6-attach.service; rerun the installer after a reboot"
+        then
+            return 1
+        fi
+        if ! systemctl daemon-reload 2>/dev/null; then
+            _yellow "Could not reload systemd after installing docker-ipv6-attach.service"
+            return 1
+        fi
+        if ! systemctl enable --now docker-ipv6-attach.service 2>/dev/null; then
+            _yellow "Could not start docker-ipv6-attach.service; routed IPv6 persistence is unavailable"
+            return 1
+        fi
         return 0
     fi
     if command -v rc-update >/dev/null 2>&1 && command -v rc-service >/dev/null 2>&1; then
-        cat > /etc/init.d/docker-ipv6-attach <<'EOF'
+        if ! cat > /etc/init.d/docker-ipv6-attach <<'EOF'
 #!/sbin/openrc-run
 # OneClickVirt Docker routed IPv6 restore service.
 
@@ -1524,10 +1616,18 @@ depend() {
     after docker
 }
 EOF
-        chmod 700 /etc/init.d/docker-ipv6-attach
-        rc-update add docker-ipv6-attach default 2>/dev/null || true
-        rc-service docker-ipv6-attach restart 2>/dev/null || \
-            _yellow "Could not start docker-ipv6-attach OpenRC service; rerun the installer after a reboot"
+        then
+            return 1
+        fi
+        chmod 700 /etc/init.d/docker-ipv6-attach || return 1
+        if ! rc-update add docker-ipv6-attach default 2>/dev/null; then
+            _yellow "Could not enable docker-ipv6-attach OpenRC service"
+            return 1
+        fi
+        if ! rc-service docker-ipv6-attach restart 2>/dev/null; then
+            _yellow "Could not start docker-ipv6-attach OpenRC service; routed IPv6 persistence is unavailable"
+            return 1
+        fi
         return 0
     fi
     _yellow "No service manager found; routed Docker IPv6 addresses must be restored manually after reboot"
@@ -1596,14 +1696,17 @@ if [ ! -d /usr/local/bin ]; then
 fi
 statistics_of_run_times
 _green "脚本当天运行次数:${TODAY}，累计运行次数:${TOTAL}"
-check_update
+check_update || {
+    _red "Package index update failed; Docker prerequisites cannot be installed safely"
+    exit 1
+}
 install_packages_once() {
     local packages=("$@")
     if [ "${#packages[@]}" -eq 0 ]; then
         return 0
     fi
     _yellow "Installing packages: ${packages[*]}"
-    ${PACKAGE_INSTALL[int]} "${packages[@]}"
+    ${PACKAGE_INSTALL[int]} "${packages[@]}" || return 1
 }
 
 base_packages=()
@@ -1630,23 +1733,30 @@ if ! command -v ip >/dev/null 2>&1; then
         base_packages+=("iproute2")
     fi
 fi
-install_packages_once "${base_packages[@]}"
+install_packages_once "${base_packages[@]}" || {
+    _red "Required Docker prerequisites could not be installed"
+    exit 1
+}
 if ! command -v lshw >/dev/null 2>&1; then
     _yellow "Installing lshw"
     if [[ "$SYSTEM" == "Alpine" ]]; then
         _yellow "Alpine does not have lshw package, skipping..."
     else
-        ${PACKAGE_INSTALL[int]} lshw
+        ${PACKAGE_INSTALL[int]} lshw || _yellow "lshw unavailable; interface detection will use ip"
     fi
 fi
 if ! command -v ipcalc >/dev/null 2>&1; then
     _yellow "Installing ipcalc"
     if [[ "$SYSTEM" == "Alpine" ]]; then
-        ${PACKAGE_INSTALL[int]} ipcalc-ng
+        ${PACKAGE_INSTALL[int]} ipcalc-ng || exit 1
     else
-        ${PACKAGE_INSTALL[int]} ipcalc
+        ${PACKAGE_INSTALL[int]} ipcalc || exit 1
     fi
 fi
+command -v ipcalc >/dev/null 2>&1 || {
+    _red "ipcalc is required to determine the host IPv4 network"
+    exit 1
+}
 if ! command -v lxcfs >/dev/null 2>&1; then
     _yellow "Installing lxcfs"
     if [[ "$SYSTEM" == "Alpine" ]]; then
@@ -1694,17 +1804,26 @@ if ! curl -fsSLk "${cdn_success_url}https://raw.githubusercontent.com/oneclickvi
     _red "下载 ssh_sh.sh 失败"
     exit 1
 fi
-chmod +x ssh_bash.sh ssh_sh.sh
-dos2unix ssh_bash.sh ssh_sh.sh >/dev/null 2>&1 || true
+chmod +x ssh_bash.sh ssh_sh.sh || exit 1
+dos2unix ssh_bash.sh ssh_sh.sh >/dev/null 2>&1 || _yellow "dos2unix unavailable; downloaded scripts remain executable"
 
 if [[ "$SYSTEM" == "Alpine" ]]; then
     interface_1=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {print $2; exit}')
     interface_2=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {count++; if(count==2) {print $2; exit}}')
 else
-    interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
-    interface_2=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '2p')
+    if command -v lshw >/dev/null 2>&1; then
+        interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
+        interface_2=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '2p')
+    else
+        interface_1=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {print $2; exit}')
+        interface_2=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {count++; if(count==2) {print $2; exit}}')
+    fi
 fi
 check_interface
+ip link show dev "$interface" >/dev/null 2>&1 || {
+    _red "Selected Docker uplink does not exist: ${interface:-empty}"
+    exit 1
+}
 if [ ! -f /usr/local/bin/docker_mac_address ] || [ ! -s /usr/local/bin/docker_mac_address ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_mac_address)" = "" ]; then
     mac_address=$(ip -o link show dev ${interface} | awk '{print $17}')
     echo "$mac_address" >/usr/local/bin/docker_mac_address
@@ -1797,6 +1916,14 @@ fi
 if [ -z "$docker_install_path" ]; then
     docker_install_path="/var/lib/docker"
 fi
+if [[ "$docker_install_path" != /* ]]; then
+    _red "DOCKER_INSTALL_PATH must be an absolute path"
+    exit 1
+fi
+mkdir -p "$docker_install_path" || {
+    _red "Unable to create Docker data directory: $docker_install_path"
+    exit 1
+}
 case "$(echo "${need_disk_limit:-n}" | tr '[:upper:]' '[:lower:]')" in
     y|yes|true|1)
         need_disk_limit="y"
@@ -1834,6 +1961,10 @@ if [ "$need_disk_limit" = "y" ]; then
     fi
     if [ -z "$docker_loop_file" ]; then
         docker_loop_file="/opt/docker-pool.img"
+    fi
+    if [[ "$docker_loop_file" != /* ]]; then
+        _red "DOCKER_LOOP_FILE must be an absolute path"
+        exit 1
     fi
 else
     echo "false" > /usr/local/bin/docker_need_disk_limit
@@ -1875,14 +2006,14 @@ install_docker_and_compose() {
         need_disk_limit=$(cat /usr/local/bin/docker_need_disk_limit)
     fi
     if [ "$need_disk_limit" = "true" ] && [ -n "$docker_pool_size" ] && [ -n "$docker_loop_file" ]; then
-        setup_docker_btrfs_loop "$docker_pool_size" "$docker_loop_file" "$docker_install_path"
+        setup_docker_btrfs_loop "$docker_pool_size" "$docker_loop_file" "$docker_install_path" || return 1
     fi
     if ! command -v docker >/dev/null 2>&1; then
         _yellow "Installing docker"
         if [[ "$SYSTEM" == "Alpine" ]]; then
             _green "Installing Docker on Alpine Linux..."
-            apk update
-            apk add docker docker-compose docker-cli-compose
+            apk update || return 1
+            apk add docker docker-compose docker-cli-compose || return 1
             if command -v rc-update >/dev/null 2>&1; then
                 rc-update add docker boot
                 rc-service docker start
@@ -1932,18 +2063,25 @@ install_docker_and_compose() {
     fi
     local daemon_json="/etc/docker/daemon.json"
     if [ ! -f "$daemon_json" ]; then
-        mkdir -p /etc/docker
-        echo "{}" > "$daemon_json"
+        mkdir -p /etc/docker || return 1
+        echo "{}" > "$daemon_json" || return 1
     fi
-    local temp_json=$(mktemp)
+    local temp_json
+    temp_json=$(mktemp) || return 1
     storage_driver="overlay2"
     if [ "$need_disk_limit" = "true" ] && [ -f /usr/local/bin/docker_storage_driver ]; then
         storage_driver=$(cat /usr/local/bin/docker_storage_driver)
     fi
-    jq --arg driver "$storage_driver" '.["storage-driver"] = $driver' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
+    jq --arg driver "$storage_driver" '.["storage-driver"] = $driver' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json" || {
+        rm -f "$temp_json"
+        return 1
+    }
     if [ "$need_disk_limit" = "true" ] && [ "$storage_driver" = "btrfs" ] && [ "$docker_install_path" != "/var/lib/docker" ]; then
-        temp_json=$(mktemp)
-        jq --arg path "$docker_install_path" '.["data-root"] = $path' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json"
+        temp_json=$(mktemp) || return 1
+        jq --arg path "$docker_install_path" '.["data-root"] = $path' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json" || {
+            rm -f "$temp_json"
+            return 1
+        }
     fi
     if [ "$need_disk_limit" = "true" ] && [ "$storage_driver" = "btrfs" ]; then
         _green "Docker storage driver set to btrfs with disk limitation support"
@@ -2001,7 +2139,7 @@ docker_build_ipv6() {
                 fi
                 configure_docker_ipv6_nat66 "$existing_subnet" || return 1
                 printf "%s\n" "$public_parent" > /usr/local/bin/docker_ipv6_public_parent
-                install_docker_ipv6_nat66_service
+                install_docker_ipv6_nat66_service || return 1
                 printf "%s\n" 1 > /usr/local/bin/docker_build_ipv6
                 return 0
                 ;;
@@ -2103,7 +2241,7 @@ ensure_docker_ready() {
         fi
         sleep 1
     done
-    _yellow "Docker daemon is not ready; independent IPv6 setup was skipped"
+    _red "Docker daemon is not ready; installation cannot be accepted"
     return 1
 }
 
@@ -2114,11 +2252,12 @@ cleanup_and_finish() {
 }
 
 main() {
-    install_docker_and_compose
+    install_docker_and_compose || return 1
     if ensure_docker_ready; then
         check_and_adapt_ipv6 || _yellow "Independent IPv6 was not enabled; IPv4 NAT and port mappings remain available"
     else
-        _yellow "Docker is unavailable after installation; skip independent IPv6 setup"
+        _red "Docker is unavailable after installation"
+        return 1
     fi
     setup_dns_check
     cleanup_and_finish

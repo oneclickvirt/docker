@@ -56,25 +56,26 @@ install_required_modules() {
     local missing_modules=()
     case $SYSTEM in
         Debian|Ubuntu)
-            apt-get update -y 2>/dev/null || true
+            apt-get update -y 2>/dev/null || return 1
             for module in "${modules[@]}"; do
                 dpkg -l "$module" 2>/dev/null | grep -q "^ii" || missing_modules+=("$module")
             done
-            [ "${#missing_modules[@]}" -eq 0 ] || apt-get -y install "${missing_modules[@]}" 2>/dev/null || true
-            apt-get -y install cron 2>/dev/null || apt-get -y install cronie 2>/dev/null || true
+            [ "${#missing_modules[@]}" -eq 0 ] || apt-get -y install "${missing_modules[@]}" 2>/dev/null || return 1
+            apt-get -y install cron 2>/dev/null || apt-get -y install cronie 2>/dev/null ||
+                echo "Warning: cron package is unavailable; SSH keepalive will be skipped" >&2
             ;;
         CentOS|Fedora)
             for module in "${modules[@]}"; do
                 command -v "$module" >/dev/null 2>&1 || missing_modules+=("$module")
             done
             missing_modules+=("cronie")
-            yum -y install "${missing_modules[@]}" 2>/dev/null || true
+            yum -y install "${missing_modules[@]}" 2>/dev/null || return 1
             ;;
         *)
             for module in "${modules[@]}"; do
                 command -v "$module" >/dev/null 2>&1 || missing_modules+=("$module")
             done
-            [ "${#missing_modules[@]}" -eq 0 ] || ${PACKAGE_INSTALL[int]} "${missing_modules[@]}" 2>/dev/null || true
+            [ "${#missing_modules[@]}" -eq 0 ] || eval "${PACKAGE_INSTALL[int]} \"\${missing_modules[@]}\"" 2>/dev/null || return 1
             ;;
     esac
 }
@@ -135,27 +136,71 @@ update_sshd_config() {
 }
 
 # ======== 生成并启动 sshd ========
-start_sshd() {
-    cd /etc/ssh || true
-    ssh-keygen -A 2>/dev/null || true
-    mkdir -p /var/run/sshd
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
-        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
-        if ! systemctl is-active --quiet ssh 2>/dev/null && ! systemctl is-active --quiet sshd 2>/dev/null; then
-            /usr/sbin/sshd 2>/dev/null || true
-        fi
-    elif command -v service >/dev/null 2>&1; then
-        service ssh restart 2>/dev/null || service sshd restart 2>/dev/null || /usr/sbin/sshd 2>/dev/null || true
+sshd_is_running() {
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -x sshd >/dev/null 2>&1
+    elif command -v pidof >/dev/null 2>&1; then
+        pidof sshd >/dev/null 2>&1
     else
-        /usr/sbin/sshd 2>/dev/null || true
+        ps 2>/dev/null | awk '$NF == "sshd" { found=1 } END { exit(found ? 0 : 1) }'
     fi
+}
+
+start_sshd() {
+    cd /etc/ssh || return 1
+    ssh-keygen -A 2>/dev/null || return 1
+    mkdir -p /var/run/sshd || return 1
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || return 1
+        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || return 1
+        systemctl is-active --quiet ssh 2>/dev/null || systemctl is-active --quiet sshd 2>/dev/null || {
+            command -v /usr/sbin/sshd >/dev/null 2>&1 && /usr/sbin/sshd -t && /usr/sbin/sshd || return 1
+        }
+    elif command -v service >/dev/null 2>&1; then
+        service ssh restart 2>/dev/null || service sshd restart 2>/dev/null || {
+            command -v /usr/sbin/sshd >/dev/null 2>&1 && /usr/sbin/sshd -t && /usr/sbin/sshd || return 1
+        }
+    elif command -v /usr/sbin/sshd >/dev/null 2>&1; then
+        /usr/sbin/sshd -t && /usr/sbin/sshd
+    fi
+    sshd_is_running
 }
 
 # ======== cron 保活 SSH ========
 setup_cron_sshd() {
     local cron_line="* * * * * pgrep -x sshd>/dev/null || service ssh start 2>/dev/null || service sshd start 2>/dev/null || /usr/sbin/sshd"
-    (crontab -l 2>/dev/null | grep -v "sshd"; echo "$cron_line") | crontab - 2>/dev/null || true
+    if ! command -v crontab >/dev/null 2>&1; then
+        echo "Warning: crontab is unavailable; SSH keepalive was not installed" >&2
+        return 0
+    fi
+    local cron_lock=/run/oneclickvirt-sshd-cron.lock
+    local cron_locked=false
+    local attempt
+    for attempt in {1..10}; do
+        if mkdir "$cron_lock" 2>/dev/null; then
+            cron_locked=true
+            break
+        fi
+        sleep 1
+    done
+    if [[ "$cron_locked" != true ]]; then
+        echo "Warning: timed out waiting for the SSH keepalive cron lock" >&2
+        return 0
+    fi
+    local cron_tmp
+    if ! cron_tmp=$(mktemp /tmp/oneclickvirt-sshd-crontab.XXXXXX); then
+        rmdir "$cron_lock" 2>/dev/null || true
+        echo "Warning: unable to create a temporary SSH keepalive crontab" >&2
+        return 0
+    fi
+    crontab -l >"$cron_tmp" 2>/dev/null || :
+    grep -v "sshd" "$cron_tmp" >"${cron_tmp}.filtered" || :
+    printf '%s\n' "$cron_line" >>"${cron_tmp}.filtered"
+    if ! crontab "${cron_tmp}.filtered"; then
+        echo "Warning: failed to install the SSH keepalive cron job" >&2
+    fi
+    rm -f -- "$cron_tmp" "${cron_tmp}.filtered"
+    rmdir "$cron_lock" 2>/dev/null || true
     # 启动 cron 服务
     if command -v systemctl >/dev/null 2>&1; then
         systemctl enable cron 2>/dev/null || systemctl enable crond 2>/dev/null || true
@@ -178,13 +223,19 @@ fix_cloud_init
 update_sshd_config "/etc/ssh/sshd_config"
 
 # 设置 root 密码
-printf "%s\n" "root:${passwd_input}" | chpasswd 2>/dev/null || \
-    printf "%s\n" "root:${passwd_input}" | sudo chpasswd 2>/dev/null || true
+if ! printf "%s\n" "root:${passwd_input}" | chpasswd 2>/dev/null &&
+   ! printf "%s\n" "root:${passwd_input}" | sudo chpasswd 2>/dev/null; then
+    echo "Failed to set the root password"
+    exit 1
+fi
 
 # 修复 IPv4 优先
 sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/gai.conf 2>/dev/null || true
 
-start_sshd
+if ! start_sshd; then
+    echo "Failed to start sshd"
+    exit 1
+fi
 setup_cron_sshd
 
 echo "SSH initialization completed"

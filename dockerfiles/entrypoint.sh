@@ -10,7 +10,10 @@ rmmod algif_aead 2>/dev/null || true
 
 # 设置 root 密码（支持通过环境变量传入）
 if [[ -n "$ROOT_PASSWORD" ]]; then
-    printf "%s\n" "root:${ROOT_PASSWORD}" | chpasswd 2>/dev/null || true
+    if ! printf "%s\n" "root:${ROOT_PASSWORD}" | chpasswd 2>/dev/null; then
+        echo "Failed to set the root password" >&2
+        exit 1
+    fi
 fi
 
 # 修复 sshd_config.d/ 中的覆盖配置
@@ -35,14 +38,36 @@ fi
 mkdir -p /var/run/sshd
 
 # 生成 SSH host keys（如果不存在）
-ssh-keygen -A 2>/dev/null || true
+if ! ssh-keygen -A 2>/dev/null; then
+    echo "Failed to generate SSH host keys" >&2
+    exit 1
+fi
 
 # 启动 SSH 服务
-if command -v systemctl >/dev/null 2>&1; then
-    systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
-    service ssh start 2>/dev/null || service sshd start 2>/dev/null || /usr/sbin/sshd 2>/dev/null || true
-else
-    service ssh start 2>/dev/null || service sshd start 2>/dev/null || /usr/sbin/sshd 2>/dev/null || true
+start_sshd() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || :
+        systemctl start ssh 2>/dev/null || systemctl start sshd 2>/dev/null || :
+        systemctl is-active --quiet ssh 2>/dev/null || systemctl is-active --quiet sshd 2>/dev/null || :
+    fi
+    if command -v service >/dev/null 2>&1; then
+        service ssh start 2>/dev/null || service sshd start 2>/dev/null || :
+    fi
+    if command -v /usr/sbin/sshd >/dev/null 2>&1; then
+        /usr/sbin/sshd -t 2>/dev/null || return 1
+        /usr/sbin/sshd 2>/dev/null || :
+    fi
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -x sshd >/dev/null 2>&1
+    elif command -v pidof >/dev/null 2>&1; then
+        pidof sshd >/dev/null 2>&1
+    else
+        ps 2>/dev/null | awk '$NF == "sshd" { found=1 } END { exit(found ? 0 : 1) }'
+    fi
+}
+if ! start_sshd; then
+    echo "Failed to start sshd" >&2
+    exit 1
 fi
 
 # 启动 cron
@@ -53,8 +78,42 @@ elif command -v crond >/dev/null 2>&1; then
 fi
 
 # IPv6 测试 cron（如果启用了独立 IPv6）
-if [ "$IPV6_ENABLED" = "true" ]; then
-    (crontab -l 2>/dev/null; echo "*/1 * * * * curl -m 6 -s ipv6.ip.sb >/dev/null 2>&1") | sort -u | crontab - 2>/dev/null || true
+install_ipv6_keepalive() {
+    [ "${IPV6_ENABLED:-}" = "true" ] || return 0
+    [ -d /etc/cron.d ] || {
+        echo "IPv6 keepalive requires /etc/cron.d" >&2
+        return 1
+    }
+    local target=/etc/cron.d/oneclickvirt-ipv6-keepalive
+    local temporary
+    temporary=$(mktemp /etc/cron.d/.oneclickvirt-ipv6-keepalive.XXXXXX) || return 1
+    if ! printf '%s\n' \
+        '# Managed by OneClickVirt: IPv6 path keepalive' \
+        'SHELL=/bin/sh' \
+        'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+        "*/1 * * * * root curl --noproxy '*' -6 -fsS --connect-timeout 6 --max-time 6 https://ipv6.ip.sb >/dev/null 2>&1" \
+        >"$temporary"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    if [ -e "$target" ] || [ -L "$target" ]; then
+        if [ -L "$target" ] || [ ! -f "$target" ] || ! cmp -s "$temporary" "$target"; then
+            echo "Refusing to replace an existing custom IPv6 keepalive file" >&2
+            rm -f -- "$temporary"
+            return 1
+        fi
+        rm -f -- "$temporary"
+        return 0
+    fi
+    chmod 0644 "$temporary" || { rm -f -- "$temporary"; return 1; }
+    if ! mv -- "$temporary" "$target"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+}
+if ! install_ipv6_keepalive; then
+    echo "Failed to install the IPv6 keepalive cron job" >&2
+    exit 1
 fi
 
 # 保持容器运行

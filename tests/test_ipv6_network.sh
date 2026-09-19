@@ -130,6 +130,10 @@ uplink=$(docker_ipv6_uplink_interface)
 if docker_ipv6_uplink_supports_ndp "$uplink"; then
     fail "non-Ethernet tunnel was incorrectly marked as requiring NDP"
 fi
+if ! grep -Fq -- '-6 -fsS --connect-timeout 6 --max-time 6 https://ipv6.ip.sb' "$repo_root/dockerfiles/entrypoint.sh" ||
+   ! grep -Fq -- '-6 -fsS --connect-timeout 6 --max-time 6 https://ipv6.ip.sb' "$repo_root/dockerfiles/entrypoint_alpine.sh"; then
+    fail "Docker IPv6 keepalive jobs must force IPv6 and fail closed on probe errors"
+fi
 
 export IPV6_TEST_SCENARIO=delegated
 uplink=$(docker_ipv6_uplink_interface)
