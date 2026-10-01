@@ -19,6 +19,19 @@ extract_function() {
     ' "$installer"
 }
 
+extract_onedocker_function() {
+    local name="$1"
+    awk -v name="$name" '
+        $0 == name "() {" { printing = 1 }
+        printing {
+            print
+            if ($0 == "}") {
+                exit
+            }
+        }
+    ' "$onedocker"
+}
+
 fail() {
     printf '%s\n' "$*" >&2
     exit 1
@@ -26,6 +39,8 @@ fail() {
 
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 eval "$(extract_function is_public_ipv6)"
+# shellcheck disable=SC1090 # The test intentionally loads the JSON ip parser.
+eval "$(extract_function docker_ipv6_ip_json_rows)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 eval "$(extract_function select_public_ipv6_cidr)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
@@ -40,6 +55,10 @@ eval "$(extract_function docker_ipv6_ula_candidate)"
 eval "$(extract_function docker_ipv6_ula_is_safe)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 eval "$(extract_function docker_ipv6_ula_state_matches_network)"
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+eval "$(extract_function docker_ipv6_network_ipv6_subnet)"
+# shellcheck disable=SC1090 # The test intentionally loads installer helpers.
+eval "$(extract_function docker_ipv6_ula_overlaps_docker_network)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
 eval "$(extract_function docker_ipv6_normalize_public_parent)"
 # shellcheck disable=SC1090 # The test intentionally loads installer helpers.
@@ -63,6 +82,46 @@ tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/docker-ipv6-test.XXXXXX")
 trap 'rm -rf -- "$tmpdir"' EXIT
 cat > "$tmpdir/ip" <<'EOF'
 #!/bin/sh
+if [ "${1:-}" = "-j" ]; then
+    if [ "${2:-}" = "-d" ]; then
+        case "${6:-}" in
+            he-ipv6) printf '%s\n' '[{"ifname":"he-ipv6","link_type":"sit"}]' ;;
+            *) printf '%s\n' '[{"ifname":"vmbr2","link_type":"ether"}]' ;;
+        esac
+    elif [ "${3:-}" = "route" ]; then
+        case " $* " in
+            *" default "*) printf '%s\n' '[{"dst":"default","dev":"eth0"}]' ;;
+            *) printf '%s\n' '[{"dst":"2a14:6781:a::/64","dev":"eth0"}]' ;;
+        esac
+    else
+        case "${IPV6_TEST_SCENARIO:-default}" in
+            delegated)
+                printf '%s\n' '[{"ifname":"vmbr0","addr_info":[{"family":"inet6","local":"2a14:7c0:1002:10f8::1","prefixlen":128,"scope":"global"}]},{"ifname":"vmbr2","addr_info":[{"family":"inet6","local":"2a14:7c0:1002:10f8::1","prefixlen":38,"scope":"global"}]}]'
+                ;;
+            tunnel)
+                printf '%s\n' '[{"ifname":"he-ipv6","addr_info":[{"family":"inet6","local":"2001:470:1f14:9::2","prefixlen":64,"scope":"global"}]}]'
+                ;;
+            narrow120|narrow127|hostonly)
+                case "${IPV6_TEST_SCENARIO}" in
+                    narrow120) cidr=2a14:6781:a::9; prefix=120 ;;
+                    narrow127) cidr=2a14:6781:a::8; prefix=127 ;;
+                    hostonly) cidr=2a14:6781:a::9; prefix=128 ;;
+                esac
+                printf '[{"ifname":"eth0","addr_info":[{"family":"inet6","local":"%s","prefixlen":%s,"scope":"global"}]}]\n' "$cidr" "$prefix"
+                ;;
+            colored)
+                printf '\033[32m%s\033[0m\n' '[{"ifname":"eth0","addr_info":[{"family":"inet6","local":"2a14:6781:a::9","prefixlen":120,"scope":"global"}]}]'
+                ;;
+            localized)
+                printf '%s\n' '[{"ifname":"eth0","addr_info":[{"family":"inet6","local":"2a14:6781:a::9","prefixlen":120,"scope":"global"}]}]'
+                ;;
+            *)
+                printf '%s\n' '[{"ifname":"eth0","addr_info":[{"family":"inet6","local":"2a14:6781:000a:0000::9","prefixlen":64,"scope":"global"}]}]'
+                ;;
+        esac
+    fi
+    exit 0
+fi
 if [ "${1:-}" = "-d" ] && [ "${2:-}" = "link" ]; then
     case "${5:-}" in
         he-ipv6) printf '%s\n' '5: he-ipv6: <POINTOPOINT,UP> mtu 1480 link/sit' ;;
@@ -108,8 +167,57 @@ esac
 EOF
 chmod 700 "$tmpdir/ip"
 
+cat > "$tmpdir/docker" <<'EOF'
+#!/bin/sh
+case "${1:-}:${2:-}" in
+    network:ls)
+        printf '%s\n' bridge host candidate
+        ;;
+    network:inspect)
+        case "${3:-}" in
+            bridge)
+                printf '%s\n' '[{"IPAM":{"Config":[{"Subnet":"172.17.0.0/16"}]}}]'
+                ;;
+            host)
+                # Docker 29 reports null instead of [] for built-in networks.
+                printf '%s\n' '[{"IPAM":{"Config":null}}]'
+                ;;
+            candidate)
+                printf '%s\n' '[{"IPAM":{"Config":[null,{"Subnet":"fd42:5339:296f:1d00::/64"}]}}]'
+                ;;
+            ipv6_net)
+                case "${DOCKER_MOCK_IPV6_NET_CONFIG:-list}" in
+                    null) printf '%s\n' '[{"IPAM":{"Config":null}}]' ;;
+                    *) printf '%s\n' '[{"IPAM":{"Config":[{"Subnet":"172.26.0.0/16"},{"Subnet":"fd42:5339:296f:1d00::/64"}]}}]' ;;
+                esac
+                ;;
+            *) exit 1 ;;
+        esac
+        ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod 700 "$tmpdir/docker"
+
 old_path="$PATH"
 export PATH="$tmpdir:$PATH"
+
+export DOCKER_MOCK_IPV6_NET_CONFIG=null
+parser_error="$tmpdir/docker-parser.err"
+if docker_ipv6_network_ipv6_subnet 2>"$parser_error"; then
+    fail "Docker accepted a network whose IPAM Config is null"
+fi
+[[ ! -s "$parser_error" ]] || fail "Docker null IPAM Config emitted a parser traceback"
+export DOCKER_MOCK_IPV6_NET_CONFIG=list
+[[ "$(docker_ipv6_network_ipv6_subnet)" == 'fd42:5339:296f:1d00::/64' ]] || \
+    fail "Docker IPv6 subnet parser did not skip IPv4 and malformed entries"
+docker_ipv6_ula_overlaps_docker_network 'fd42:5339:296f:1d00::/64' 2>"$parser_error" || \
+    fail "Docker IPv6 overlap parser missed an existing IPv6 subnet"
+if docker_ipv6_ula_overlaps_docker_network 'fd42:5339:296f:1d01::/64' 2>"$parser_error"; then
+    fail "Docker IPv6 overlap parser reported a disjoint IPv6 subnet"
+fi
+[[ ! -s "$parser_error" ]] || fail "Docker network scan emitted a parser traceback"
+unset DOCKER_MOCK_IPV6_NET_CONFIG
 
 selected=$(select_public_ipv6_cidr)
 [[ "$selected" == '2a14:6781:000a:0000::9/64' ]] || fail "normal /64 selection returned $selected"
@@ -147,6 +255,15 @@ selected=$(select_public_ipv6_cidr)
 export IPV6_TEST_SCENARIO=narrow127
 selected=$(select_public_ipv6_cidr)
 [[ "$selected" == '2a14:6781:a::8/127' ]] || fail "routed /127 selection returned $selected"
+
+export IPV6_TEST_SCENARIO=colored
+selected=$(select_public_ipv6_cidr)
+[[ "$selected" == '2a14:6781:a::9/120' ]] || fail "ANSI-colored JSON selection returned $selected"
+export IPV6_TEST_SCENARIO=localized
+export LC_ALL=de_DE.UTF-8
+selected=$(select_public_ipv6_cidr)
+[[ "$selected" == '2a14:6781:a::9/120' ]] || fail "localized IPv6 selection returned $selected"
+unset LC_ALL
 
 export IPV6_TEST_SCENARIO=hostonly
 selected=$(select_public_ipv6_cidr)
@@ -225,13 +342,13 @@ fi
 if grep -Fq 'public_parent_prefix > 112' <<<"$docker_build_ipv6_source"; then
     fail "Docker must not discard usable /120 or /127 routed IPv6 parents"
 fi
-grep -Fq '["ip", "-6", "route", "show", "default"]' "$installer" || fail "routed IPv6 allocation must reserve the upstream default gateway"
+grep -Fq 'ip_json("route", "show", "default")' "$installer" || fail "routed IPv6 allocation must reserve the upstream default gateway"
 
 ndp_source=$(extract_function start_docker_manual_ndpresponder)
 if grep -Fq -- '--restart always' <<<"$ndp_source"; then
     fail "Docker ndpresponder must not retain an unconditional restart policy"
 fi
-for required in '--restart on-failure:3' 'docker update --restart=no ndpresponder' '--target-file /etc/ndpresponder-targets' '--target-file-reload-interval 2s' '--ready-file /run/ndpresponder-ready'; do
+for required in '--restart on-failure:3' 'docker update --restart=unless-stopped ndpresponder' 'docker update --restart=no ndpresponder' '--target-file /etc/ndpresponder-targets' '--target-file-reload-interval 2s' '--ready-file /run/ndpresponder-ready'; do
     grep -Fq -- "$required" <<<"$ndp_source" || fail "Docker responder is missing required safeguard: $required"
 done
 grep -Fq 'quarantine_incompatible_docker_ndpresponder' <<<"$ndp_source" || fail "Docker must quarantine a legacy responder before target-file use"
@@ -243,6 +360,35 @@ manual_ipv6_rollback_call="\"\$manual_ipv6_helper\" --remove \"\$name\""
 tunnel_ndp_check="[ \"\$ndp_required\" = \"false\" ]"
 grep -Fq "$manual_ipv6_rollback_call" "$onedocker" || fail "failed attachment does not remove its address mapping"
 grep -Fq "$tunnel_ndp_check" "$onedocker" || fail "tunnel/non-Ethernet IPv6 still requires an NDP responder"
+for routed_forward_contract in \
+    'ip6tables -C DOCKER -d "$address/128" ! -i "$bridge" -o "$bridge" -j ACCEPT' \
+    'ip6tables -I DOCKER 1 -d "$address/128" ! -i "$bridge" -o "$bridge" -j ACCEPT' \
+    'remove_forward_rule "$old_address"'; do
+    grep -Fq "$routed_forward_contract" "$installer" || \
+        fail "Docker routed IPv6 forwarding contract is missing: $routed_forward_contract"
+done
+
+# A host may have routed IPv6 ready while this specific container requested
+# NATv4 only.  Capability must not silently opt the container into a public
+# /128 or make an IPv4-only creation fail during address attachment.
+manual_ipv6_helper="$tmpdir/manual-ipv6-helper"
+manual_ipv6_calls="$tmpdir/manual-ipv6-calls"
+cat >"$manual_ipv6_helper" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$manual_ipv6_calls"
+EOF
+chmod 700 "$manual_ipv6_helper"
+_green() { :; }
+_red() { :; }
+manual_ipv6_attachment=Y
+name=nat4-only
+independent_ipv6=n
+eval "$(extract_onedocker_function attach_manual_ipv6_or_rollback)"
+attach_manual_ipv6_or_rollback || fail "NATv4-only creation failed with routed IPv6 available"
+[[ ! -e "$manual_ipv6_calls" ]] || fail "NATv4-only creation invoked the routed IPv6 helper"
+independent_ipv6=y
+attach_manual_ipv6_or_rollback || fail "requested routed IPv6 attachment failed"
+[[ "$(cat "$manual_ipv6_calls")" == nat4-only ]] || fail "requested routed IPv6 did not invoke the helper exactly once"
 if grep -Fq 'radvd' "$uninstaller" || grep -Fq '/etc/sysctl.d/99-custom.conf' "$uninstaller"; then
     fail "Docker uninstall must not remove host-owned IPv6 services or generic sysctl state"
 fi

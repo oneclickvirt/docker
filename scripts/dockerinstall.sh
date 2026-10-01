@@ -27,6 +27,7 @@ reading() {
     fi
 }
 export DEBIAN_FRONTEND=noninteractive
+docker_daemon_restart_required=false
 utf8_locale=$(locale -a 2>/dev/null | grep -i -m 1 -E "UTF-8|utf8")
 if [[ -z "$utf8_locale" ]]; then
     echo "No UTF-8 locale found"
@@ -110,6 +111,85 @@ check_storage_driver_support() {
     esac
 }
 
+overlay2_mount_supported() {
+    [[ "$(uname -s 2>/dev/null)" == "Linux" ]] || return 1
+    command -v mount >/dev/null 2>&1 || return 1
+    command -v umount >/dev/null 2>&1 || return 1
+    local data_root="${1:-/var/lib/docker}"
+    # overlay-on-overlay is rejected by the kernel on many Docker/LXC based
+    # hosts even when a standalone overlay probe succeeds.  Docker's data
+    # root must therefore be checked on its actual backing filesystem.
+    if command -v findmnt >/dev/null 2>&1; then
+        case "$(findmnt -T "$data_root" -n -o FSTYPE 2>/dev/null || true)" in
+            overlay|aufs|fuseblk) return 1 ;;
+        esac
+    elif command -v stat >/dev/null 2>&1 && [[ "$(stat -f -c '%T' "$data_root" 2>/dev/null || true)" == overlayfs ]]; then
+        return 1
+    fi
+    local probe_root
+    probe_root=$(mktemp -d /run/oneclickvirt-docker-overlay.XXXXXX 2>/dev/null) || return 1
+    mkdir -p "$probe_root/lower" "$probe_root/upper" "$probe_root/work" "$probe_root/merged" || {
+        rmdir "$probe_root" 2>/dev/null || true
+        return 1
+    }
+    if mount -t overlay overlay -o "lowerdir=$probe_root/lower,upperdir=$probe_root/upper,workdir=$probe_root/work" "$probe_root/merged" 2>/dev/null; then
+        umount "$probe_root/merged" 2>/dev/null || true
+        rm -rf "$probe_root"
+        return 0
+    fi
+    rm -rf "$probe_root"
+    return 1
+}
+
+select_standard_storage_driver() {
+    if overlay2_mount_supported "${docker_install_path:-/var/lib/docker}"; then
+        printf '%s\n' overlay2
+    elif command -v fuse-overlayfs >/dev/null 2>&1; then
+        _yellow "overlay2 is unavailable; using fuse-overlayfs for Docker storage"
+        printf '%s\n' fuse-overlayfs
+    else
+        _yellow "overlay2 is unavailable; using vfs for Docker storage"
+        printf '%s\n' vfs
+    fi
+}
+
+docker_data_root_has_state() {
+    local data_root="${1:-${docker_install_path:-/var/lib/docker}}"
+    [ -d "$data_root" ] || return 1
+    find "$data_root" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | grep -q .
+}
+
+configured_docker_storage_driver() {
+    local configured=""
+    local state_file="${DOCKER_STORAGE_DRIVER_STATE:-/usr/local/bin/docker_storage_driver}"
+    local daemon_config="${DOCKER_DAEMON_CONFIG:-/etc/docker/daemon.json}"
+    if [ -f "$state_file" ]; then
+        configured=$(sed -n '1p' "$state_file" 2>/dev/null || true)
+    fi
+    if [ -z "$configured" ] && [ -f "$daemon_config" ] && command -v jq >/dev/null 2>&1; then
+        configured=$(jq -r '.["storage-driver"] // empty' "$daemon_config" 2>/dev/null || true)
+    fi
+    case "$configured" in
+        overlay2|fuse-overlayfs|vfs|btrfs) printf '%s\n' "$configured" ;;
+        *) return 1 ;;
+    esac
+}
+
+guard_docker_storage_driver() {
+    local selected="$1" existing=""
+    docker_data_root_has_state || return 0
+    existing=$(configured_docker_storage_driver || true)
+    if [ -z "$existing" ]; then
+        _red "Docker data root ${docker_install_path:-/var/lib/docker} already contains data, but its storage driver cannot be identified. Refusing to switch to ${selected}; back up or restore the original Docker configuration first."
+        return 1
+    fi
+    if [ "$existing" != "$selected" ]; then
+        _red "Docker data root uses ${existing}, but installation selected ${selected}. Refusing a storage-driver change that could hide existing containers and images."
+        return 1
+    fi
+    return 0
+}
+
 install_storage_driver() {
     local driver="$1"
     local need_reboot=false
@@ -155,11 +235,13 @@ setup_docker_btrfs_loop() {
             _red "Unable to stop Docker before preparing its btrfs data root"
             return 1
         }
+        docker_daemon_restart_required=true
     elif command -v rc-service >/dev/null 2>&1 && rc-service docker status >/dev/null 2>&1; then
         rc-service docker stop || {
             _red "Unable to stop Docker before preparing its btrfs data root"
             return 1
         }
+        docker_daemon_restart_required=true
     fi
     # 若 loop 文件已存在且已挂载，则跳过格式化以避免损坏已有数据
     if [ -f "$loop_file" ] && losetup -j "$loop_file" 2>/dev/null | grep -q "$loop_file"; then
@@ -249,14 +331,15 @@ try_storage_drivers() {
         need_disk_limit=$(cat /usr/local/bin/docker_need_disk_limit)
     fi
     if [ "$need_disk_limit" != "true" ]; then
-        _yellow "Using overlay2 storage driver for standard installation."
-        _yellow "标准安装使用overlay2存储驱动。"
-        echo "overlay2" > /usr/local/bin/docker_storage_driver
+        selected_driver=$(select_standard_storage_driver) || return 1
+        guard_docker_storage_driver "$selected_driver" || return 1
+        printf '%s\n' "$selected_driver" | tail -n 1 > /usr/local/bin/docker_storage_driver
         return 0
     fi
     if [[ "$virt_type" == "lxc" || "$virt_type" == "docker" ]]; then
-        _yellow "Detected virtualization: $virt_type. Using overlay2 storage driver."
-        echo "overlay2" > /usr/local/bin/docker_storage_driver
+        selected_driver=$(select_standard_storage_driver) || return 1
+        guard_docker_storage_driver "$selected_driver" || return 1
+        printf '%s\n' "$selected_driver" | tail -n 1 > /usr/local/bin/docker_storage_driver
         return 0
     fi
     if [ -f /usr/local/bin/docker_storage_reboot ]; then
@@ -264,11 +347,14 @@ try_storage_drivers() {
         rm -f /usr/local/bin/docker_storage_reboot
         _green "System rebooted. Checking storage driver: $reboot_driver"
         if check_storage_driver_support "$reboot_driver"; then
+            guard_docker_storage_driver "$reboot_driver" || return 1
             echo "$reboot_driver" > /usr/local/bin/docker_storage_driver
             return 0
         else
-            _yellow "Storage driver $reboot_driver still not available after reboot. Falling back to overlay2."
-            echo "overlay2" > /usr/local/bin/docker_storage_driver
+            _yellow "Storage driver $reboot_driver still not available after reboot. Selecting a supported fallback."
+            selected_driver=$(select_standard_storage_driver) || return 1
+            guard_docker_storage_driver "$selected_driver" || return 1
+            printf '%s\n' "$selected_driver" | tail -n 1 > /usr/local/bin/docker_storage_driver
             return 0
         fi
     fi
@@ -278,17 +364,21 @@ try_storage_drivers() {
     fi
     if check_storage_driver_support "btrfs"; then
         _green "btrfs is available, using btrfs storage driver."
+        guard_docker_storage_driver btrfs || return 1
         echo "btrfs" > /usr/local/bin/docker_storage_driver
         return 0
     else
         _yellow "Trying to install storage driver: btrfs"
         install_storage_driver "btrfs" || return 1
         if check_storage_driver_support "btrfs"; then
+            guard_docker_storage_driver btrfs || return 1
             echo "btrfs" > /usr/local/bin/docker_storage_driver
             return 0
-        else
-            _yellow "btrfs installation failed. Falling back to overlay2."
-            echo "overlay2" > /usr/local/bin/docker_storage_driver
+    else
+        _yellow "btrfs installation failed. Selecting a supported fallback."
+            selected_driver=$(select_standard_storage_driver) || return 1
+            guard_docker_storage_driver "$selected_driver" || return 1
+            printf '%s\n' "$selected_driver" | tail -n 1 > /usr/local/bin/docker_storage_driver
             return 0
         fi
     fi
@@ -332,6 +422,22 @@ check_update() {
         apk update
     else
         ${PACKAGE_UPDATE[int]}
+    fi
+}
+
+discover_network_interfaces() {
+    interface_1=""
+    interface_2=""
+    if [[ "$SYSTEM" != "Alpine" ]] && command -v lshw >/dev/null 2>&1; then
+        interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
+        interface_2=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '2p')
+    fi
+    # lshw can be installed but omit logical names on cloud, nested-container,
+    # and some paravirtualized hosts. Do not treat an empty lshw result as a
+    # valid discovery; use the kernel's link inventory instead.
+    if [[ -z "$interface_1" ]]; then
+        interface_1=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {name=$2; sub(/@.*/, "", name); print name; exit}')
+        interface_2=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {count++; if(count==2) {name=$2; sub(/@.*/, "", name); print name; exit}}')
     fi
 }
 
@@ -421,6 +527,60 @@ PY
 # CIDR so the later bridge allocation has the largest safe parent to inspect.
 # Keep a lone /128 as a fallback: it still proves IPv6 connectivity even
 # though it cannot provide independently routed container addresses.
+docker_ipv6_ip_json_rows() {
+    local mode="$1" target="${2:-}"
+    command -v python3 >/dev/null 2>&1 || return 1
+    python3 - "$mode" "$target" <<'PY'
+import ipaddress
+import json
+import os
+import re
+import subprocess
+import sys
+
+mode, target = sys.argv[1:]
+args = {
+    "addresses": ["-6", "addr", "show"],
+    "routes": ["-6", "route", "show", "table", "all"],
+    "default": ["-6", "route", "show", "default"],
+    "link_type": ["-d", "link", "show", "dev", target],
+}.get(mode)
+if args is None:
+    raise SystemExit(1)
+try:
+    env = dict(os.environ, LC_ALL="C", NO_COLOR="1")
+    raw = subprocess.check_output(["ip", "-j", *args], env=env,
+                                  stderr=subprocess.DEVNULL)
+    raw = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", raw)
+    data = json.loads(raw)
+    if not isinstance(data, list):
+        raise ValueError("invalid ip JSON")
+    if mode == "addresses":
+        for interface in data:
+            name = interface.get("ifname", "")
+            for item in interface.get("addr_info", []):
+                if item.get("family") != "inet6" or item.get("tentative") or "tentative" in item.get("flags", []):
+                    continue
+                cidr = f'{item["local"]}/{item["prefixlen"]}'
+                ipaddress.IPv6Interface(cidr)
+                print(name, cidr, item.get("scope", ""), sep="\t")
+    elif mode == "routes":
+        for route in data:
+            destination = route.get("dst", "default")
+            if destination != "default":
+                print(ipaddress.IPv6Network(destination, strict=False))
+    elif mode == "default":
+        for route in data:
+            if route.get("dst", "default") == "default" and route.get("dev"):
+                print(route["dev"])
+                break
+    elif data:
+        print(data[0].get("link_type", ""))
+except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+    raise SystemExit(1)
+PY
+}
+
 select_public_ipv6_cidr() {
     local candidate address prefix prefix_number best_cidr="" best_prefix=129
     while IFS= read -r candidate; do
@@ -434,7 +594,7 @@ select_public_ipv6_cidr() {
             best_cidr="$candidate"
             best_prefix=$prefix_number
         fi
-    done < <(ip -6 -o addr show scope global 2>/dev/null | awk '$0 !~ / tentative/ {print $4}')
+    done < <(docker_ipv6_ip_json_rows addresses 2>/dev/null | awk -F '\t' '$3 == "global" {print $2}')
     [[ -n "$best_cidr" ]] || return 1
     printf '%s\n' "$best_cidr"
 }
@@ -449,9 +609,10 @@ ipv6_cidr_prefix_length() {
 }
 
 docker_ipv6_subnet_has_live_address() {
-    local subnet="$1"
+    local subnet="$1" addresses
     command -v python3 >/dev/null 2>&1 || return 2
-    ip -6 -o addr show 2>/dev/null | awk '$0 !~ / tentative/ {print $4}' | \
+    addresses=$(docker_ipv6_ip_json_rows addresses) || return 0
+    printf '%s\n' "$addresses" | awk -F '\t' 'NF >= 2 {print $2}' | \
         python3 -c '
 import ipaddress
 import sys
@@ -472,11 +633,13 @@ raise SystemExit(1)
 # Docker may reject it even when the exact child contains no host address, so
 # include connected IPv6 routes as well as addresses in the overlap check.
 docker_ipv6_subnet_overlaps_host() {
-    local subnet="$1"
+    local subnet="$1" addresses routes
     command -v python3 >/dev/null 2>&1 || return 2
+    addresses=$(docker_ipv6_ip_json_rows addresses) || return 0
+    routes=$(docker_ipv6_ip_json_rows routes) || return 0
     {
-        ip -6 -o addr show 2>/dev/null | awk '$0 !~ / tentative/ {print $4}'
-        ip -6 route show table all 2>/dev/null | awk '$1 ~ /^[0-9A-Fa-f:]+\/[0-9]+$/ {print $1}'
+        printf '%s\n' "$addresses" | awk -F '\t' 'NF >= 2 {print $2}'
+        printf '%s\n' "$routes"
     } | python3 -c '
 import ipaddress
 import sys
@@ -545,7 +708,17 @@ try:
 except (json.JSONDecodeError, OSError):
     raise SystemExit(1)
 for network in payload if isinstance(payload, list) else [payload]:
-    for config in (network.get("IPAM", {}).get("Config", []) if isinstance(network, dict) else []):
+    if not isinstance(network, dict):
+        continue
+    ipam = network.get("IPAM")
+    if not isinstance(ipam, dict):
+        continue
+    configs = ipam.get("Config")
+    if not isinstance(configs, list):
+        continue
+    for config in configs:
+        if not isinstance(config, dict):
+            continue
         try:
             subnet = ipaddress.ip_network(config.get("Subnet"), strict=False)
         except (TypeError, ValueError):
@@ -736,7 +909,17 @@ for network_id in ids:
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
         continue
     for network in data if isinstance(data, list) else [data]:
-        for config in (network.get("IPAM", {}).get("Config", []) if isinstance(network, dict) else []):
+        if not isinstance(network, dict):
+            continue
+        ipam = network.get("IPAM")
+        if not isinstance(ipam, dict):
+            continue
+        configs = ipam.get("Config")
+        if not isinstance(configs, list):
+            continue
+        for config in configs:
+            if not isinstance(config, dict):
+                continue
             try:
                 existing = ipaddress.ip_network(config.get("Subnet"), strict=False)
             except (TypeError, ValueError):
@@ -852,23 +1035,14 @@ docker_ipv6_uplink_interface() {
         selected=$(select_public_ipv6_cidr 2>/dev/null || true)
     fi
     if [[ "$selected" == */* ]]; then
-        selected_if=$(ip -6 -o addr show scope global 2>/dev/null | awk -v cidr="$selected" '$4 == cidr {print $2; exit}')
+        selected_if=$(docker_ipv6_ip_json_rows addresses 2>/dev/null | awk -F '\t' -v cidr="$selected" '$2 == cidr {print $1; exit}')
         if [[ -n "$selected_if" ]] && ip link show dev "$selected_if" >/dev/null 2>&1; then
             printf '%s\n' "$selected_if"
             return 0
         fi
     fi
 
-    uplink=$(ip -6 route show default 2>/dev/null | awk '
-        /^default / {
-            for (i = 1; i < NF; i++) {
-                if ($i == "dev") {
-                    print $(i + 1)
-                    exit
-                }
-            }
-        }
-    ')
+    uplink=$(docker_ipv6_ip_json_rows default 2>/dev/null | sed -n '1p')
     if [[ -n "$uplink" ]] && ip link show dev "$uplink" >/dev/null 2>&1; then
         printf '%s\n' "$uplink"
         return 0
@@ -878,10 +1052,10 @@ docker_ipv6_uplink_interface() {
 }
 
 docker_ipv6_uplink_supports_ndp() {
-    local uplink="$1" link_info
+    local uplink="$1" link_type
     [[ -n "$uplink" ]] || return 1
-    link_info=$(ip -d link show dev "$uplink" 2>/dev/null || ip link show dev "$uplink" 2>/dev/null || true)
-    grep -q 'link/ether' <<<"$link_info"
+    link_type=$(docker_ipv6_ip_json_rows link_type "$uplink" 2>/dev/null) || return 1
+    [[ "$link_type" == ether ]]
 }
 
 docker_ipv6_clear_manual_state() {
@@ -1257,10 +1431,16 @@ start_docker_manual_ndpresponder() {
         [[ "$ndp_status" == running && -s "$ready_file" ]] && break
     done
     if [[ "$ndp_status" == running && -s "$ready_file" ]]; then
-        printf '%s\n' true > /usr/local/bin/docker_ndpresponder_owned
-        printf '%s\n' true > /usr/local/bin/docker_ipv6_ndp_ready_required
-        _green "NDP responder started and is ready for routed Docker IPv6"
-        return 0
+        # Keep the bounded restart policy until the image proves it can use
+        # this target file. Once ready, survive a Docker daemon restart too:
+        # on-failure alone leaves a cleanly stopped responder permanently down.
+        if docker update --restart=unless-stopped ndpresponder >/dev/null 2>&1; then
+            printf '%s\n' true > /usr/local/bin/docker_ndpresponder_owned
+            printf '%s\n' true > /usr/local/bin/docker_ipv6_ndp_ready_required
+            _green "NDP responder started and is ready for routed Docker IPv6"
+            return 0
+        fi
+        _yellow "Could not persist ndpresponder across Docker daemon restarts"
     fi
     _yellow "ndpresponder did not become ready: $(docker logs --tail 20 ndpresponder 2>&1 || true)"
     docker update --restart=no ndpresponder >/dev/null 2>&1 || true
@@ -1311,13 +1491,62 @@ try:
     parent = ipaddress.IPv6Network(sys.argv[2], strict=False)
 except ValueError:
     raise SystemExit(1)
-raise SystemExit(0 if address in parent and not address.is_unspecified and not address.is_multicast else 1)
+raise SystemExit(0 if address in parent and address != parent.network_address and not address.is_unspecified and not address.is_multicast else 1)
+PY
+}
+
+# A caller may request an address explicitly. Never attach one already owned
+# by the host or another exact route, even when it belongs to the parent pool.
+# The JSON form is stable across colored terminals and localized ip output.
+host_ipv6_address_available() {
+    python3 - "$1" "$2" "$3" <<'PY'
+import ipaddress
+import json
+import os
+import re
+import subprocess
+import sys
+
+target = ipaddress.IPv6Address(sys.argv[1])
+bridge, existing = sys.argv[2:]
+env = dict(os.environ, LC_ALL="C", NO_COLOR="1")
+
+def ip_json(*args):
+    output = subprocess.check_output(["ip", "-j", "-6", *args],
+                                     stderr=subprocess.DEVNULL, env=env)
+    output = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", output)
+    value = json.loads(output)
+    if not isinstance(value, list):
+        raise ValueError("invalid ip JSON")
+    return value
+
+try:
+    for iface in ip_json("addr", "show"):
+        for item in iface.get("addr_info", []):
+            if item.get("family") == "inet6" and ipaddress.IPv6Address(item["local"]) == target:
+                raise SystemExit(1)
+    for route in ip_json("route", "show", "table", "all"):
+        destination = route.get("dst", "default")
+        if destination == "default":
+            gateway = route.get("gateway")
+            if gateway and ipaddress.IPv6Address(gateway) == target:
+                raise SystemExit(1)
+            continue
+        network = ipaddress.IPv6Network(destination, strict=False)
+        if network.prefixlen == 128 and target in network:
+            if route.get("dev") != bridge or existing != str(target):
+                raise SystemExit(1)
+except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+    raise SystemExit(1)
 PY
 }
 
 allocate_address() {
     python3 - "$parent" "$map_file" "$gateway" <<'PY'
 import ipaddress
+import json
+import os
+import re
 import subprocess
 import sys
 
@@ -1335,35 +1564,30 @@ try:
     used.add(ipaddress.IPv6Address(sys.argv[3]))
 except ValueError:
     pass
+def ip_json(*args):
+    env = dict(os.environ, LC_ALL="C", NO_COLOR="1")
+    raw = subprocess.check_output(["ip", "-j", "-6", *args], env=env,
+                                  stderr=subprocess.DEVNULL)
+    raw = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", raw)
+    value = json.loads(raw)
+    if not isinstance(value, list):
+        raise ValueError("invalid ip JSON")
+    return value
+
 try:
-    output = subprocess.check_output(["ip", "-6", "-o", "addr", "show"], text=True, stderr=subprocess.DEVNULL)
-except (OSError, subprocess.CalledProcessError):
-    output = ""
-for line in output.splitlines():
-    fields = line.split()
-    if len(fields) < 4:
-        continue
-    try:
-        address = ipaddress.IPv6Interface(fields[3]).ip
-    except ValueError:
-        continue
-    if address in parent:
-        used.add(address)
-try:
-    routes = subprocess.check_output(["ip", "-6", "route", "show", "default"], text=True, stderr=subprocess.DEVNULL)
-except (OSError, subprocess.CalledProcessError):
-    routes = ""
-for line in routes.splitlines():
-    fields = line.split()
-    for index, field in enumerate(fields[:-1]):
-        if field != "via":
-            continue
-        try:
-            gateway = ipaddress.IPv6Address(fields[index + 1])
-        except ValueError:
-            continue
-        if gateway in parent:
-            used.add(gateway)
+    for interface in ip_json("addr", "show"):
+        for item in interface.get("addr_info", []):
+            if item.get("family") == "inet6":
+                address = ipaddress.IPv6Address(item["local"])
+                if address in parent:
+                    used.add(address)
+    for route in ip_json("route", "show", "default"):
+        if route.get("gateway"):
+            gateway = ipaddress.IPv6Address(route["gateway"])
+            if gateway in parent:
+                used.add(gateway)
+except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+    raise SystemExit(1)
 start = int(parent.network_address) + (0x1000 if parent.prefixlen <= 112 else 1)
 limit = min(int(parent.broadcast_address), start + 1_000_000)
 for value in range(start, limit + 1):
@@ -1413,23 +1637,69 @@ release_lock() {
 }
 
 find_container_iface() {
-    local name="$1" pid="$2" ula iface
+    local name="$1" pid="$2" ula
     ula=$($runtime inspect -f '{{range .NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{"\n"}}{{end}}' "$name" 2>/dev/null | awk '/:/{print; exit}' || true)
-    if [[ -n "$ula" ]]; then
-        iface=$(nsenter -t "$pid" -n ip -o -6 addr show 2>/dev/null | awk -v target="$ula" '$4 ~ ("^" target "/") {print $2; exit}' || true)
-        [[ -n "$iface" ]] && {
-            printf '%s\n' "$iface"
-            return 0
-        }
-    fi
-    nsenter -t "$pid" -n ip -o link show 2>/dev/null | awk -F': ' '$2 !~ /^lo(@|:|$)/ {gsub(/@.*$/, "", $2); iface=$2} END {if (iface != "") print iface}'
+    python3 - "$pid" "$ula" <<'PY'
+import ipaddress
+import json
+import os
+import re
+import subprocess
+import sys
+
+pid, raw_ula = sys.argv[1:]
+env = dict(os.environ, LC_ALL="C", NO_COLOR="1")
+ansi = rb"\x1b\[[0-?]*[ -/]*[@-~]"
+try:
+    ula = ipaddress.IPv6Address(re.sub(ansi, b"", raw_ula.encode()).decode().strip()) if raw_ula else None
+    def ip_json(*args):
+        raw = subprocess.check_output(["nsenter", "-t", pid, "-n", "ip", "-j", *args],
+                                      stderr=subprocess.DEVNULL, env=env)
+        data = json.loads(re.sub(ansi, b"", raw))
+        if not isinstance(data, list):
+            raise ValueError("invalid namespace JSON")
+        return data
+    if ula:
+        for interface in ip_json("-6", "addr", "show"):
+            for address in interface.get("addr_info", []):
+                if address.get("family") == "inet6" and ipaddress.IPv6Address(address["local"]) == ula:
+                    print(interface["ifname"].split("@", 1)[0])
+                    raise SystemExit(0)
+    candidate = ""
+    for interface in ip_json("link", "show"):
+        name = interface.get("ifname", "").split("@", 1)[0]
+        if name != "lo" and re.fullmatch(r"[A-Za-z0-9_.:-]{1,15}", name):
+            candidate = name
+    if candidate:
+        print(candidate)
+        raise SystemExit(0)
+except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+    pass
+raise SystemExit(1)
+PY
+}
+
+ensure_forward_rule() {
+    local address="$1"
+    command -v ip6tables >/dev/null 2>&1 || fail "ip6tables is required for routed Docker IPv6"
+    ip6tables -C DOCKER -d "$address/128" ! -i "$bridge" -o "$bridge" -j ACCEPT 2>/dev/null || \
+        ip6tables -I DOCKER 1 -d "$address/128" ! -i "$bridge" -o "$bridge" -j ACCEPT
+}
+
+remove_forward_rule() {
+    local address="$1"
+    command -v ip6tables >/dev/null 2>&1 || return 0
+    while ip6tables -C DOCKER -d "$address/128" ! -i "$bridge" -o "$bridge" -j ACCEPT 2>/dev/null; do
+        ip6tables -D DOCKER -d "$address/128" ! -i "$bridge" -o "$bridge" -j ACCEPT 2>/dev/null || return 1
+    done
 }
 
 attach_one_locked() {
-    local name="$1" requested="${2:-}" pid address iface
+    local name="$1" requested="${2:-}" pid address iface existing_address
     pid=$($runtime inspect -f '{{.State.Pid}}' "$name" 2>/dev/null || true)
     [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
-    address=$(awk -v name="$name" '$1 == name {print $2; exit}' "$map_file" 2>/dev/null || true)
+    existing_address=$(awk -v name="$name" '$1 == name {print $2; exit}' "$map_file" 2>/dev/null || true)
+    address="$existing_address"
     if [[ -n "$requested" ]]; then
         valid_ipv6_in_parent "$requested" "$parent" || {
             fail "Requested IPv6 is outside the routed parent: $requested"
@@ -1443,6 +1713,10 @@ attach_one_locked() {
     fi
     [[ -n "$address" ]] || address=$(allocate_address) || return 1
     valid_ipv6_in_parent "$address" "$parent" || return 1
+    host_ipv6_address_available "$address" "$bridge" "$existing_address" || {
+        fail "IPv6 address is already owned by the host or another exact route: $address"
+        return 1
+    }
     iface=$(find_container_iface "$name" "$pid")
     [[ -n "$iface" ]] || {
         fail "Unable to find the IPv6 network interface for $name"
@@ -1452,7 +1726,20 @@ attach_one_locked() {
     nsenter -t "$pid" -n ip -6 addr replace "$address/128" dev "$iface" || return 1
     nsenter -t "$pid" -n ip -6 route replace default via "$gateway" dev "$iface" || return 1
     ip -6 route replace "$address/128" dev "$bridge" || return 1
-    replace_mapping "$name" "$address" || return 1
+    # Docker 29 ends its IPv6 DOCKER chain with a bridge-wide DROP.  Docker
+    # only creates accepts for the ULA assigned by IPAM, so a separately routed
+    # public /128 needs an exact, installer-owned rule before that DROP.
+    if ! ensure_forward_rule "$address"; then
+        ip -6 route del "$address/128" dev "$bridge" 2>/dev/null || true
+        nsenter -t "$pid" -n ip -6 addr del "$address/128" dev "$iface" 2>/dev/null || true
+        return 1
+    fi
+    if ! replace_mapping "$name" "$address"; then
+        remove_forward_rule "$address" || true
+        ip -6 route del "$address/128" dev "$bridge" 2>/dev/null || true
+        nsenter -t "$pid" -n ip -6 addr del "$address/128" dev "$iface" 2>/dev/null || true
+        return 1
+    fi
     printf '%s\n' "$address"
 }
 
@@ -1482,6 +1769,7 @@ prune_stale_mappings_locked() {
         fi
         changed=true
         if valid_ipv6_in_parent "$address" "$parent"; then
+            remove_forward_rule "$address" || return 1
             ip -6 route del "$address/128" dev "$bridge" 2>/dev/null || true
         fi
     done <"$map_file"
@@ -1534,6 +1822,7 @@ remove_one_locked() {
     mv -f "$tmp" "$map_file" || return 1
     sync_targets || return 1
     if [[ -n "$old_address" ]]; then
+        remove_forward_rule "$old_address" || return 1
         ip -6 route del "$old_address/128" dev "$bridge" 2>/dev/null || true
     fi
 }
@@ -1594,7 +1883,8 @@ EOF
             _yellow "Could not reload systemd after installing docker-ipv6-attach.service"
             return 1
         fi
-        if ! systemctl enable --now docker-ipv6-attach.service 2>/dev/null; then
+        if ! systemctl enable docker-ipv6-attach.service 2>/dev/null || \
+           ! systemctl restart docker-ipv6-attach.service 2>/dev/null; then
             _yellow "Could not start docker-ipv6-attach.service; routed IPv6 persistence is unavailable"
             return 1
         fi
@@ -1807,18 +2097,7 @@ fi
 chmod +x ssh_bash.sh ssh_sh.sh || exit 1
 dos2unix ssh_bash.sh ssh_sh.sh >/dev/null 2>&1 || _yellow "dos2unix unavailable; downloaded scripts remain executable"
 
-if [[ "$SYSTEM" == "Alpine" ]]; then
-    interface_1=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {print $2; exit}')
-    interface_2=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {count++; if(count==2) {print $2; exit}}')
-else
-    if command -v lshw >/dev/null 2>&1; then
-        interface_1=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '1p')
-        interface_2=$(lshw -C network | awk '/logical name:/{print $3}' | sed -n '2p')
-    else
-        interface_1=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {print $2; exit}')
-        interface_2=$(ip -o link show | awk -F': ' '$2 !~ /^(lo|docker|veth)/ {count++; if(count==2) {print $2; exit}}')
-    fi
-fi
+discover_network_interfaces
 check_interface
 ip link show dev "$interface" >/dev/null 2>&1 || {
     _red "Selected Docker uplink does not exist: ${interface:-empty}"
@@ -2069,19 +2348,35 @@ install_docker_and_compose() {
     local temp_json
     temp_json=$(mktemp) || return 1
     storage_driver="overlay2"
-    if [ "$need_disk_limit" = "true" ] && [ -f /usr/local/bin/docker_storage_driver ]; then
+    if [ -f /usr/local/bin/docker_storage_driver ]; then
         storage_driver=$(cat /usr/local/bin/docker_storage_driver)
     fi
-    jq --arg driver "$storage_driver" '.["storage-driver"] = $driver' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json" || {
+    if ! jq --arg driver "$storage_driver" '.["storage-driver"] = $driver' "$daemon_json" > "$temp_json"; then
         rm -f "$temp_json"
         return 1
-    }
+    fi
+    if cmp -s "$temp_json" "$daemon_json"; then
+        rm -f "$temp_json"
+    elif mv "$temp_json" "$daemon_json"; then
+        docker_daemon_restart_required=true
+    else
+        rm -f "$temp_json"
+        return 1
+    fi
     if [ "$need_disk_limit" = "true" ] && [ "$storage_driver" = "btrfs" ] && [ "$docker_install_path" != "/var/lib/docker" ]; then
         temp_json=$(mktemp) || return 1
-        jq --arg path "$docker_install_path" '.["data-root"] = $path' "$daemon_json" > "$temp_json" && mv "$temp_json" "$daemon_json" || {
+        if ! jq --arg path "$docker_install_path" '.["data-root"] = $path' "$daemon_json" > "$temp_json"; then
             rm -f "$temp_json"
             return 1
-        }
+        fi
+        if cmp -s "$temp_json" "$daemon_json"; then
+            rm -f "$temp_json"
+        elif mv "$temp_json" "$daemon_json"; then
+            docker_daemon_restart_required=true
+        else
+            rm -f "$temp_json"
+            return 1
+        fi
     fi
     if [ "$need_disk_limit" = "true" ] && [ "$storage_driver" = "btrfs" ]; then
         _green "Docker storage driver set to btrfs with disk limitation support"
@@ -2229,14 +2524,35 @@ setup_dns_check() {
 }
 
 ensure_docker_ready() {
-    local attempt
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl restart docker 2>/dev/null || true
-    elif command -v rc-service >/dev/null 2>&1; then
-        rc-service docker restart 2>/dev/null || true
+    local attempt running_before="" restarted=false
+    if [ "${docker_daemon_restart_required:-false}" = true ]; then
+        running_before=$(docker ps -q 2>/dev/null || true)
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl restart docker 2>/dev/null || return 1
+        elif command -v rc-service >/dev/null 2>&1; then
+            rc-service docker restart 2>/dev/null || return 1
+        else
+            _red "Docker configuration changed but no supported service manager can restart the daemon"
+            return 1
+        fi
+        restarted=true
+    elif ! docker info >/dev/null 2>&1; then
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl start docker 2>/dev/null || return 1
+        elif command -v rc-service >/dev/null 2>&1; then
+            rc-service docker start 2>/dev/null || return 1
+        fi
     fi
     for attempt in 1 2 3 4 5; do
         if docker info >/dev/null 2>&1; then
+            if [ "$restarted" = true ] && [ -n "$running_before" ]; then
+                while IFS= read -r container_id; do
+                    [ -n "$container_id" ] || continue
+                    docker start "$container_id" >/dev/null || return 1
+                done <<EOF
+$running_before
+EOF
+            fi
             return 0
         fi
         sleep 1

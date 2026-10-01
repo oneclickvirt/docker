@@ -6,6 +6,7 @@ ENV ROOT_PASSWORD=oneclick136
 RUN dnf -y update && \
     dnf install -y --skip-broken \
         openssh-server \
+        ca-certificates \
         curl \
         wget \
         cronie \

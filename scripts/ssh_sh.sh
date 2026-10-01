@@ -12,6 +12,15 @@ fi
 
 passwd_input="${1:-123456}"
 
+# Published Alpine images include OpenSSH, but the supported Docker Hub
+# fallback is a minimal base image and needs the server before bootstrap.
+if ! command -v ssh-keygen >/dev/null 2>&1 || [ ! -x /usr/sbin/sshd ]; then
+    if ! apk add --no-cache openssh >/dev/null 2>&1; then
+        echo "Failed to install OpenSSH in Alpine container" >&2
+        exit 1
+    fi
+fi
+
 # 处理 sshd_config.d/ 中的覆盖配置
 config_dir="/etc/ssh/sshd_config.d/"
 if [ -d "$config_dir" ]; then
@@ -28,8 +37,19 @@ config_file="/etc/ssh/sshd_config"
 if [ -f "$config_file" ]; then
     sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' "$config_file"
     sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' "$config_file"
-    sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' "$config_file"
     sed -i 's/#Port 22/Port 22/' "$config_file"
+    for file in "$config_file" "${config_dir}"*; do
+        [ -f "$file" ] || continue
+        sed -E -i \
+            -e '/^[[:space:]]*#/b' \
+            -e '/^[[:space:]]*AddressFamily[[:space:]]+any([[:space:]]|$)/b' \
+            -e 's/^[[:space:]]*AddressFamily[[:space:]]+.*/# &/' \
+            -e 's/^[[:space:]]*ListenAddress[[:space:]]+.*/# &/' \
+            "$file"
+    done
+    if ! grep -Eq '^[[:space:]]*AddressFamily[[:space:]]+any([[:space:]]|$)' "$config_file"; then
+        sed -i '1iAddressFamily any' "$config_file"
+    fi
 fi
 
 # 修复 cloud-init

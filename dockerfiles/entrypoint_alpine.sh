@@ -46,6 +46,18 @@ if [ -f /etc/ssh/sshd_config ]; then
         echo "Failed to update /etc/ssh/sshd_config" >&2
         exit 1
     }
+    for file in /etc/ssh/sshd_config "${config_dir}"*; do
+        [ -f "$file" ] || continue
+        sed -E -i \
+            -e '/^[[:space:]]*#/b' \
+            -e '/^[[:space:]]*AddressFamily[[:space:]]+any([[:space:]]|$)/b' \
+            -e 's/^[[:space:]]*AddressFamily[[:space:]]+.*/# &/' \
+            -e 's/^[[:space:]]*ListenAddress[[:space:]]+.*/# &/' \
+            "$file"
+    done
+    if ! grep -Eq '^[[:space:]]*AddressFamily[[:space:]]+any([[:space:]]|$)' /etc/ssh/sshd_config; then
+        sed -i '1iAddressFamily any' /etc/ssh/sshd_config
+    fi
 fi
 
 # 确保 /var/run/sshd 存在

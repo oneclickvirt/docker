@@ -6,6 +6,7 @@ ENV ROOT_PASSWORD=oneclick136
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         openssh-server \
+        ca-certificates \
         curl \
         wget \
         cron \

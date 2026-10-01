@@ -127,8 +127,8 @@ jobs:
     - name: Save Docker image as tar
       run: |
         FILENAME=${{ env.IMAGE_NAME }}_${{ matrix.tag_suffix }}_${{ matrix.arch }}.tar.gz
-        docker save ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }}-${{ matrix.arch }} | gzip > $FILENAME
-        ls -lh *.tar.gz
+        docker save ${{ env.IMAGE_NAME }}:${{ matrix.tag_suffix }}-${{ matrix.arch }} | gzip > "$FILENAME"
+        ls -lh -- ./*.tar.gz
 
     - name: Upload artifact for release
       uses: actions/upload-artifact@v7
@@ -198,6 +198,7 @@ jobs:
         if ! gh release view "$TAG" >/dev/null 2>&1; then
           git tag "$TAG" 2>/dev/null || true
           git push origin "$TAG" 2>/dev/null || true
+          # shellcheck disable=SC2016 # Markdown backticks and printf placeholders are literal.
           RELEASE_NOTES=$(printf 'Docker images for %s system.\n\nAvailable architectures:\n- AMD64: `%s`\n- ARM64: `%s`\n\nGHCR images (multi-arch):\n```\ndocker pull %s:%s\n```' \
             "$TAG" "$AMD64_FILE" "$ARM64_FILE" "${{ env.GHCR_IMAGE }}" "$TAG")
           gh release create "$TAG" \

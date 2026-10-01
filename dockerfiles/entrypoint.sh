@@ -32,6 +32,18 @@ if [ -f /etc/ssh/sshd_config ]; then
     sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config 2>/dev/null || true
     sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config 2>/dev/null || true
     sed -i 's/^UsePAM yes/UsePAM no/g' /etc/ssh/sshd_config 2>/dev/null || true
+    for file in /etc/ssh/sshd_config "${config_dir}"*; do
+        [ -f "$file" ] || continue
+        sed -E -i \
+            -e '/^[[:space:]]*#/b' \
+            -e '/^[[:space:]]*AddressFamily[[:space:]]+any([[:space:]]|$)/b' \
+            -e 's/^[[:space:]]*AddressFamily[[:space:]]+.*/# &/' \
+            -e 's/^[[:space:]]*ListenAddress[[:space:]]+.*/# &/' \
+            "$file"
+    done
+    if ! grep -Eq '^[[:space:]]*AddressFamily[[:space:]]+any([[:space:]]|$)' /etc/ssh/sshd_config; then
+        sed -i '1iAddressFamily any' /etc/ssh/sshd_config
+    fi
 fi
 
 # 确保 sshd 运行目录存在

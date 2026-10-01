@@ -280,16 +280,12 @@ check_image_exists() {
     arch=$(get_arch)
     local ghcr_arch="ghcr.io/oneclickvirt/docker:${system_type}-${arch}"
     local canonical_image="spiritlhl:${system_type}-${arch}"
-    local official_image
-    official_image=$(official_image_for_system "$system_type")
     images=$(docker images --format '{{.Repository}}:{{.Tag}}')
     for candidate in \
         "$ghcr_manifest" \
         "$ghcr_arch" \
         "$canonical_image" \
-        "spiritlhl:${system_type}" \
-        "$official_image" \
-        "${system_type}:latest"; do
+        "spiritlhl:${system_type}"; do
         [ -n "$candidate" ] || continue
         if echo "$images" | grep -Fxq "$candidate"; then
             _green "Image ${candidate} already exists"
@@ -357,6 +353,7 @@ download_and_load_image() {
     _yellow "尝试从 Docker Hub 拉取镜像: ${official_image}"
     if docker pull "${official_image}"; then
         export image_name="${official_image}"
+        image_is_official_base=true
         _green "Image pulled from Docker Hub: ${image_name}"
         _green "从 Docker Hub 拉取镜像成功: ${image_name}"
         return 0
@@ -371,35 +368,39 @@ download_ssh_scripts() {
     local container_name=$1
     local system_type=$2
     local script_name
-    
-    # 检查容器内是否已存在SSH脚本
+
     if [ "$system_type" = "alpine" ]; then
-        if docker exec "$container_name" sh -c "[ -f /ssh_sh.sh ]" 2>/dev/null; then
-            _green "SSH script already exists in container"
-            _green "容器内SSH脚本已存在"
-            return 0
-        fi
         script_name="ssh_sh.sh"
     else
-        if docker exec "$container_name" bash -c "[ -f /ssh_bash.sh ]" 2>/dev/null; then
-            _green "SSH script already exists in container"
-            _green "容器内SSH脚本已存在"
-            return 0
-        fi
         script_name="ssh_bash.sh"
     fi
-    
-    _yellow "SSH script not found in container, preparing ${script_name}..."
-    _yellow "容器内未找到SSH脚本，正在准备 ${script_name}..."
 
     local source_script=""
     local cleanup_source="false"
-    for candidate in "/root/${script_name}" "$(dirname "$0")/${script_name}"; do
+    for candidate in "$(dirname "$0")/${script_name}" "/root/${script_name}"; do
         if [ -f "$candidate" ] && [ -s "$candidate" ]; then
             source_script="$candidate"
             break
         fi
     done
+
+    # Prefer the script shipped with the current checkout.  Published images
+    # may legitimately lag behind the management scripts, and silently using
+    # their embedded copy can resurrect a compatibility bug that was already
+    # fixed in the current release.
+    if [ -z "$source_script" ]; then
+        local shell_bin="bash"
+        [ "$system_type" = "alpine" ] && shell_bin="sh"
+        if docker exec "$container_name" "$shell_bin" -c "[ -f /${script_name} ]" 2>/dev/null; then
+            _green "Using SSH script embedded in the container image"
+            _green "使用容器镜像内置的SSH脚本"
+            return 0
+        fi
+    fi
+
+    _yellow "Preparing current SSH script ${script_name}..."
+    _yellow "正在准备当前版本SSH脚本 ${script_name}..."
+
     if [ -z "$source_script" ]; then
         local script_url="${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/refs/heads/main/scripts/${script_name}"
         source_script="/tmp/${script_name}"
@@ -528,6 +529,7 @@ if [ "$independent_ipv6" = "y" ] && [ "$ipv6_network_ready" != "Y" ]; then
 fi
 
 attach_manual_ipv6_or_rollback() {
+    [ "$independent_ipv6" = "y" ] || return 0
     [ "$manual_ipv6_attachment" = "Y" ] || return 0
     if "$manual_ipv6_helper" "$name"; then
         _green "Attached routed public IPv6 to ${name}"
@@ -541,7 +543,7 @@ attach_manual_ipv6_or_rollback() {
 }
 
 remove_partial_container() {
-    if [ "$manual_ipv6_attachment" = "Y" ] && [ -x "$manual_ipv6_helper" ]; then
+    if [ "$independent_ipv6" = "y" ] && [ "$manual_ipv6_attachment" = "Y" ] && [ -x "$manual_ipv6_helper" ]; then
         "$manual_ipv6_helper" --remove "$name" >/dev/null 2>&1 || true
     fi
     docker rm -f "$name" >/dev/null 2>&1 || true
@@ -559,8 +561,15 @@ if [ "$lxcfs_available" = "Y" ]; then
 fi
 
 # 先检查镜像是否存在，不存在才下载
+image_is_official_base=false
 if ! check_image_exists "$system"; then
     download_and_load_image "$system"
+fi
+# Official base images do not run an init or SSH daemon as PID 1. Keep them
+# alive while the repository's SSH bootstrap installs and starts sshd.
+image_command=()
+if [ "$image_is_official_base" = true ]; then
+    image_command=(tail -f /dev/null)
 fi
 storage_opts=()
 if [ "$btrfs_support" = "Y" ] && [ "$disk" != "0" ]; then
@@ -581,7 +590,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -e IPV6_NAT_MODE="$ipv6_network_mode" \
             "${storage_opts[@]}" \
             "${lxcfs_volumes[@]}" \
-            "${image_name}"; then
+            "${image_name}" "${image_command[@]}"; then
             _red "Failed to create container: ${name}"
             _red "创建容器失败: ${name}"
             exit 1
@@ -597,7 +606,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             -e ROOT_PASSWORD="${passwd}" \
             "${storage_opts[@]}" \
             "${lxcfs_volumes[@]}" \
-            "${image_name}"; then
+            "${image_name}" "${image_command[@]}"; then
             _red "Failed to create container: ${name}"
             _red "创建容器失败: ${name}"
             exit 1
@@ -630,7 +639,7 @@ else
             -e IPV6_NAT_MODE="$ipv6_network_mode" \
             "${storage_opts[@]}" \
             "${lxcfs_volumes[@]}" \
-            "${image_name}"; then
+            "${image_name}" "${image_command[@]}"; then
             _red "Failed to create container: ${name}"
             _red "创建容器失败: ${name}"
             exit 1
@@ -646,7 +655,7 @@ else
             -e ROOT_PASSWORD="${passwd}" \
             "${storage_opts[@]}" \
             "${lxcfs_volumes[@]}" \
-            "${image_name}"; then
+            "${image_name}" "${image_command[@]}"; then
             _red "Failed to create container: ${name}"
             _red "创建容器失败: ${name}"
             exit 1

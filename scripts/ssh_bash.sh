@@ -52,7 +52,7 @@ done
 
 # ======== 安装必要模块 ========
 install_required_modules() {
-    local modules=("wget" "curl" "sudo" "openssh-server")
+    local modules=("wget" "curl" "sudo" "openssh-server" "ca-certificates")
     local missing_modules=()
     case $SYSTEM in
         Debian|Ubuntu)
@@ -109,15 +109,28 @@ fix_cloud_init() {
 }
 
 # ======== 更新 sshd_config ========
+enable_sshd_dual_stack() {
+    local config_file="$1" config_dir="$2" file
+    for file in "$config_file" "${config_dir}"*; do
+        [ -f "$file" ] || continue
+        sed -E -i \
+            -e '/^[[:space:]]*#/b' \
+            -e '/^[[:space:]]*AddressFamily[[:space:]]+any([[:space:]]|$)/b' \
+            -e 's/^[[:space:]]*AddressFamily[[:space:]]+.*/# &/' \
+            -e 's/^[[:space:]]*ListenAddress[[:space:]]+.*/# &/' \
+            "$file"
+    done
+    if ! grep -Eq '^[[:space:]]*AddressFamily[[:space:]]+any([[:space:]]|$)' "$config_file"; then
+        sed -i '1iAddressFamily any' "$config_file"
+    fi
+}
+
 update_sshd_config() {
     local config_file="$1"
     if [ -f "$config_file" ]; then
         sed -i "s/^#\?Port.*/Port 22/g" "$config_file"
         sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin yes/g" "$config_file"
         sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g" "$config_file"
-        sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' "$config_file"
-        sed -i 's/#ListenAddress ::/ListenAddress ::/' "$config_file"
-        sed -i 's/#AddressFamily any/AddressFamily any/' "$config_file"
         sed -i "s/^#\?PubkeyAuthentication.*/PubkeyAuthentication no/g" "$config_file"
         sed -i '/^#UsePAM\|UsePAM/c UsePAM no' "$config_file"
         sed -i '/^AuthorizedKeysFile/s/^/#/' "$config_file"
@@ -133,6 +146,7 @@ update_sshd_config() {
             sed -i 's/PermitRootLogin no/PermitRootLogin yes/g' "$file" 2>/dev/null || true
         done
     fi
+    [ -f "$config_file" ] && enable_sshd_dual_stack "$config_file" "$config_dir"
 }
 
 # ======== 生成并启动 sshd ========
@@ -150,20 +164,48 @@ start_sshd() {
     cd /etc/ssh || return 1
     ssh-keygen -A 2>/dev/null || return 1
     mkdir -p /var/run/sshd || return 1
-    if command -v systemctl >/dev/null 2>&1; then
+    # Some images run sshd as PID 1. Restarting that daemon through the
+    # service wrapper terminates the container; validate and retain it.
+    if sshd_is_running; then
+        /usr/sbin/sshd -t 2>/dev/null || return 1
+        if [ "$(cat /proc/1/comm 2>/dev/null)" = sshd ]; then
+            kill -HUP 1 || return 1
+        elif command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+            systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || return 1
+        fi
+        return 0
+    fi
+    # Minimal Debian/Ubuntu images may ship the systemctl client while PID 1
+    # is not systemd.  Treating command presence as service-manager readiness
+    # makes an otherwise healthy container fail during SSH initialization.
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || return 1
         systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || return 1
         systemctl is-active --quiet ssh 2>/dev/null || systemctl is-active --quiet sshd 2>/dev/null || {
             command -v /usr/sbin/sshd >/dev/null 2>&1 && /usr/sbin/sshd -t && /usr/sbin/sshd || return 1
         }
     elif command -v service >/dev/null 2>&1; then
-        service ssh restart 2>/dev/null || service sshd restart 2>/dev/null || {
+        service ssh start 2>/dev/null || service sshd start 2>/dev/null || {
             command -v /usr/sbin/sshd >/dev/null 2>&1 && /usr/sbin/sshd -t && /usr/sbin/sshd || return 1
         }
     elif command -v /usr/sbin/sshd >/dev/null 2>&1; then
         /usr/sbin/sshd -t && /usr/sbin/sshd
     fi
     sshd_is_running
+}
+
+report_sshd_start_failure() {
+    echo "SSH startup diagnostics:" >&2
+    if command -v /usr/sbin/sshd >/dev/null 2>&1; then
+        /usr/sbin/sshd -t 2>&1 || true
+    fi
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -ax sshd >&2 || true
+    fi
+    printf 'PID 1: %s\n' "$(cat /proc/1/comm 2>/dev/null || true)" >&2
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active ssh sshd 2>&1 || true
+    fi
 }
 
 # ======== cron 保活 SSH ========
@@ -202,7 +244,7 @@ setup_cron_sshd() {
     rm -f -- "$cron_tmp" "${cron_tmp}.filtered"
     rmdir "$cron_lock" 2>/dev/null || true
     # 启动 cron 服务
-    if command -v systemctl >/dev/null 2>&1; then
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         systemctl enable cron 2>/dev/null || systemctl enable crond 2>/dev/null || true
         systemctl start cron 2>/dev/null || systemctl start crond 2>/dev/null || true
     else
@@ -234,6 +276,7 @@ sed -i 's/.*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/g' /etc/g
 
 if ! start_sshd; then
     echo "Failed to start sshd"
+    report_sshd_start_failure
     exit 1
 fi
 setup_cron_sshd
