@@ -360,6 +360,7 @@ manual_ipv6_rollback_call="\"\$manual_ipv6_helper\" --remove \"\$name\""
 tunnel_ndp_check="[ \"\$ndp_required\" = \"false\" ]"
 grep -Fq "$manual_ipv6_rollback_call" "$onedocker" || fail "failed attachment does not remove its address mapping"
 grep -Fq "$tunnel_ndp_check" "$onedocker" || fail "tunnel/non-Ethernet IPv6 still requires an NDP responder"
+# shellcheck disable=SC2016 # These literals assert unexpanded installer source.
 for routed_forward_contract in \
     'ip6tables -C DOCKER -d "$address/128" ! -i "$bridge" -o "$bridge" -j ACCEPT' \
     'ip6tables -I DOCKER 1 -d "$address/128" ! -i "$bridge" -o "$bridge" -j ACCEPT' \
@@ -380,12 +381,14 @@ EOF
 chmod 700 "$manual_ipv6_helper"
 _green() { :; }
 _red() { :; }
+# shellcheck disable=SC2034 # Read by the dynamically loaded attachment helper.
 manual_ipv6_attachment=Y
 name=nat4-only
 independent_ipv6=n
 eval "$(extract_onedocker_function attach_manual_ipv6_or_rollback)"
 attach_manual_ipv6_or_rollback || fail "NATv4-only creation failed with routed IPv6 available"
 [[ ! -e "$manual_ipv6_calls" ]] || fail "NATv4-only creation invoked the routed IPv6 helper"
+# shellcheck disable=SC2034 # Read by the dynamically loaded attachment helper.
 independent_ipv6=y
 attach_manual_ipv6_or_rollback || fail "requested routed IPv6 attachment failed"
 [[ "$(cat "$manual_ipv6_calls")" == nat4-only ]] || fail "requested routed IPv6 did not invoke the helper exactly once"
