@@ -80,6 +80,100 @@ eval "$(extract_function resolve_ndpresponder_image)"
 
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/docker-ipv6-test.XXXXXX")
 trap 'rm -rf -- "$tmpdir"' EXIT
+
+eval "$(awk '/^get_interface_mac\(\) \{/,/^}/ {print}' "$installer")"
+mac_sysfs="$tmpdir/sysfs"
+mkdir -p "$mac_sysfs/eth0"
+printf '02:11:22:33:44:55\n' >"$mac_sysfs/eth0/address"
+[[ "$(get_interface_mac eth0 "$mac_sysfs")" == "02:11:22:33:44:55" ]] || \
+    fail "MAC discovery did not prefer sysfs"
+rm -f "$mac_sysfs/eth0/address"
+mac_bin="$tmpdir/mac-bin"
+mkdir -p "$mac_bin"
+cat >"$mac_bin/ip" <<'EOF'
+#!/bin/sh
+case "${IP_MAC_LAYOUT:-legacy}" in
+    legacy)
+        printf '%s\n' '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP mode DEFAULT group default qlen 1000 link/ether 02:11:22:33:44:55 brd ff:ff:ff:ff:ff:ff'
+        ;;
+    modern)
+        printf '%s\n' '12: eth0: <BROADCAST,UP,LOWER_UP> mtu 9000 qdisc mq state UNKNOWN mode DEFAULT group default qlen 1000 altname enp6s0 link/ether 02:11:22:33:44:66 brd ff:ff:ff:ff:ff:ff'
+        ;;
+    *) exit 2 ;;
+esac
+EOF
+chmod 700 "$mac_bin/ip"
+[[ "$(PATH="$mac_bin:$PATH" get_interface_mac eth0 "$mac_sysfs")" == "02:11:22:33:44:55" ]] || \
+    fail "legacy ip-link output MAC parsing failed"
+[[ "$(IP_MAC_LAYOUT=modern PATH="$mac_bin:$PATH" get_interface_mac eth0 "$mac_sysfs")" == "02:11:22:33:44:66" ]] || \
+    fail "modern ip-link output MAC parsing failed"
+
+extract_generated_helper() {
+    awk '
+        /^install_docker_manual_ipv6_attach_helper\(\) \{/ { in_function = 1 }
+        in_function && /cat > "\$helper" <<.EOF./ { printing = 1; next }
+        printing && $0 == "EOF" { exit }
+        printing { print }
+    ' "$installer"
+}
+
+extract_generated_function() {
+    local name="$1" source="$2"
+    awk -v name="$name" '
+        $0 == name "() {" { printing = 1 }
+        printing {
+            print
+            if ($0 == "}") {
+                exit
+            }
+        }
+    ' "$source"
+}
+
+helper_template="$tmpdir/docker-ipv6-attach.sh"
+extract_generated_helper >"$helper_template"
+grep -Fq 'wait_for_ipv6_address_ready "$pid" "$iface" "$address"' "$helper_template" || \
+    fail "routed address attachment does not wait for IPv6 readiness"
+
+cat >"$tmpdir/nsenter" <<'EOF'
+#!/bin/sh
+count_file=${NSENTER_MOCK_COUNT_FILE:?}
+count=$(cat "$count_file" 2>/dev/null || printf '0')
+count=$((count + 1))
+printf '%s' "$count" >"$count_file"
+case "${NSENTER_MOCK_MODE:-sequence}" in
+    dadfailed)
+        printf '%s\n' '3: eth0 inet6 2607:9d00:2000:a6::1000/128 scope global dadfailed'
+        ;;
+    sequence)
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '3: eth0 inet6 2607:9d00:2000:a6::1000/128 scope global tentative'
+        else
+            printf '%s\n' '3: eth0 inet6 2607:9d00:2000:a6::1000/128 scope global'
+        fi
+        ;;
+esac
+EOF
+chmod 700 "$tmpdir/nsenter"
+# shellcheck disable=SC1090 # Test the generated helper function with mocked namespace state.
+eval "$(extract_generated_function wait_for_ipv6_address_ready "$helper_template")"
+old_path="$PATH"
+PATH="$tmpdir:$PATH"
+sleep() { :; }
+export NSENTER_MOCK_COUNT_FILE="$tmpdir/nsenter-count"
+export NSENTER_MOCK_MODE=sequence
+wait_for_ipv6_address_ready 123 eth0 2607:9d00:2000:a6::1000 || fail "address readiness did not wait through DAD"
+[[ "$(cat "$NSENTER_MOCK_COUNT_FILE")" == 2 ]] || fail "address readiness returned before DAD completed"
+: >"$NSENTER_MOCK_COUNT_FILE"
+export NSENTER_MOCK_MODE=dadfailed
+if wait_for_ipv6_address_ready 123 eth0 2607:9d00:2000:a6::1000; then
+    fail "duplicate-address detection failure was accepted"
+fi
+[[ "$(cat "$NSENTER_MOCK_COUNT_FILE")" == 1 ]] || fail "DAD failure did not fail immediately"
+unset NSENTER_MOCK_COUNT_FILE NSENTER_MOCK_MODE
+unset -f sleep
+export PATH="$old_path"
+
 cat > "$tmpdir/ip" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = "-j" ]; then

@@ -485,6 +485,26 @@ check_interface() {
     exit 1
 }
 
+get_interface_mac() {
+    local iface="$1" sysfs_root="${2:-/sys/class/net}" mac
+    if [[ -r "$sysfs_root/$iface/address" ]]; then
+        mac=$(<"$sysfs_root/$iface/address")
+    else
+        mac=$(LC_ALL=C ip -o link show dev "$iface" 2>/dev/null | awk '
+            {
+                for (i = 1; i < NF; i++) {
+                    if ($i == "link/ether") {
+                        print $(i + 1)
+                        exit
+                    }
+                }
+            }
+        ')
+    fi
+    [[ -n "$mac" ]] || return 1
+    printf '%s\n' "$mac"
+}
+
 is_private_ipv6() {
     ! is_public_ipv6 "${1:-}"
 }
@@ -1679,6 +1699,29 @@ raise SystemExit(1)
 PY
 }
 
+wait_for_ipv6_address_ready() {
+    local pid="$1" iface="$2" address="$3" attempt state
+    for attempt in {1..40}; do
+        state=$(LC_ALL=C nsenter -t "$pid" -n ip -6 -o addr show dev "$iface" 2>/dev/null | \
+            awk -v target="$address/128" '
+                $3 != "inet6" || $4 != target { next }
+                $0 ~ /(^|[[:space:]])dadfailed([[:space:]]|$)/ { print "dadfailed"; exit }
+                $0 ~ /(^|[[:space:]])tentative([[:space:]]|$)/ { print "tentative"; exit }
+                { print "ready"; exit }
+            ')
+        case "$state" in
+            ready) return 0 ;;
+            dadfailed)
+                printf 'IPv6 duplicate-address detection failed for %s\n' "$address" >&2
+                return 1
+                ;;
+        esac
+        sleep 0.25
+    done
+    printf 'Timed out waiting for IPv6 address %s to become ready\n' "$address" >&2
+    return 1
+}
+
 ensure_forward_rule() {
     local address="$1"
     command -v ip6tables >/dev/null 2>&1 || fail "ip6tables is required for routed Docker IPv6"
@@ -1724,6 +1767,10 @@ attach_one_locked() {
     }
     nsenter -t "$pid" -n ip link set "$iface" up || return 1
     nsenter -t "$pid" -n ip -6 addr replace "$address/128" dev "$iface" || return 1
+    if ! wait_for_ipv6_address_ready "$pid" "$iface" "$address"; then
+        nsenter -t "$pid" -n ip -6 addr del "$address/128" dev "$iface" 2>/dev/null || true
+        return 1
+    fi
     nsenter -t "$pid" -n ip -6 route replace default via "$gateway" dev "$iface" || return 1
     ip -6 route replace "$address/128" dev "$bridge" || return 1
     # Docker 29 ends its IPv6 DOCKER chain with a bridge-wide DROP.  Docker
@@ -2104,7 +2151,10 @@ ip link show dev "$interface" >/dev/null 2>&1 || {
     exit 1
 }
 if [ ! -f /usr/local/bin/docker_mac_address ] || [ ! -s /usr/local/bin/docker_mac_address ] || [ "$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_mac_address)" = "" ]; then
-    mac_address=$(ip -o link show dev ${interface} | awk '{print $17}')
+    mac_address=$(get_interface_mac "$interface") || {
+        _red "Could not read MAC address for interface: $interface"
+        exit 1
+    }
     echo "$mac_address" >/usr/local/bin/docker_mac_address
 fi
 mac_address=$(cat /usr/local/bin/docker_mac_address)
