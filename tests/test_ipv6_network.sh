@@ -132,6 +132,100 @@ extract_generated_function() {
 
 helper_template="$tmpdir/docker-ipv6-attach.sh"
 extract_generated_helper >"$helper_template"
+(
+    eval "$(extract_generated_function acquire_lock "$helper_template")"
+    eval "$(extract_generated_function release_lock "$helper_template")"
+    lock_file="$tmpdir/allocation.flock"
+    holder=""
+    trap 'if [[ -n "$holder" ]]; then kill "$holder" 2>/dev/null || true; fi' EXIT
+    (
+        acquire_lock || exit 1
+        touch "$tmpdir/lock-held"
+        sleep 1.4
+        release_lock
+    ) &
+    holder=$!
+    for attempt in {1..100}; do
+        [[ -f "$tmpdir/lock-held" ]] && break
+        sleep 0.02
+    done
+    [[ -f "$tmpdir/lock-held" ]] || fail 'lock holder did not become ready'
+    acquire_lock || fail 'foreground attach did not wait beyond the old one-second budget'
+    release_lock
+    wait "$holder"
+    holder=""
+    (
+        acquire_lock || exit 1
+        touch "$tmpdir/kill-lock-held"
+        exec sleep 60
+    ) &
+    holder=$!
+    for attempt in {1..100}; do
+        [[ -f "$tmpdir/kill-lock-held" ]] && break
+        sleep 0.02
+    done
+    [[ -f "$tmpdir/kill-lock-held" ]] || fail 'killed-holder fixture did not become ready'
+    kill -KILL "$holder"
+    wait "$holder" 2>/dev/null || true
+    holder=""
+    acquire_lock || fail 'a killed restore helper left a stale lock'
+    release_lock
+) || exit 1
+(
+    eval "$(extract_generated_function restore_all "$helper_template")"
+    map_file="$tmpdir/race-mappings"
+    target_file="$tmpdir/race-targets"
+    printf 'guest 2607:9d00:2000:a6::10\n' >"$map_file"
+    read_state() { :; }
+    prune_stale_mappings_locked() { :; }
+    lock_count=0
+    acquire_lock() {
+        lock_count=$((lock_count + 1))
+        if [[ "$lock_count" == 2 ]]; then
+            printf 'guest 2607:9d00:2000:a6::11\n' >"$map_file"
+        fi
+    }
+    release_lock() { :; }
+    runtime=mock_running
+    mock_running() { printf 'true\n'; }
+    attach_one_locked() { touch "$tmpdir/stale-reattached"; }
+    restore_all
+    [[ ! -e "$tmpdir/stale-reattached" ]] || fail 'background restore overwrote a foreground address change'
+) || exit 1
+(
+    # Exercise the generated helper after namespace recreation. A failed
+    # inspection or a remaining IPv4 address must never be accepted as isolated.
+    # shellcheck disable=SC1090
+    eval "$(extract_generated_function enforce_ipv6_only "$helper_template")"
+    runtime=mock_runtime
+    mock_runtime() {
+        [[ "$scenario" != inspect_failed ]] || return 1
+        [[ "$scenario" == dual_stack ]] || printf '%s\n' true
+    }
+    nsenter() {
+        printf '%s\n' "$*" >>"$tmpdir/ipv6-only-calls"
+        [[ "$scenario" != flush_failed ]] || return 1
+        if [[ "$scenario" == remaining && "$*" == *'address show scope global' ]]; then
+            printf '%s\n' '2: eth0 inet 172.26.0.2/16 scope global eth0'
+        fi
+        return 0
+    }
+    for scenario in dual_stack isolated inspect_failed flush_failed remaining; do
+        : >"$tmpdir/ipv6-only-calls"
+        result=0
+        enforce_ipv6_only guest 123 || result=$?
+        case "$scenario" in
+            dual_stack)
+                [[ "$result" == 0 && ! -s "$tmpdir/ipv6-only-calls" ]] || fail 'dual-stack IPv4 was removed'
+                ;;
+            isolated)
+                [[ "$result" == 0 ]] || fail 'clean IPv6-only namespace was rejected'
+                grep -Fq 'ip -4 address flush scope global' "$tmpdir/ipv6-only-calls" || fail 'IPv6-only retained IPv4'
+                ;;
+            *) [[ "$result" != 0 ]] || fail "IPv6-only silently accepted $scenario" ;;
+        esac
+    done
+) || exit 1
 grep -Fq 'wait_for_ipv6_address_ready "$pid" "$iface" "$address"' "$helper_template" || \
     fail "routed address attachment does not wait for IPv6 readiness"
 

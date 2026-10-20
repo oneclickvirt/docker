@@ -1487,7 +1487,7 @@ bridge_file="${state_dir}/docker_ipv6_manual_bridge"
 map_file="${state_dir}/docker_ipv6_allocations"
 target_file="${state_dir}/docker_ipv6_targets"
 mode_file="${state_dir}/docker_ipv6_network_mode"
-lock_dir="${map_file}.lock"
+lock_file="${map_file}.flock"
 
 fail() { printf '%s\n' "$*" >&2; return 1; }
 valid_name() { [[ "${1:-}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; }
@@ -1644,16 +1644,19 @@ replace_mapping() {
 }
 
 acquire_lock() {
-    local attempt
-    for attempt in 1 2 3 4 5 6 7 8 9 10; do
-        mkdir "$lock_dir" 2>/dev/null && return 0
-        sleep 0.1
-    done
+    # DAD may legitimately take ten seconds after namespace recreation. A
+    # mkdir lock with a one-second wait both races that operation and survives
+    # a killed helper. Kernel locks release when their process exits.
+    command -v flock >/dev/null 2>&1 || { fail "flock is required for Docker IPv6 allocation"; return 1; }
+    exec 9>"$lock_file" || return 1
+    if flock -w 30 9; then return 0; fi
+    exec 9>&-
     fail "Timed out waiting for the Docker IPv6 allocation lock"
 }
 
 release_lock() {
-    rmdir "$lock_dir" 2>/dev/null || true
+    flock -u 9 || return 1
+    exec 9>&-
 }
 
 find_container_iface() {
@@ -1737,10 +1740,26 @@ remove_forward_rule() {
     done
 }
 
+enforce_ipv6_only() {
+    local name="$1" pid="$2" ipv6_only remaining
+    # Persist the control-plane IPv6-only contract after namespace recreation
+    # and Docker daemon or host restarts, including older IPv4-enabled IPAM.
+    ipv6_only=$($runtime inspect -f '{{index .Config.Labels "oneclickvirt.network.ipv6-no-ipv4"}}' "$name" 2>/dev/null) || return 1
+    if [[ "$ipv6_only" == true ]]; then
+        nsenter -t "$pid" -n ip -4 route flush table main || return 1
+        nsenter -t "$pid" -n ip -4 address flush scope global || return 1
+        remaining=$(nsenter -t "$pid" -n ip -o -4 address show scope global) || return 1
+        [[ -z "$remaining" ]] || return 1
+        remaining=$(nsenter -t "$pid" -n ip -4 route show default) || return 1
+        [[ -z "$remaining" ]] || return 1
+    fi
+}
+
 attach_one_locked() {
     local name="$1" requested="${2:-}" pid address iface existing_address
     pid=$($runtime inspect -f '{{.State.Pid}}' "$name" 2>/dev/null || true)
     [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    enforce_ipv6_only "$name" "$pid" || return 1
     existing_address=$(awk -v name="$name" '$1 == name {print $2; exit}' "$map_file" 2>/dev/null || true)
     address="$existing_address"
     if [[ -n "$requested" ]]; then
@@ -1831,21 +1850,28 @@ prune_stale_mappings_locked() {
 }
 
 restore_all() {
-    local name address rc=0
+    local name address current snapshot rc=0
     read_state || return 1
     [[ -f "$map_file" ]] || return 0
     [[ -f "$target_file" ]] || : >"$target_file"
     acquire_lock || return 1
     prune_stale_mappings_locked || rc=1
+    snapshot=$(cat "$map_file") || { release_lock; return 1; }
+    release_lock || return 1
     while read -r name address; do
         [[ -n "$name" && -n "$address" ]] || continue
-        [[ "$($runtime inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)" == true ]] || continue
-        attach_one_locked "$name" "$address" >/dev/null || {
-            printf 'Failed to restore IPv6 for %s\n' "$name" >&2
-            rc=1
-        }
-    done <"$map_file"
-    release_lock
+        acquire_lock || return 1
+        # A foreground delete/create can run between restored instances.
+        # Revalidate the allocation under the same lock before changing it.
+        current=$(awk -v name="$name" '$1 == name {print $2; exit}' "$map_file")
+        if [[ "$current" == "$address" && "$($runtime inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)" == true ]]; then
+            attach_one_locked "$name" "$address" >/dev/null || {
+                printf 'Failed to restore IPv6 for %s\n' "$name" >&2
+                rc=1
+            }
+        fi
+        release_lock || return 1
+    done <<<"$snapshot"
     return "$rc"
 }
 
@@ -2061,6 +2087,7 @@ fi
 command -v dos2unix >/dev/null 2>&1 || base_packages+=("dos2unix")
 command -v bc >/dev/null 2>&1 || base_packages+=("bc")
 command -v fallocate >/dev/null 2>&1 || base_packages+=("util-linux")
+command -v flock >/dev/null 2>&1 || base_packages+=("util-linux")
 command -v openssl >/dev/null 2>&1 || base_packages+=("openssl")
 command -v netstat >/dev/null 2>&1 || base_packages+=("net-tools")
 if ! command -v ip >/dev/null 2>&1; then

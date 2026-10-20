@@ -5,6 +5,7 @@
 
 # ./onedocker.sh name cpu memory password sshport startport endport <independent_ipv6> <system> <disk>
 
+OCV_ONEDOCKER_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) || exit 1
 cd /root >/dev/null 2>&1 || exit 1
 name="${1:-test}"
 cpu="${2:-1}"
@@ -464,6 +465,31 @@ if [ -s /usr/local/bin/docker_ipv6_ndp_ready_required ]; then
     ndp_ready_required=$(tr -d '[:space:]' </usr/local/bin/docker_ipv6_ndp_ready_required 2>/dev/null || true)
 fi
 ndp_ready_file=/usr/local/bin/docker_ipv6_ndp_ready
+install_managed_entrypoint() {
+    local container_name="$1" system_type="$2" command script_name source_script="" temporary="" rc=0
+    [ "$image_is_official_base" != true ] || return 0
+    command=$(docker inspect "$container_name" --format '{{json .Config.Cmd}}') || return 1
+    case "$command" in *'/entrypoint.sh'*) ;; *) return 0 ;; esac
+    script_name=entrypoint.sh
+    [ "$system_type" != alpine ] || script_name=entrypoint_alpine.sh
+    source_script="$OCV_ONEDOCKER_DIR/../dockerfiles/$script_name"
+    if [ ! -s "$source_script" ]; then
+        temporary=$(mktemp "${TMPDIR:-/tmp}/ocv-entrypoint.XXXXXX") || return 1
+        source_script="$temporary"
+        if ! curl -fsSL --connect-timeout 10 --max-time 30 \
+            "${cdn_success_url}https://raw.githubusercontent.com/oneclickvirt/docker/main/dockerfiles/$script_name" -o "$source_script"; then
+            rm -f -- "$temporary"
+            return 1
+        fi
+    fi
+    if ! docker cp "$source_script" "$container_name:/entrypoint.sh" || \
+       ! docker exec "$container_name" sh -c 'chmod 700 /entrypoint.sh && mkdir -p /var/lib/oneclickvirt && umask 077 && : >/var/lib/oneclickvirt/root-password-initialized'; then
+        rc=1
+    fi
+    [ -z "$temporary" ] || rm -f -- "$temporary"
+    return "$rc"
+}
+
 manual_ipv6_helper="/usr/local/bin/docker-ipv6-attach.sh"
 if [ "$ipv6_network_mode" = "nat" ]; then
     _yellow "Docker IPv6 is using an isolated ULA with NAT66; public /128 assignment is not available in this mode"
@@ -524,8 +550,9 @@ case "$ipv6_network_mode" in
         ;;
 esac
 if [ "$independent_ipv6" = "y" ] && [ "$ipv6_network_ready" != "Y" ]; then
-    _yellow "Independent IPv6 was requested but is not ready; creating the container on the default IPv4 network"
-    _yellow "已请求独立 IPv6，但当前未就绪；将使用默认 IPv4 网络创建容器"
+    _red "Independent IPv6 was requested but is not ready; no container was created"
+    _red "已请求独立 IPv6，但当前未就绪；未创建容器，请修复 IPv6 网络后重试"
+    exit 1
 fi
 
 attach_manual_ipv6_or_rollback() {
@@ -577,7 +604,7 @@ if [ "$btrfs_support" = "Y" ] && [ "$disk" != "0" ]; then
 fi
 if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     if [ "$ipv6_network_ready" = "Y" ] && [ "$independent_ipv6" = "y" ]; then
-        if ! docker run -d \
+        if ! docker run -d --restart unless-stopped \
             --cpus="${cpu}" \
             --memory="${memory}m" \
             --name "${name}" \
@@ -596,7 +623,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
             exit 1
         fi
     else
-        if ! docker run -d \
+        if ! docker run -d --restart unless-stopped \
             --cpus="${cpu}" \
             --memory="${memory}m" \
             --name "${name}" \
@@ -617,7 +644,8 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     fi
     if ! download_ssh_scripts "${name}" "${system}" || \
        ! docker exec "${name}" sh -c 'sh /ssh_sh.sh "$1"' sh "$passwd" || \
-       ! docker exec "${name}" sh -c 'printf "%s\n" "root:$1" | chpasswd' sh "$passwd"; then
+       ! docker exec "${name}" sh -c 'printf "%s\n" "root:$1" | chpasswd' sh "$passwd" || \
+       ! install_managed_entrypoint "$name" "$system"; then
         _red "SSH initialization failed for ${name}, removing partial container."
         _red "${name} SSH 初始化失败，删除未完成容器。"
         remove_partial_container
@@ -626,7 +654,7 @@ if [ -n "$system" ] && [ "$system" = "alpine" ]; then
     echo "$name $sshport $passwd $cpu $memory $startport $endport $disk" >>"$name"
 else
     if [ "$ipv6_network_ready" = "Y" ] && [ "$independent_ipv6" = "y" ]; then
-        if ! docker run -d \
+        if ! docker run -d --restart unless-stopped \
             --cpus="${cpu}" \
             --memory="${memory}m" \
             --name "${name}" \
@@ -645,7 +673,7 @@ else
             exit 1
         fi
     else
-        if ! docker run -d \
+        if ! docker run -d --restart unless-stopped \
             --cpus="${cpu}" \
             --memory="${memory}m" \
             --name "${name}" \
@@ -666,7 +694,8 @@ else
     fi
     if ! download_ssh_scripts "${name}" "${system}" || \
        ! docker exec "${name}" bash -c 'bash /ssh_bash.sh "$1"' bash "$passwd" || \
-       ! docker exec "${name}" bash -c 'printf "%s\n" "root:$1" | chpasswd' bash "$passwd"; then
+       ! docker exec "${name}" bash -c 'printf "%s\n" "root:$1" | chpasswd' bash "$passwd" || \
+       ! install_managed_entrypoint "$name" "$system"; then
         _red "SSH initialization failed for ${name}, removing partial container."
         _red "${name} SSH 初始化失败，删除未完成容器。"
         remove_partial_container

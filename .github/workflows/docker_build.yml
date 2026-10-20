@@ -22,7 +22,10 @@ jobs:
         bash -n scripts/dockerinstall.sh
         shellcheck tests/test_ipv6_network.sh
         bash tests/test_ipv6_network.sh
+        bash tests/password_persistence_test.sh
+        bash tests/host_ipv6_preservation_test.sh
   build-and-push:
+    needs: script-regression
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     concurrency:

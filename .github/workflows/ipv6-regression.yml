@@ -54,3 +54,5 @@ jobs:
           bash tests/initialization_test.sh
           bash tests/noninteractive_mode_test.sh
           bash tests/ssh_failure_contract_test.sh
+          bash tests/password_persistence_test.sh
+          bash tests/host_ipv6_preservation_test.sh

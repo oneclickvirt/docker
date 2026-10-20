@@ -8,13 +8,17 @@ set -eu
 # CVE-2026-31431 (copy-fail) 缓解：尝试卸载 algif_aead 模块
 rmmod algif_aead 2>/dev/null || true
 
-# 设置 root 密码（支持通过环境变量传入）
-if [ -n "${ROOT_PASSWORD:-}" ]; then
+initialize_root_password() {
+    local state="${1:-/var/lib/oneclickvirt/root-password-initialized}"
+    [ ! -f "$state" ] && [ -n "${ROOT_PASSWORD:-}" ] || return 0
     if ! printf "%s\n" "root:${ROOT_PASSWORD}" | chpasswd 2>/dev/null; then
         echo "Failed to set the root password" >&2
-        exit 1
+        return 1
     fi
-fi
+    mkdir -p "$(dirname "$state")" || return 1
+    (umask 077; : >"$state")
+}
+initialize_root_password || exit 1
 
 # 修复 sshd_config.d/ 中的覆盖配置
 config_dir="/etc/ssh/sshd_config.d/"
