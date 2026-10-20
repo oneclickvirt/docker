@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2317,SC2329 # Extracted runtime helpers invoke the test doubles indirectly.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -135,6 +136,7 @@ extract_generated_helper >"$helper_template"
 (
     eval "$(extract_generated_function acquire_lock "$helper_template")"
     eval "$(extract_generated_function release_lock "$helper_template")"
+    # shellcheck disable=SC2034 # Consumed by the extracted acquire_lock helper.
     lock_file="$tmpdir/allocation.flock"
     holder=""
     trap 'if [[ -n "$holder" ]]; then kill "$holder" 2>/dev/null || true; fi' EXIT
@@ -145,7 +147,7 @@ extract_generated_helper >"$helper_template"
         release_lock
     ) &
     holder=$!
-    for attempt in {1..100}; do
+    for _ in {1..100}; do
         [[ -f "$tmpdir/lock-held" ]] && break
         sleep 0.02
     done
@@ -160,7 +162,7 @@ extract_generated_helper >"$helper_template"
         exec sleep 60
     ) &
     holder=$!
-    for attempt in {1..100}; do
+    for _ in {1..100}; do
         [[ -f "$tmpdir/kill-lock-held" ]] && break
         sleep 0.02
     done
@@ -174,6 +176,7 @@ extract_generated_helper >"$helper_template"
 (
     eval "$(extract_generated_function restore_all "$helper_template")"
     map_file="$tmpdir/race-mappings"
+    # shellcheck disable=SC2034 # Consumed by the extracted restore_all helper.
     target_file="$tmpdir/race-targets"
     printf 'guest 2607:9d00:2000:a6::10\n' >"$map_file"
     read_state() { :; }
@@ -197,6 +200,7 @@ extract_generated_helper >"$helper_template"
     # inspection or a remaining IPv4 address must never be accepted as isolated.
     # shellcheck disable=SC1090
     eval "$(extract_generated_function enforce_ipv6_only "$helper_template")"
+    # shellcheck disable=SC2034 # Invoked by the extracted enforce_ipv6_only helper.
     runtime=mock_runtime
     mock_runtime() {
         [[ "$scenario" != inspect_failed ]] || return 1
@@ -226,6 +230,7 @@ extract_generated_helper >"$helper_template"
         esac
     done
 ) || exit 1
+# shellcheck disable=SC2016 # Match the helper source with its literal variable names.
 grep -Fq 'wait_for_ipv6_address_ready "$pid" "$iface" "$address"' "$helper_template" || \
     fail "routed address attachment does not wait for IPv6 readiness"
 
