@@ -96,6 +96,19 @@ elif command -v crond >/dev/null 2>&1; then
 fi
 
 # IPv6 测试 cron（如果启用了独立 IPv6）
+same_file_contents() {
+    local expected actual
+    if command -v cmp >/dev/null 2>&1; then
+        cmp -s "$1" "$2"
+        return $?
+    fi
+    # Minimal RPM images include coreutils but may omit diffutils/cmp.
+    command -v sha256sum >/dev/null 2>&1 || return 1
+    expected=$(sha256sum <"$1") || return 1
+    actual=$(sha256sum <"$2") || return 1
+    [ "$expected" = "$actual" ]
+}
+
 install_ipv6_keepalive() {
     [ "${IPV6_ENABLED:-}" = "true" ] || return 0
     [ -d /etc/cron.d ] || {
@@ -115,7 +128,7 @@ install_ipv6_keepalive() {
         return 1
     fi
     if [ -e "$target" ] || [ -L "$target" ]; then
-        if [ -L "$target" ] || [ ! -f "$target" ] || ! cmp -s "$temporary" "$target"; then
+        if [ -L "$target" ] || [ ! -f "$target" ] || ! same_file_contents "$temporary" "$target"; then
             echo "Refusing to replace an existing custom IPv6 keepalive file" >&2
             rm -f -- "$temporary"
             return 1

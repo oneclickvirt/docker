@@ -24,6 +24,7 @@ jobs:
         bash tests/test_ipv6_network.sh
         bash tests/password_persistence_test.sh
         bash tests/host_ipv6_preservation_test.sh
+        bash tests/cron_content_test.sh
   build-and-push:
     needs: script-regression
     runs-on: ${{ matrix.runner }}
