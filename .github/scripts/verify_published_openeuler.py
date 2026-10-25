@@ -77,6 +77,10 @@ def main():
                    '-o', 'UserKnownHostsFile=/dev/null', '-o', 'ConnectTimeout=5',
                    '-o', 'ConnectionAttempts=1', '-o', 'LogLevel=ERROR', 'root@127.0.0.1']
             def ready():
+                # Docker can allocate a new ephemeral host port on restart.
+                endpoint = run(['docker', 'port', container, '22/tcp'], capture_output=True, text=True).stdout.strip()
+                ssh[4] = endpoint.rsplit(':', 1)[1]
+                print('Published container SSH endpoint:', endpoint, flush=True)
                 deadline = time.monotonic() + 180
                 while time.monotonic() < deadline:
                     if run(['docker', 'inspect', '--format', '{{.State.Running}}', container],
@@ -86,6 +90,8 @@ def main():
                     if result.returncode == 0:
                         return
                     time.sleep(3)
+                details = run(['docker', 'logs', '--tail', '35', container], capture_output=True, text=True)
+                print((details.stdout + details.stderr).replace(password, '[masked]')[-5000:], flush=True)
                 raise RuntimeError('Published container SSH readiness timed out')
             def check():
                 command = ('set -eu; . /etc/os-release; '
