@@ -1,7 +1,5 @@
-# check=skip=SecretsUsedInArgOrEnv
 FROM openeuler/openeuler:22.03
 ENV DEBIAN_FRONTEND=noninteractive
-ENV ROOT_PASSWORD=oneclick136
 
 RUN dnf -y update && \
     dnf install -y --skip-broken \
@@ -18,7 +16,8 @@ RUN dnf -y update && \
     dnf clean all
 
 RUN mkdir -p /var/run/sshd && \
-    ssh-keygen -A 2>/dev/null || true
+    sed -i 's/^root:[^:]*:/root:!:/' /etc/shadow && \
+    rm -f /etc/ssh/ssh_host_*
 
 RUN sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \

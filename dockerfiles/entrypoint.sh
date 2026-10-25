@@ -12,8 +12,25 @@ rmmod algif_aead 2>/dev/null || true
 # survive restarts instead of being replaced by the original environment.
 initialize_root_password() {
     local state="${1:-/var/lib/oneclickvirt/root-password-initialized}"
-    [ ! -f "$state" ] && [ -n "${ROOT_PASSWORD:-}" ] || return 0
-    if ! printf "%s\n" "root:${ROOT_PASSWORD}" | chpasswd 2>/dev/null; then
+    [ ! -f "$state" ] || return 0
+    local password="${ROOT_PASSWORD:-}"
+    if [ -n "${ROOT_PASSWORD_FILE:-}" ]; then
+        if [ -n "$password" ] || [ ! -r "$ROOT_PASSWORD_FILE" ]; then
+            echo "Set either ROOT_PASSWORD or a readable ROOT_PASSWORD_FILE" >&2
+            return 1
+        fi
+        password=$(cat -- "$ROOT_PASSWORD_FILE") || return 1
+        [ -n "$password" ] || { echo "The root password file is empty" >&2; return 1; }
+    fi
+    [ -n "$password" ] || return 0
+    case "$password" in
+        *:*) echo "The root password must not contain a colon" >&2; return 1 ;;
+    esac
+    if [ "$(printf '%s' "$password" | tr -d '\r\n')" != "$password" ]; then
+        echo "The root password must be a single line" >&2
+        return 1
+    fi
+    if ! printf "%s\n" "root:${password}" | chpasswd 2>/dev/null; then
         echo "Failed to set the root password" >&2
         return 1
     fi
@@ -21,6 +38,7 @@ initialize_root_password() {
     (umask 077; : >"$state")
 }
 initialize_root_password || exit 1
+unset ROOT_PASSWORD
 
 # 修复 sshd_config.d/ 中的覆盖配置
 config_dir="/etc/ssh/sshd_config.d/"

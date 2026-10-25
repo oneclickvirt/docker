@@ -1,6 +1,4 @@
-# check=skip=SecretsUsedInArgOrEnv
 FROM alpine:latest
-ENV ROOT_PASSWORD=oneclick136
 
 RUN apk update && \
     apk add --no-cache \
@@ -16,8 +14,9 @@ RUN apk update && \
         dcron \
         shadow
 
-RUN ssh-keygen -A && \
-    mkdir -p /var/run/sshd
+RUN mkdir -p /var/run/sshd && \
+    sed -i 's/^root:[^:]*:/root:!:/' /etc/shadow && \
+    rm -f /etc/ssh/ssh_host_*
 
 RUN sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \

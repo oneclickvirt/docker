@@ -22,7 +22,11 @@ reading() {
     local default_value="${3:-}"
     if is_noninteractive; then
         printf -v "$var_name" '%s' "$default_value"
-        _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+        if [[ "$var_name" == *password* ]]; then
+            _yellow "noninteractive=true detected, using the configured or generated password"
+        else
+            _yellow "noninteractive=true detected, using default for ${var_name}: ${default_value:-<empty>}"
+        fi
     else
         read -rp "$(_green "$prompt")" "$var_name"
     fi
@@ -110,10 +114,15 @@ reading "请输入web验证的名字：(留空则默认名字是onea)：" user_n
 if [ -z "$user_name" ]; then
     user_name="onea"
 fi
-_green "Please enter the password for web authentication: (leave it blank or the default password is oneclick):"
-reading "请输入web验证的密码：(留空则默认密码是oneclick)：" user_password "${ANDROID_WEB_PASSWORD:-oneclick}"
+_green "Please enter the password for web authentication: (leave it blank to generate a random password):"
+reading "请输入web验证的密码：(留空则生成随机密码)：" user_password "${ANDROID_WEB_PASSWORD:-}"
 if [ -z "$user_password" ]; then
-    user_password="oneclick"
+    user_password=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+    if [[ ! "$user_password" =~ ^[0-9a-f]{32}$ ]]; then
+        _red "Failed to generate a web authentication password."
+        _red "生成网页验证密码失败。"
+        exit 1
+    fi
 fi
 current_kernel_version=$(uname -r)
 target_kernel_version="5.0"
@@ -251,4 +260,9 @@ fi
 rm -rf /root/android_info
 cd /root >/dev/null 2>&1 || exit 1
 ls
-bash oneandroid.sh "${name}" "${selected_tag}" "${user_name}" "${user_password}"
+if bash oneandroid.sh "${name}" "${selected_tag}" "${user_name}" "${user_password}"; then
+    _green "Web authentication username / 网页验证用户名: ${user_name}"
+    _green "Web authentication password / 网页验证密码: ${user_password}"
+else
+    exit 1
+fi
