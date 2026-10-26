@@ -1,0 +1,11 @@
+{
+  "repository": "oneclickvirt/docker",
+  "skill_name": "oneclickvirt-docker",
+  "mcp": true,
+  "files": {
+    "agent/profile.json": "f507ad631b90066b4f5caa1a39153e93602dcd7ea8f0818b94e2f93f77dd6f20",
+    "skills/oneclickvirt-docker/SKILL.md": "61ca67d78fa0948181cd7c765b70016f0a0cf243b875383ba06b0c493ff9911d",
+    "skills/oneclickvirt-docker/SKILL_ZH.md": "6ca98774d5e89603492f989c8bc864e447c5488cc17e1c54b39a3f0c54ff3753",
+    "agent/server.py": "d01416e6194095d90bf0d49ea29f7122969f0b74cf4d74ed0b1ce78753423a7d"
+  }
+}
