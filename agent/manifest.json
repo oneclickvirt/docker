@@ -4,8 +4,8 @@
   "mcp": true,
   "files": {
     "agent/profile.json": "f507ad631b90066b4f5caa1a39153e93602dcd7ea8f0818b94e2f93f77dd6f20",
-    "skills/oneclickvirt-docker/SKILL.md": "61ca67d78fa0948181cd7c765b70016f0a0cf243b875383ba06b0c493ff9911d",
-    "skills/oneclickvirt-docker/SKILL_ZH.md": "6ca98774d5e89603492f989c8bc864e447c5488cc17e1c54b39a3f0c54ff3753",
-    "agent/server.py": "c54981973f8d98e6eada6e0442f3d7e5c9296947706c2c5d33b80b7f9a1c9b5b"
+    "skills/oneclickvirt-docker/SKILL.md": "e5b43e66a48b28c7f41e1e6f9c2d3ab0c20d3978e6486feeffcc0df39c5d8d81",
+    "skills/oneclickvirt-docker/SKILL_ZH.md": "8aea2ce2260eae8eb24b849ca905fdca5dae677a27c06189a19f8c0703496e7d",
+    "agent/server.py": "f4fe673f355a9b8ab06b4f8c1f90251e0ad79e1d9324ee4d62eff5e12ac45b74"
   }
 }
