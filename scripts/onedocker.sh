@@ -1,4 +1,153 @@
 #!/bin/bash
+# BEGIN shared image_mirror.sh (keep in sync with scripts/image_mirror.sh)
+#!/bin/sh
+# Shared POSIX helpers for node-first image downloads.
+# Existing callers pass their CDN and upstream URLs after the node candidate.
+
+: "${DUFS_MIRROR_BASE:=${ONECLICKVIRT_IMAGE_MIRROR_URL:-https://www.spiritlhl.com}}"
+
+image_mirror_system() {
+    _mirror_name=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr '-' '_')
+    for _mirror_os in rockylinux almalinux openwrt openeuler opensuse archlinux debian ubuntu alpine centos oracle fedora gentoo kali void freebsd devuan windows macos; do
+        case "$_mirror_name" in
+            *"$_mirror_os"*) printf '%s\n' "$_mirror_os"; return 0 ;;
+        esac
+    done
+    printf '%s\n' misc
+}
+
+image_mirror_arch() {
+    _mirror_name=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    case "$_mirror_name" in
+        *arm64*|*aarch64*) printf '%s\n' arm64 ;;
+        *armv7*|*armhf*|*arm_*) printf '%s\n' arm ;;
+        *) printf '%s\n' amd64 ;;
+    esac
+}
+
+image_mirror_path_for_release() {
+    _mirror_repo=$1
+    _mirror_tag=$2
+    _mirror_asset=$3
+    case "$_mirror_repo" in
+        template) printf 'pve/kvm/macos/amd64/%s\n' "$_mirror_asset"; return 0 ;;
+        pve_kvm_images|kvm_images) _mirror_root=pve/kvm ;;
+        pve_lxc_images|lxc_amd64_images|lxc_arm_images) _mirror_root=pve/lxc ;;
+        incus_images|lxd_images)
+            _mirror_kind=lxc
+            case "$(printf '%s %s' "$_mirror_tag" "$_mirror_asset" | tr '[:upper:]' '[:lower:]')" in *kvm*) _mirror_kind=kvm ;; esac
+            _mirror_root=${_mirror_repo%_images}/$_mirror_kind
+            ;;
+        docker|containerd|podman) _mirror_root=runtime/$_mirror_repo ;;
+        *) return 1 ;;
+    esac
+    printf '%s/%s/%s/%s\n' "$_mirror_root" "$(image_mirror_system "$_mirror_asset")" "$(image_mirror_arch "$_mirror_asset")" "$_mirror_asset"
+}
+
+image_mirror_url() {
+    [ "${ONECLICKVIRT_IMAGE_MIRROR_DISABLE:-false}" != true ] || return 0
+    printf '%s/%s\n' "${DUFS_MIRROR_BASE%/}" "${1#/}"
+}
+
+# Print node URL, then every supplied CDN/upstream URL in the original order.
+image_mirror_candidates_for_release() {
+    _mirror_path=$(image_mirror_path_for_release "$1" "$2" "$3") || return 1
+    image_mirror_url "$_mirror_path"
+    shift 3
+    for _mirror_url in "$@"; do
+        [ -n "$_mirror_url" ] && printf '%s\n' "$_mirror_url"
+    done
+}
+
+# Infer a release candidate list from an original URL.  CDN wrappers used by
+# existing scripts often contain the GitHub URL after the CDN prefix; those
+# wrappers are retained after the node candidate.
+image_mirror_candidates_for_url() {
+    _mirror_url=$1
+    case "$_mirror_url" in
+        *https://github.com/oneclickvirt/*/releases/download/*)
+            _mirror_origin=${_mirror_url#*https://github.com/oneclickvirt/}
+            _mirror_repo=${_mirror_origin%%/*}
+            _mirror_release=${_mirror_origin#*/releases/download/}
+            _mirror_tag=${_mirror_release%%/*}
+            _mirror_asset=${_mirror_release#*/}
+            _mirror_path=$(image_mirror_path_for_release "$_mirror_repo" "$_mirror_tag" "$_mirror_asset") || {
+                printf '%s\n' "$_mirror_url"
+                return 0
+            }
+            image_mirror_url "$_mirror_path"
+            printf '%s\n' "$_mirror_url"
+            _mirror_canonical="https://github.com/oneclickvirt/${_mirror_origin}"
+            [ "$_mirror_canonical" = "$_mirror_url" ] || printf '%s\n' "$_mirror_canonical"
+            ;;
+        *https://cnb.cool/oneclickvirt/template/-/git/raw/*/macos/*)
+            _mirror_asset=${_mirror_url##*/}
+            image_mirror_url "pve/kvm/macos/amd64/$_mirror_asset"
+            printf '%s\n' "$_mirror_url"
+            _mirror_canonical="https://cnb.cool/oneclickvirt/template/-/git/raw/${_mirror_url#*https://cnb.cool/oneclickvirt/template/-/git/raw/}"
+            [ "$_mirror_canonical" = "$_mirror_url" ] || printf '%s\n' "$_mirror_canonical"
+            ;;
+        *https://cnb.cool/oneclickvirt/template/-/lfs/*)
+            _mirror_canonical="https://cnb.cool/oneclickvirt/template/-/lfs/${_mirror_url#*https://cnb.cool/oneclickvirt/template/-/lfs/}"
+            image_mirror_url "__mirror/resolve?source=$_mirror_canonical"
+            printf '%s\n' "$_mirror_url"
+            [ "$_mirror_canonical" = "$_mirror_url" ] || printf '%s\n' "$_mirror_canonical"
+            ;;
+        *)
+            printf '%s\n' "$_mirror_url"
+            ;;
+    esac
+}
+
+# Download with the node first.  The output is replaced only after a complete
+# successful transfer; callers retain their historical fallback URLs.
+image_mirror_download_release() (
+    _mirror_output=$1
+    _mirror_repo=$2
+    _mirror_tag=$3
+    _mirror_asset=$4
+    shift 4
+    image_mirror_download_candidates "$_mirror_output" <<EOF_CANDIDATES
+$(image_mirror_candidates_for_release "$_mirror_repo" "$_mirror_tag" "$_mirror_asset" "$@")
+EOF_CANDIDATES
+)
+
+image_mirror_download_url() (
+    image_mirror_download_candidates "$1" <<EOF_CANDIDATES
+$(image_mirror_candidates_for_url "$2")
+EOF_CANDIDATES
+)
+
+# A subshell owns its temporary-file trap, leaving the caller's traps intact.
+image_mirror_download_candidates() (
+    _mirror_output=$1
+    _mirror_tmp=$(mktemp "${_mirror_output}.dufs.XXXXXX") || return 1
+    trap 'rm -f -- "$_mirror_tmp"' 0
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    _mirror_seen='|'
+    while IFS= read -r _mirror_candidate; do
+        [ -n "$_mirror_candidate" ] || continue
+        case "$_mirror_seen" in *"|$_mirror_candidate|"*) continue ;; esac
+        _mirror_seen="$_mirror_seen$_mirror_candidate|"
+        printf '[image-mirror] trying %s\n' "$_mirror_candidate" >&2
+        # A failed primary must yield promptly to the historical sources.
+        case "$_mirror_candidate" in
+            "${DUFS_MIRROR_BASE%/}/"*)
+                set -- --retry 0 --connect-timeout "${DUFS_MIRROR_CONNECT_TIMEOUT:-5}" \
+                    --speed-time "${DUFS_MIRROR_IDLE_TIMEOUT:-30}" --speed-limit 1024 ;;
+            *) set -- --retry 3 --retry-all-errors --connect-timeout 20 ;;
+        esac
+        if curl -fL "$@" --max-time "${DUFS_DOWNLOAD_MAX_TIME:-86400}" -o "$_mirror_tmp" "$_mirror_candidate" && [ -s "$_mirror_tmp" ]; then
+            mv -f "$_mirror_tmp" "$_mirror_output"
+            return 0
+        fi
+        rm -f "$_mirror_tmp"
+    done
+    printf '[image-mirror] all candidates failed for %s\n' "$_mirror_output" >&2
+    return 1
+)
+# END shared image_mirror.sh
 # from
 # https://github.com/oneclickvirt/docker
 # 2026.08.30
@@ -309,26 +458,13 @@ download_and_load_image() {
     local official_image
     official_image=$(official_image_for_system "$system_type")
 
-    # 优先：从 GHCR 拉取多架构镜像；失败后再尝试架构专用 tag
-    for ghcr_image in "$ghcr_manifest" "$ghcr_arch"; do
-        _yellow "Trying to pull from GHCR: $ghcr_image"
-        _yellow "尝试从 GHCR 拉取镜像: $ghcr_image"
-        if docker pull "${ghcr_image}" 2>/dev/null; then
-            docker tag "${ghcr_image}" "${canonical_image}" 2>/dev/null || true
-            export image_name="${canonical_image}"
-            _green "Image pulled from GHCR: ${ghcr_image}"
-            _green "从 GHCR 拉取镜像成功: ${ghcr_image}"
-            return 0
-        fi
-    done
-
     # 回退：通过 CDN/GitHub Releases 下载离线 tar 包
     local github_url="https://github.com/oneclickvirt/docker/releases/download/${system_type}/${tar_filename}"
     local download_url="${cdn_success_url}${github_url}"
     _yellow "Downloading image tar: $download_url"
     _yellow "正在下载镜像 tar 包: $download_url"
 
-    if curl -L --connect-timeout 15 --max-time 600 -o "/tmp/${tar_filename}" "$download_url" && \
+    if image_mirror_download_url "/tmp/${tar_filename}" "$download_url" && \
        [[ -f "/tmp/${tar_filename}" ]] && [[ -s "/tmp/${tar_filename}" ]]; then
         _yellow "Loading image from tar file..."
         _yellow "正在从 tar 文件加载镜像..."
@@ -348,6 +484,19 @@ download_and_load_image() {
         _yellow "CDN/直连下载失败: ${download_url}"
         rm -f "/tmp/${tar_filename}" 2>/dev/null
     fi
+
+    # 离线镜像不可用时：从 GHCR 拉取多架构镜像；失败后再尝试架构专用 tag
+    for ghcr_image in "$ghcr_manifest" "$ghcr_arch"; do
+        _yellow "Trying to pull from GHCR: $ghcr_image"
+        _yellow "尝试从 GHCR 拉取镜像: $ghcr_image"
+        if docker pull "${ghcr_image}" 2>/dev/null; then
+            docker tag "${ghcr_image}" "${canonical_image}" 2>/dev/null || true
+            export image_name="${canonical_image}"
+            _green "Image pulled from GHCR: ${ghcr_image}"
+            _green "从 GHCR 拉取镜像成功: ${ghcr_image}"
+            return 0
+        fi
+    done
 
     # 最后回退：从 Docker Hub 拉取官方基础镜像
     _yellow "Trying to pull from Docker Hub: ${official_image}"

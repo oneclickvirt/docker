@@ -12,5 +12,21 @@ main:
         - skills/oneclickvirt-docker/SKILL_ZH.md
         issueSyncEnabled: false
         ignoreProcessFailures: false
+  - &id002
+    name: publish-verified-images-to-dufs
+    docker:
+      image: python:3.13-slim
+    imports:
+    - https://cnb.cool/oneclickvirt/dufs-secrets/-/blob/main/publish.yml
+    allowFailure: true
+    stages:
+    - name: publish verified image copies
+      script: python3 .github/scripts/dufs_release_sync.py --repository oneclickvirt/docker
+        --all-releases
+      timeout: 6h
   api_trigger_knowledge:
   - *id001
+  'crontab: 23 3 * * *':
+  - *id002
+  web_trigger_dufs_publish:
+  - *id002

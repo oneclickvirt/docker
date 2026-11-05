@@ -1,0 +1,73 @@
+name: Mirror image releases to Dufs
+'on':
+  release:
+    types: [published]
+  # Releases written with GITHUB_TOKEN do not emit another release workflow.
+  # A separate workflow_run observes completed producers without coupling the
+  # original Release result to mirror availability.
+  workflow_run:
+    workflows:
+      - 'Build Docker Images and Release'
+    types: [completed]
+  schedule:
+    - cron: '13 3 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag; empty scans all releases incrementally
+        required: false
+        type: string
+        default: ''
+      asset:
+        description: Optional exact image asset name
+        required: false
+        type: string
+        default: ''
+permissions:
+  contents: read
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+concurrency:
+  group: dufs-release-sync-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  mirror:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch)
+    name: Publish verified image assets to Dufs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      DUFS_PUBLISH_URL: ${{ secrets.DUFS_PUBLISH_URL }}
+      DUFS_PUBLISH_USER: ${{ secrets.DUFS_PUBLISH_USER }}
+      DUFS_PUBLISH_PASSWORD: ${{ secrets.DUFS_PUBLISH_PASSWORD }}
+      GITHUB_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_ASSET: ${{ inputs.asset }}
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Mirror release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
+            args+=(--tag "$RELEASE_TAG")
+          elif [[ -n "$INPUT_TAG" ]]; then
+            args+=(--tag "$INPUT_TAG")
+          else
+            args+=(--all-releases)
+          fi
+          if [[ -n "$INPUT_ASSET" ]]; then
+            args+=(--asset "$INPUT_ASSET")
+          fi
+          python3 .github/scripts/dufs_release_sync.py \
+            --repository "$GITHUB_REPOSITORY" "${args[@]}"
