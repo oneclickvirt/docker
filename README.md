@@ -32,4 +32,4 @@
 
 ## Stargazers over time
 
-[![Stargazers over time](https://starchart.cc/oneclickvirt/docker.svg)](https://starchart.cc/oneclickvirt/docker)
+[![Stargazers over time](https://api.star-history.com/chart?repos=oneclickvirt/docker&type=date)](https://starchart.cc/oneclickvirt/docker)
